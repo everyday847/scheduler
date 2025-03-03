@@ -110,11 +110,25 @@ def min_consecutive_icu_shifts(o, n):
     # We don't want to put anyone on for 'singlet' weeks of NCC service.
     # MIN_CONSEC = 2
     for f in range(N):
+        # What we need to express is 'no singlets'. What does that look like
+        # with the operations I have access to? I think it's: for any window
+        # of 3 *centered on* an r, the sum is greater than 1.
+        nccs = ["NCC1", "NCC2", "Swing"]
+        o.add(
+            Sum([
+                If(
+                    x[f, 0, r],
+                    Sum([
+                        *[If(x[f, 1, r], 1, 0) for r in nccs],
+                        *[If(x[f, 0, r], 1, 0) for r in nccs],
+                    ]),
+                    1000  # always bigger than 2
+                )  # we can sum over ifs because we know we are mutually exclusive: fwr is true for only one r
+                for r in nccs]) >= n)
         for w in range(1, W - 1):
             # What we need to express is 'no singlets'. What does that look like
             # with the operations I have access to? I think it's: for any window
             # of 3 *centered on* an r, the sum is greater than 1.
-            nccs = ["NCC1", "NCC2", "Swing"]
             o.add(
                 Sum([
                     If(
@@ -129,6 +143,17 @@ def min_consecutive_icu_shifts(o, n):
                 for r in nccs]) >= n)
             # for r in :
             #     o.add(Sum([If(x[f, w + i, r], 1, 0) for i in range(MIN_CONSEC + 1)]) >= MIN_CONSEC)
+        o.add(
+            Sum([
+                If(
+                    x[f, 51, r],
+                    Sum([
+                        *[If(x[f, 50, r], 1, 0) for r in nccs],
+                        *[If(x[f, 51, r], 1, 0) for r in nccs],
+                    ]),
+                    1000  # always bigger than 2
+                )  # we can sum over ifs because we know we are mutually exclusive: fwr is true for only one r
+                for r in nccs]) >= n)
 
 def jr_first_month_micu(o):
     # jr fellows first month is MICU
@@ -178,13 +203,84 @@ def ccm_total_service(o):
 def total_shift_service(o, f, shift, n):
     o.add(Sum([If(x[f, w, shift], 1, 0) for w in range(52)]) >= n)
 
-def total_nicu_service(o, f, shift, n):
+def total_nicu_service(o, f, n):
     o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(52)]) >= n)
 
 def stroke_total_service(o):
     for f in range(num_NCC_jr_fellows+num_NCC_sr_fellows, num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows):
         total_shift_service(o, f, "Swing", 2)
-        total_nicu_service(o, f, "Swing", 6)
+        total_nicu_service(o, f, 6)
+
+def ncc_total_service(o):
+    for f in range(num_NCC_jr_fellows):
+        total_shift_service(o, f, "MICU", 20)
+        total_shift_service(o, f, "Anaesthesia", 4)
+        total_shift_service(o, f, "Elec", 9)
+        total_shift_service(o, f, "Vac", 3)
+        total_shift_service(o, f, "NS", 0)
+        total_shift_service(o, f, "SICU", 4)
+        total_shift_service(o, f, "Vasc/Clin", 0)
+        total_shift_service(o, f, "Swing", 3) # not sure how this was 6 TODO
+        total_nicu_service(o, f, 6)
+        pass
+
+    for f in range(num_NCC_jr_fellows, num_NCC_jr_fellows+num_NCC_sr_fellows):
+        total_shift_service(o, f, "MICU", 8)
+        total_shift_service(o, f, "Anaesthesia", 0)
+        total_shift_service(o, f, "Elec", 10)
+        total_shift_service(o, f, "Vac", 3)
+        total_shift_service(o, f, "NS", 7)
+        total_shift_service(o, f, "SICU", 0)
+        total_shift_service(o, f, "Vasc/Clin", 4)
+        total_shift_service(o, f, "Swing", 6)
+        total_nicu_service(o, f, 14)
+        pass
+
+# def Min(arg):
+#     return If(
+#         len(arg) == 0,
+#         arg[0],
+#         If(
+#             arg[0] > arg[1],
+#             Min(arg[1:]),
+#             Min(arg[0]+arg[2:])))
+
+def jr_fellows_n_ncc_before_swing(o, n):
+    # jr fellows have 4x NCC before their first swing
+    # Or(x[f, w, "NCC1"], x[f, w, "NCC2"]),
+
+    for f in range(num_NCC_jr_fellows):
+        o.add(
+            Sum([
+                Product([
+                    # Number of NCC shifts before week w.
+                    Sum([
+                        If(
+                            Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"]),
+                            1,
+                            0
+                        )
+                    for w_ in range(w)]),
+                    # Zero if there is a swing shift before week w, or if week w itself is not a swing shift.
+                    If(
+                        And(
+                            Sum([
+                                If(
+                                    x[f, w_, "Swing"],
+                                    1,
+                                    0
+                                ) for w_ in range(w)
+                            ]) == 0,
+                            x[f,w,"Swing"],
+                        ),
+                        1,
+                        0
+                    )
+                ])
+            for w in range(52)]) >= n
+        )
+
+
 
 ncc_fellows_assigned_fully(o)
 everyone_one_rotation_per_week(o)
@@ -193,22 +289,23 @@ maximum_consecutive_icu_shifts(o, 8)
 min_consecutive_icu_shifts(o, 2)
 jr_first_month_micu(o)
 jr_ncc_before_19(o)
+jr_fellows_n_ncc_before_swing(o, 4)
+
+# sicu_blocked(o)
+# micu_blocked(o)
+# anaethesia_blocked(o)
+# vasc_blocked(o)
+# vacation_requests(o)
 
 """
 sum over each fellow.
 """
 ccm_total_service(o)
 stroke_total_service(o)
+ncc_total_service(o)
 
 
 
-
-if False:
-
-    # jr fellows have 4x NCC before their first swing
-    for f in range(num_NCC_jr_fellows):
-        o.add(Min([If(x[f, w, "NCC1"], 1, 0) for w in range(4, 19)]) + Sum(
-            [If(x[f, w, "NCC2"], 1, 0) for w in range(4, 19)]) >= 1)
 
 
 
