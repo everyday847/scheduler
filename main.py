@@ -120,9 +120,8 @@ def min_consecutive_icu_shifts(o, n):
             Sum([
                 If(
                     x[f, 0, r],
-                    Sum([
-                        *[If(x[f, 1, r], 1, 0) for r in nccs],
-                        *[If(x[f, 0, r], 1, 0) for r in nccs],
+                    Sum([Sum([If(x[f, 1, r], 1, 0) for r in nccs]),
+                        Sum([If(x[f, 0, r], 1, 0) for r in nccs]),
                     ]),
                     1000  # always bigger than 2
                 )  # we can sum over ifs because we know we are mutually exclusive: fwr is true for only one r
@@ -136,9 +135,9 @@ def min_consecutive_icu_shifts(o, n):
                     If(
                         x[f,w,r],
                         Sum([
-                            *[If(x[f, w-1, r], 1, 0) for r in nccs],
-                            *[If(x[f, w+1, r], 1, 0) for r in nccs],
-                            *[If(x[f, w, r], 1, 0) for r in nccs],
+                            Sum([If(x[f, w-1, r], 1, 0) for r in nccs]),
+                            Sum([If(x[f, w+1, r], 1, 0) for r in nccs]),
+                            Sum([If(x[f, w, r], 1, 0) for r in nccs]),
                         ]),
                         1000 # always bigger than 2
                     ) # we can sum over ifs because we know we are mutually exclusive: fwr is true for only one r
@@ -150,8 +149,8 @@ def min_consecutive_icu_shifts(o, n):
                 If(
                     x[f, 51, r],
                     Sum([
-                        *[If(x[f, 50, r], 1, 0) for r in nccs],
-                        *[If(x[f, 51, r], 1, 0) for r in nccs],
+                        Sum([If(x[f, 50, r], 1, 0) for r in nccs]),
+                        Sum([If(x[f, 51, r], 1, 0) for r in nccs]),
                     ]),
                     1000  # always bigger than 2
                 )  # we can sum over ifs because we know we are mutually exclusive: fwr is true for only one r
