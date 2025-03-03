@@ -19,6 +19,8 @@ sr_fellows = ["NCC David", "NCC Prash"]
 stroke_fellows = ["Stroke Arthur", "Stroke Betty", "Stroke Charles","Stroke Deirdre"]
 CCM_fellows = ["CCM Ariana", "CCM Bert", "CCM Chloe","CCM Dennis","CCM Edwina", "CCM Frank","CCM George","CCM Helen","CCM Iago","CCM Jake","CCM Kyle","CCM Liana","CCM Mary","CCM Ning","CCM Oyo"]
 
+fellows = jr_fellows+sr_fellows+stroke_fellows+CCM_fellows
+
 num_NCC_jr_fellows = len(jr_fellows)
 num_NCC_sr_fellows = len(sr_fellows)
 num_stroke_fellows = len(stroke_fellows)
@@ -180,25 +182,24 @@ def ccm_total_service(o):
         o.add(Sum([If(x[f, w, "Swing"], 1, 0) for w in range(52)]) == 1)
 
         # Consecutivity
-        if True:
-            for w in range(0, W, 4):
-                # If the first week of the block is NCC-ish, the rest must be.
-                # Oh no that is insane logic. Either all or none of the block is NCC-ish.
-                o.add(
-                    If(
-                        Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + 4)]) > 0,
-                        Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
-                             range(w, w + 4)]),
-                        4) == 4 # if the whole block isn't NCCish, this doesn't fail condition
-                )
-                o.add(
-                    If(
-                        Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
-                             range(w, w + 4)]) > 0,
-                        Sum([If(x[f, w_, "Swing"], 1, 0) for w_ in
-                             range(w, w + 4)]),
-                        1) == 1  # if the whole block isn't NCCish, this doesn't fail condition
-                )
+        for w in range(0, W, 4):
+            # If the first week of the block is NCC-ish, the rest must be.
+            # Oh no that is insane logic. Either all or none of the block is NCC-ish.
+            o.add(
+                If(
+                    Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + 4)]) > 0,
+                    Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
+                         range(w, w + 4)]),
+                    4) == 4 # if the whole block isn't NCCish, this doesn't fail condition
+            )
+            o.add(
+                If(
+                    Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
+                         range(w, w + 4)]) > 0,
+                    Sum([If(x[f, w_, "Swing"], 1, 0) for w_ in
+                         range(w, w + 4)]),
+                    1) == 1  # if the whole block isn't NCCish, this doesn't fail condition
+            )
 
 def total_shift_service(o, f, shift, n):
     o.add(Sum([If(x[f, w, shift], 1, 0) for w in range(52)]) >= n)
@@ -280,7 +281,94 @@ def jr_fellows_n_ncc_before_swing(o, n):
             for w in range(52)]) >= n
         )
 
+def shift_blocked(o, shift, fellow_min, fellow_max, GRANULARITY):
+    # junior fellows have 4 sicu, and it should follow a block.
+    # TODO: for now we are requiring 4 block
 
+    for f in range(fellow_min, fellow_max):
+        # Consecutivity
+        for w in range(0, W, GRANULARITY):
+            # Either all or none of the block is SICU.
+            o.add(
+                Or(
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == GRANULARITY,
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == 0,
+                )
+            )
+
+def sicu_blocked(o):
+    # junior fellows have 4 sicu, and it should follow a block.
+    # TODO: for now we are requiring 4 block
+    shift_blocked(o, "SICU", 0, num_NCC_jr_fellows, GRANULARITY = 4)
+
+def micu_blocked(o):
+    # jr and sr fellows have lots of micu, and it should follow a block.
+    # TODO: for now we are requiring 2 block
+    shift_blocked(o, "MICU", 0, num_NCC_jr_fellows+num_NCC_sr_fellows, GRANULARITY = 2)
+
+
+def anaesthesia_blocked(o):
+    # jr and sr fellows have lots of micu, and it should follow a block.
+    # TODO: for now we are requiring 4 block
+    shift_blocked(o, "Anaesthesia", 0, num_NCC_jr_fellows, GRANULARITY = 4)
+
+def vasc_blocked(o):
+    # jr and sr fellows have lots of micu, and it should follow a block.
+    # TODO: for now we are requiring 4 block
+    shift_blocked(o, "Vasc/Clin", 0, num_NCC_jr_fellows, GRANULARITY = 4)
+
+def ns_blocked(o):
+    # jr and sr fellows have lots of micu, and it should follow a block.
+    # TODO: for now we are requiring 4 block
+    GRANULARITY = 4
+    shift = "NS"
+
+    for f in range(num_NCC_jr_fellows, num_NCC_jr_fellows+num_NCC_sr_fellows):
+        # Consecutivity
+        for w in range(0, W, GRANULARITY):
+            # Either all or none of the block is SICU.
+            o.add(
+                Or(
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == GRANULARITY,
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + 3)
+                    ]) == 3,
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == 0,
+                )
+            )
+
+
+def vacation_requests(o):
+    # prash wants weeks 1, 7, and 36
+    # (figure out a way to express this TODO)
+    f = fellows.index("NCC Prash")
+    for w in [1, 7, 36]:
+        o.add(
+            x[f, w, "Vac"]
+        )
+    f = fellows.index("NCC David")
+    for w in [5, 6, 28]:
+        o.add(
+            x[f, w, "Vac"]
+        )
+    f = fellows.index("NCC Raya")
+    for w in [21, 37]:
+        o.add(
+            x[f, w, "Vac"]
+        )
+    f = fellows.index("NCC David")
+    for w in [5, 6, 28]:
+        o.add(
+            x[f, w, "Vac"]
+        )
 
 ncc_fellows_assigned_fully(o)
 everyone_one_rotation_per_week(o)
@@ -291,11 +379,12 @@ jr_first_month_micu(o)
 jr_ncc_before_19(o)
 jr_fellows_n_ncc_before_swing(o, 4)
 
-# sicu_blocked(o)
-# micu_blocked(o)
-# anaethesia_blocked(o)
-# vasc_blocked(o)
-# vacation_requests(o)
+sicu_blocked(o)
+micu_blocked(o)
+anaesthesia_blocked(o)
+vasc_blocked(o)
+ns_blocked(o)
+vacation_requests(o)
 
 """
 sum over each fellow.
@@ -309,7 +398,7 @@ ncc_total_service(o)
 
 
 
-o.check()
+print(o.check())
     # print(type(o.check()))
     # if not o.check: quit()
     # quit()
@@ -318,7 +407,6 @@ o.check()
 
 m = o.model()
 
-fellows = jr_fellows+sr_fellows+stroke_fellows+CCM_fellows
 shifts = {
     fellow: ["" for w in range(W)] for fellow in fellows
 }
@@ -348,7 +436,7 @@ for w in range(W):
 # print out total schedules for the NCC fellowship shifts
 print('    ,' + ','.join(['NCC1', 'NCC2', 'Swing']))
 for w in range(W):
-    print(f'{w: 4d} ', end='')
+    print(f'{w: 4d},', end='')
     for s in ['NCC1', 'NCC2', 'Swing']:
         print('+'.join(fellows_on_ncc[s][w]), end=",")
     print('\n')
