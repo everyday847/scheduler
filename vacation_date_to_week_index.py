@@ -32,6 +32,9 @@ def vacation_date_to_week_index(vacation_date):
     else:
         return (n - first) // 7
 
+# def week_index_to_vacation_date(week_index):
+#     day_of_year(FIRST_DAY_OF_NCC_WEEKS) +
+
 # print(vacation_date_to_week_index((2026, 1, 5)))
 # assert vacation_date_to_week_index((2025, 12, 25)) == 25
 # assert vacation_date_to_week_index((2025, 10, 6)) == 14

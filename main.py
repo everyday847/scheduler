@@ -358,7 +358,7 @@ def optimize_schedule(
         fellow: ["" for w in range(W)] for fellow in fellows
     }
 
-    fellows_on_ncc = {
+    fellows_for_shifts = {
         'NCC1': [[] for w in range(W)],
         'NCC2': [[] for w in range(W)],
         'Extra': [[] for w in range(W)],
@@ -369,20 +369,36 @@ def optimize_schedule(
         if m[d]:
             _, f, w, s = d.name().split('_')
             shifts_for_fellows[fellows[int(f)]][int(w)] = s
-            if s in fellows_on_ncc:
-                fellows_on_ncc[s][int(w)].append(fellows[int(f)])
+            if s in fellows_for_shifts:
+                fellows_for_shifts[s][int(w)].append(fellows[int(f)])
 
             # print ("%s = %s" % (d.name(), m[d]))
 
     # figure out who's extra and who isn't
-    for s, v in fellows_on_ncc.items():
+    for s, v in fellows_for_shifts.items():
         for ii, its in enumerate(v):
-            if len(its) < 2: continue
-            # extra hierarchy: CCM is more extra than stroke is more extra than NCC natives.
-            fellows_on_ncc['Extra'][ii] = [max(its)]
-            fellows_on_ncc[s][ii] = [min(its)]
+            if type(its) is list and len(its) == 0:
+                # print(s, 0)
+                fellows_for_shifts[s][ii] = ""
+                # fellows_for_shifts['Extra'][ii] = ""
+                continue
+            elif type(its) is list and len(its) == 1:
+                # print(s, 1)
+                fellows_for_shifts[s][ii] = its[0]
+                # fellows_for_shifts['Extra'][ii] = ""
+                continue
+            elif type(its) is list and len(its) == 2:
+                # print(len(its), its)
+                # extra hierarchy: CCM is more extra than stroke is more extra than NCC natives.
+                fellows_for_shifts['Extra'][ii] = max(its)
+                fellows_for_shifts[s][ii] = min(its)
+                print('max', max(its)) #, min(its))
+            else:
+                # print(s, ii, its)
+                continue
+    # print(fellows_for_shifts['Extra'])
 
-    return shifts_for_fellows, fellows_on_ncc
+    return shifts_for_fellows, fellows_for_shifts
 
 if __name__ == "__main__":
 
@@ -399,20 +415,150 @@ if __name__ == "__main__":
         jr_fellows, sr_fellows, stroke_fellows, CCM_fellows, R
     )
 
+    std_output = False
 
-    # print out total schedules for the NCC fellows
-    print('    ,' + ','.join(fellows[:len(jr_fellows) + len(sr_fellows)]))
-    for w in range(W):
-        print(f'{w: 4d},', end='')
-        for i in range(len(jr_fellows) + len(sr_fellows)):
-            print(shifts_for_fellows[fellows[i]][w], end=",")
-        print()
+    if std_output:
+        # print out total schedules for the NCC fellows
+        print('    ,' + ','.join(fellows[:len(jr_fellows) + len(sr_fellows)]))
+        for w in range(W):
+            print(f'{w: 4d},', end='')
+            for i in range(len(jr_fellows) + len(sr_fellows)):
+                print(shifts_for_fellows[fellows[i]][w], end=",")
+            print()
 
-    # print out total schedules for the NCC fellowship shifts
-    print('    ,' + ','.join(['NCC1', 'NCC2', 'Extra', 'Swing']))
-    for w in range(W):
-        print(f'{w: 4d},', end='')
-        for s in ['NCC1', 'NCC2', 'Extra', 'Swing']:
-            print('+'.join(fellows_for_shifts[s][w]), end=",")
-        print('\n')
+        # print out total schedules for the NCC fellowship shifts
+        print('    ,' + ','.join(['NCC1', 'NCC2', 'Extra', 'Swing']))
+        for w in range(W):
+            print(f'{w: 4d},', end='')
+            for s in ['NCC1', 'NCC2', 'Extra', 'Swing']:
+                print('+'.join(fellows_for_shifts[s][w]), end=",")
+            print('\n')
+    else:
 
+        nsYYMMDD = openpyxl.styles.NamedStyle(name="cd1", number_format="YYYY-MM-DD")
+
+        # thick_border = openpyxl.styles.borders.Border(left=openpyxl.styles.borders.Side(style='thick'),
+        #                      right=openpyxl.styles.borders.Side(style='thick'),
+        #                      top=openpyxl.styles.borders.Side(style='thick'),
+        #                      bottom=openpyxl.styles.borders.Side(style='thick'))
+        thick_side = openpyxl.styles.borders.Side(style='thick')
+        def compose_borders(cell, top=None, bottom=None, left=None, right=None):
+            # print(top, bottom, left, right)
+            cell.border = openpyxl.styles.borders.Border(top=top, bottom=bottom, left=left, right=right)
+
+        fellow_fill_dict = {}
+        shift_fill_dict = {}
+        micu_color = "B4C6E7"
+        ncc_color = "C6E0B4"
+        stroke_color = "F8CBAD"
+        swing_color = "A9D08E"
+        vasc_color = "FCE4D6"
+        sicu_color = "FFE699"
+        ns_color = "FFF3CC"
+        anaesthesia_color = "F8CBAD"
+        for f in jr_fellows:
+            fellow_fill_dict[f] = openpyxl.styles.PatternFill(
+                start_color=ncc_color, end_color=ncc_color, fill_type='solid')
+        for f in sr_fellows: fellow_fill_dict[f] = openpyxl.styles.PatternFill(
+                start_color=ncc_color, end_color=ncc_color, fill_type='solid')
+        for f in stroke_fellows: fellow_fill_dict[f] = openpyxl.styles.PatternFill(
+                start_color=stroke_color, end_color=stroke_color, fill_type='solid')
+        for f in CCM_fellows: fellow_fill_dict[f] = openpyxl.styles.PatternFill(
+                start_color=micu_color, end_color=micu_color, fill_type='solid')
+
+        shift_fill_dict['MICU'] = openpyxl.styles.PatternFill(
+            start_color=micu_color, end_color=micu_color, fill_type='solid')
+        shift_fill_dict['SICU'] = openpyxl.styles.PatternFill(
+            start_color=sicu_color, end_color=sicu_color, fill_type='solid')
+        shift_fill_dict['NCC1'] = openpyxl.styles.PatternFill(
+            start_color=ncc_color, end_color=ncc_color, fill_type='solid')
+        shift_fill_dict['NCC2'] = openpyxl.styles.PatternFill(
+            start_color=ncc_color, end_color=ncc_color, fill_type='solid')
+        shift_fill_dict['Swing'] = openpyxl.styles.PatternFill(
+            start_color=swing_color, end_color=swing_color, fill_type='solid')
+        shift_fill_dict['Vasc/Clin'] = openpyxl.styles.PatternFill(
+            start_color=vasc_color, end_color=vasc_color, fill_type='solid')
+        shift_fill_dict['NS'] = openpyxl.styles.PatternFill(
+            start_color=ns_color, end_color=ns_color, fill_type='solid')
+        shift_fill_dict['Anaesthesia'] = openpyxl.styles.PatternFill(
+            start_color=anaesthesia_color, end_color=anaesthesia_color, fill_type='solid')
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Per-Fellow Schedule"
+
+        n_fellows_to_output = len(jr_fellows) + len(sr_fellows)
+        column_letters = "BCDEFGHIJKLMNOPQRSTUVWXYZ"[:n_fellows_to_output]
+        for cl, fellow in zip(column_letters, fellows[:n_fellows_to_output]):
+            ws[f'{cl}1'] = fellow
+
+        ws[f'A1'] = 'Week'
+        ws[f'A2'] = '2025-06-30' # TODO: coordinate with vacation date file constant
+        ws[f'A2'].style = nsYYMMDD
+        for windex in range(3, W+2):
+            ws[f'A{windex}'] = f'=A{windex-1}+7'
+            ws[f'A{windex}'].style = nsYYMMDD
+        for windex in range(2, W + 2):
+            w = windex - 2
+            for cl, fellow in zip(column_letters, fellows[:n_fellows_to_output]):
+                # print(f'formatting {cl}{windex}')
+
+                if (windex-2)%4 == 0:
+                    if cl == 'B': compose_borders(ws[f'{cl}{windex}'], top=thick_side, left=thick_side)
+                    elif cl == column_letters[n_fellows_to_output-1]: compose_borders(ws[f'{cl}{windex}'], top=thick_side, right=thick_side)
+                    else: compose_borders(ws[f'{cl}{windex}'], top=thick_side)
+                elif (windex-1)%4 == 0:
+                    if cl == 'B': compose_borders(ws[f'{cl}{windex}'], bottom=thick_side, left=thick_side)
+                    elif cl == column_letters[n_fellows_to_output-1]: compose_borders(ws[f'{cl}{windex}'], bottom=thick_side, right=thick_side)
+                    else:
+                        compose_borders(ws[f'{cl}{windex}'], bottom=thick_side)
+                else:
+                    if cl == 'B':
+                        compose_borders(ws[f'{cl}{windex}'], left=thick_side)
+                    elif cl == column_letters[n_fellows_to_output - 1]:
+                        compose_borders(ws[f'{cl}{windex}'], right=thick_side)
+
+                ws[f'{cl}{windex}'] = shifts_for_fellows[fellow][w]
+                if shifts_for_fellows[fellow][w] in shift_fill_dict:
+                    ws[f'{cl}{windex}'].fill = shift_fill_dict[shifts_for_fellows[fellow][w]]
+
+        wb.create_sheet("NCC Shift Schedule")
+        ws = wb["NCC Shift Schedule"]
+
+        shifts = ["NCC1", "NCC2", "Extra", "Swing"]
+        column_letters = "BCDEFGHIJKLMNOPQRSTUVWXYZ"[:len(shifts)]
+        for cl, shift in zip(column_letters, shifts):
+            ws[f'{cl}1'] = shift
+
+        ws[f'A1'] = 'Week'
+        ws[f'A2'] = '2025-06-30' # TODO: coordinate with vacation date file constant
+        ws[f'A2'].style = nsYYMMDD
+        for windex in range(3, W+2):
+            ws[f'A{windex}'] = f'=A{windex-1}+7'
+            ws[f'A{windex}'].style = nsYYMMDD
+
+        for windex in range(2, W + 2):
+            w = windex - 2
+            for cl, s in zip(column_letters, shifts):
+
+
+                if (windex-2)%4 == 0:
+                    if cl == 'B': compose_borders(ws[f'{cl}{windex}'], top=thick_side, left=thick_side)
+                    elif cl == column_letters[len(shifts)-1]: compose_borders(ws[f'{cl}{windex}'], top=thick_side, right=thick_side)
+                    else: compose_borders(ws[f'{cl}{windex}'], top=thick_side)
+                elif (windex-1)%4 == 0:
+                    if cl == 'B': compose_borders(ws[f'{cl}{windex}'], bottom=thick_side, left=thick_side)
+                    elif cl == column_letters[len(shifts)-1]: compose_borders(ws[f'{cl}{windex}'], bottom=thick_side, right=thick_side)
+                    else:
+                        compose_borders(ws[f'{cl}{windex}'], bottom=thick_side)
+                else:
+                    if cl == 'B':
+                        compose_borders(ws[f'{cl}{windex}'], left=thick_side)
+                    elif cl == column_letters[n_fellows_to_output - 1]:
+                        compose_borders(ws[f'{cl}{windex}'], right=thick_side)
+
+                ws[f'{cl}{windex}'] = fellows_for_shifts[s][w]
+                if fellows_for_shifts[s][w] in fellow_fill_dict:
+                    ws[f'{cl}{windex}'].fill = fellow_fill_dict[fellows_for_shifts[s][w]]
+
+        wb.save(filename="optimized_schedule.xlsx")
