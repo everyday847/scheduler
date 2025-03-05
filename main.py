@@ -3,6 +3,8 @@ from typing import List
 from z3 import *
 import openpyxl
 
+from vacation_date_to_week_index import vacation_date_to_week_index
+
 # Not too dangerous to make global
 W = 52
 
@@ -282,16 +284,26 @@ def ncc_blocked(o, x, fellow_start, fellow_end):
                 )
             )
 
-def vacation_requests(o, x, fellows, fellow_week_pairs):
+def vacation_requests(o, x, fellows, fellow_week_pairs, n_vac):
     # prash wants weeks 1, 7, and 36
     # (figure out a way to express this TODO)
     for f_, w_ in fellow_week_pairs:
         f = fellows.index(f_)
-        for w in w_:
+        for w in w_[:n_vac]:
             o.add(
                 x[f, w, "Vac"]
             )
+        for w in w_[n_vac:]:
+            o.add(
+                x[f, w, "Elec"]
+            )
 
+def fourth_block_two_micu_fellows(o, x, fellow_start, fellow_end):
+    # from the fellows between start and end, ensure MICU is double-staffed for every week from 12-15
+    for w in range(12,16):
+        o.add(
+            Sum([If(x[f, w, "MICU"], 1, 0) for f in range(fellow_start, fellow_end)]) == 2,
+        )
 
 def optimize_schedule(
     jr_fellows: List[str],
@@ -321,7 +333,11 @@ def optimize_schedule(
         ("NCC Prash", [1, 7, 36]),
         ("NCC David", [5, 6, 28]),
         ("NCC Raya", [21, 37]),
-        ("NCC Joseph", [5, 6, 28]),
+        ("NCC Joseph", [
+            vacation_date_to_week_index((2025, 12, 25)),
+            vacation_date_to_week_index((2026, 3, 9)),
+            vacation_date_to_week_index((2025, 10, 20)),
+            vacation_date_to_week_index((2026, 5, 18))]),
     ]
 
     # assign NCC fellows fully
@@ -332,6 +348,7 @@ def optimize_schedule(
     jr_first_month_micu(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
     jr_ncc_before_19(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
     jr_fellows_n_ncc_before_swing(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows, n=4)
+    fourth_block_two_micu_fellows(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
 
     sicu_blocked(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
     micu_blocked(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
@@ -340,7 +357,7 @@ def optimize_schedule(
     ns_blocked(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
     ncc_blocked(o,x, fellow_start=0, fellow_end=N)
     ncc_stroke_oversight(o,x, fellow_start = 0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
-    vacation_requests(o,x, fellows, fellow_week_pairs)
+    vacation_requests(o,x, fellows, fellow_week_pairs, n_vac=3)
 
     """
     sum over each fellow.
