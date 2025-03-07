@@ -1,0 +1,4 @@
+z3-solver
+streamlit
+streamlit-tags
+openpyxl
