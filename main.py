@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 
 from z3 import *
 import openpyxl
@@ -8,14 +8,14 @@ from vacation_date_to_week_index import vacation_date_to_week_index
 # Not too dangerous to make global
 W = 52
 
-def range_fellows_assigned_fully(o, x, fellow_start, fellow_end):
+def range_fellows_assigned_fully(o, x, R, fellow_start, fellow_end):
     # Each NCC fellow has exactly one rotation per week, because we are responsible for their scheduleo.
     for f in range(fellow_start, fellow_end):
         for w in range(W):
             o.add(AtLeast(*[x[f, w, r] for r in R], 1))
 
 
-def everyone_one_rotation_per_week(o, x, fellow_start, fellow_end):
+def everyone_one_rotation_per_week(o, x, R, fellow_start, fellow_end):
     # Each other fellow has at most one rotation per week, since we are only assigning their NCC time.
     for f in range(fellow_start, fellow_end):
         for w in range(W):
@@ -287,7 +287,7 @@ def ncc_blocked(o, x, fellow_start, fellow_end):
 def vacation_requests(o, x, fellows, fellow_week_pairs, n_vac):
     # prash wants weeks 1, 7, and 36
     # (figure out a way to express this TODO)
-    for f_, w_ in fellow_week_pairs:
+    for f_, w_ in fellow_week_pairs.items():
         f = fellows.index(f_)
         for w in w_[:n_vac]:
             o.add(
@@ -305,12 +305,44 @@ def fourth_block_two_micu_fellows(o, x, fellow_start, fellow_end):
             Sum([If(x[f, w, "MICU"], 1, 0) for f in range(fellow_start, fellow_end)]) == 2,
         )
 
+def comparable_amounts_each_half_year(o, x, fellow_start, fellow_end):
+    # I don't want any shift to be massively frontloaded or backloaded.
+    # no one's year should end with 8 NCC, 2 Elec, 8 NCC, 2 Elec, 8 NCC
+    for f in range(fellow_start, fellow_end):
+        o.add(
+            Abs(
+                # Diff(
+                    Sum([
+                        If(x[f, w, "MICU"], 1, 0) for w in range(0, W // 2)
+                    ]) -
+                    Sum([
+                        If(x[f, w, "MICU"], 1, 0) for w in range(W // 2, W)
+                    ])
+                # )
+            ) <= 4
+        )
+
+        o.add(
+            Abs(
+                # Diff(
+                    Sum([
+                        If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for w in range(0, W // 2)
+                    ]) -
+                    Sum([
+                        If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for w in range(W // 2, W)
+                    ])
+                # )
+            ) <= 4
+        )
+    pass
+
 def optimize_schedule(
     jr_fellows: List[str],
     sr_fellows: List[str],
     stroke_fellows: List[str],
     CCM_fellows: List[str],
-    R: List[str]
+    R: List[str],
+    fellow_week_pairs: Dict[str, List[int]],
 ):
     fellows = jr_fellows + sr_fellows + stroke_fellows + CCM_fellows
 
@@ -329,20 +361,10 @@ def optimize_schedule(
     # s = Solver()
     o = Optimize()
 
-    fellow_week_pairs = [
-        ("NCC Prash", [1, 7, 36]),
-        ("NCC David", [5, 6, 28]),
-        ("NCC Raya", [21, 37]),
-        ("NCC Joseph", [
-            vacation_date_to_week_index((2025, 12, 25)),
-            vacation_date_to_week_index((2026, 3, 9)),
-            vacation_date_to_week_index((2025, 10, 20)),
-            vacation_date_to_week_index((2026, 5, 18))]),
-    ]
 
     # assign NCC fellows fully
-    range_fellows_assigned_fully(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-    everyone_one_rotation_per_week(o, x, fellow_start=0, fellow_end=N)
+    range_fellows_assigned_fully(o, x, R, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
+    everyone_one_rotation_per_week(o, x, R, fellow_start=0, fellow_end=N)
     ncc_shifts_covered_swing_deficit(o, x, N,8)
     maximum_consecutive_icu_shifts(o, x, fellow_start=0, fellow_end=N, MAX_CONSEC=8)
     jr_first_month_micu(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
@@ -358,6 +380,8 @@ def optimize_schedule(
     ncc_blocked(o,x, fellow_start=0, fellow_end=N)
     ncc_stroke_oversight(o,x, fellow_start = 0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
     vacation_requests(o,x, fellows, fellow_week_pairs, n_vac=3)
+    comparable_amounts_each_half_year(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows)
+
 
     """
     sum over each fellow.
@@ -409,7 +433,6 @@ def optimize_schedule(
                 # extra hierarchy: CCM is more extra than stroke is more extra than NCC natives.
                 fellows_for_shifts['Extra'][ii] = max(its)
                 fellows_for_shifts[s][ii] = min(its)
-                print('max', max(its)) #, min(its))
             else:
                 # print(s, ii, its)
                 continue
@@ -428,8 +451,26 @@ if __name__ == "__main__":
     R = ["NCC1", "NCC2", "Swing", "SICU", "MICU", "Elec", "Vac", "NS", "Vasc/Clin", "Anaesthesia"]  # Example rotations
     fellows = jr_fellows + sr_fellows + stroke_fellows + CCM_fellows
 
+    fellow_week_pairs = {
+        "NCC Prash": [1, 7, 36,
+                       vacation_date_to_week_index((2026, 3, 30)),
+                       vacation_date_to_week_index((2026, 4, 6)),
+                       vacation_date_to_week_index((2026, 4, 13)),
+                       vacation_date_to_week_index((2026, 4, 20)),
+                       ],
+        "NCC David": [5, 6, 28],
+        "NCC Raya": [21, 37],
+        "NCC Joseph": [
+            vacation_date_to_week_index((2025, 12, 25)),
+            vacation_date_to_week_index((2026, 3, 9)),
+            vacation_date_to_week_index((2025, 10, 20)),
+            vacation_date_to_week_index((2026, 5, 18)),
+            vacation_date_to_week_index((2025, 9, 16)) # elective for ABPN
+        ],
+    }
+
     shifts_for_fellows, fellows_for_shifts = optimize_schedule(
-        jr_fellows, sr_fellows, stroke_fellows, CCM_fellows, R
+        jr_fellows, sr_fellows, stroke_fellows, CCM_fellows, R, fellow_week_pairs,
     )
 
     std_output = False
