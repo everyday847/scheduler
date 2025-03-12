@@ -460,8 +460,8 @@ def comparable_amounts_each_half_year(o, x, fellow_start, fellow_end):
         )
     pass
 
-def specific_assignment(o, x, shift, fellow, week):
-    o.add(x[fellow, week, shift])
+def specific_assignment(o, x, shift, fellows, week):
+    o.add(Or(*[x[f, week, shift] for f in fellows]))
 
 def optimize_schedule(
     jr_fellows: List[str],
@@ -520,16 +520,16 @@ def optimize_schedule(
             stroke specific
             """
             #jeff_is_on_stroke_during_abpn
-            specific_assignment(o, x, shift="Stroke", fellow=fellows.index("Stroke Jeff"), week=vacation_date_to_week_index((2025, 9, 16)))
+            specific_assignment(o, x, shift="Stroke", fellows=[fellows.index("Stroke Jeff")], week=vacation_date_to_week_index((2025, 9, 16)))
 
         if True:
             # First week of stroke service would be ideal to have David or Prashanth if one can be spared from NCC to allow for stroke fellow onboarding and to participate in resident bootcamp.
             # TODO: change to Or NCC David, NCC Prash
-            specific_assignment(o, x, shift="Stroke", fellow=fellows.index("NCC David"), week=1)
+            specific_assignment(o, x, shift="Stroke", fellows=[fellows.index("NCC David"), fellows.index("NCC Prash")], week=1)
             # First week of telestroke can be one of the stroke (or NCC) fellows
-            specific_assignment(o, x, shift="Telestroke/Clinic", fellow=fellows.index("Stroke Parshva"), week=1)
+            specific_assignment(o, x, shift="Telestroke/Clinic", fellows=[*range(num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)], week=1)
             # Week of 9/15/25 telestroke would be ideal to be covered by David or Prashanth if one can be spared from NCC
-            specific_assignment(o, x, shift="Telestroke/Clinic", fellow=fellows.index("NCC Prash"), week=vacation_date_to_week_index((2025, 9, 16)))
+            specific_assignment(o, x, shift="Telestroke/Clinic", fellows=[fellows.index("NCC Prash"), fellows.index("NCC David")], week=vacation_date_to_week_index((2025, 9, 16)))
 
         if True:
             # Limit to 2 consecutive weeks on an inpatient service (stroke or NCC), separated by an outpatient rotation
@@ -614,8 +614,11 @@ def optimize_schedule(
             elif type(its) is list and len(its) == 2:
                 # print(len(its), its)
                 # extra hierarchy: CCM is more extra than stroke is more extra than NCC natives.
-                fellows_for_shifts['Extra'][ii] = max(its)
-                fellows_for_shifts[s][ii] = min(its)
+                fellows_for_shifts['Extra'][ii] = sorted(its, key=lambda it: fellows.index(it))[-1] # max(its)
+                fellows_for_shifts[s][ii] = sorted(its, key=lambda it: fellows.index(it))[0] # min(its)
+            elif type(its) is list and len(its) > 2:
+                print(its)
+                quit()
             else:
                 # print(s, ii, its)
                 continue
