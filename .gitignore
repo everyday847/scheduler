@@ -1,1 +1,2 @@
-schedules.csv
+*.xlsx
+src/scheduler/*.xlsx
