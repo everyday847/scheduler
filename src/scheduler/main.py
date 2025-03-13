@@ -325,6 +325,25 @@ def shift_blocked(o, x, shift, fellow_min, fellow_max, GRANULARITY):
                 )
             )
 
+def shift_blocked_soft(o, x, shift, fellow_min, fellow_max, GRANULARITY):
+    # junior fellows have 4 sicu, and it should follow a block.
+    # TODO: for now we are requiring 4 block
+
+    for f in range(fellow_min, fellow_max):
+        # Consecutivity
+        for w in range(0, W, GRANULARITY):
+            # Either all or none of the block is SICU.
+            o.add_soft(
+                Or(
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == GRANULARITY,
+                    Sum([
+                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == 0,
+                )
+            )
+
 def sicu_blocked(o, x, fellow_start, fellow_end):
     # junior fellows have 4 sicu, and it should follow a block.
     # TODO: for now we are requiring 4 block
@@ -333,7 +352,8 @@ def sicu_blocked(o, x, fellow_start, fellow_end):
 def micu_blocked(o, x, fellow_start, fellow_end):
     # jr and sr fellows have lots of micu, and it should follow a block.
     # TODO: for now we are requiring 2 block
-    shift_blocked(o, x, "MICU", fellow_start, fellow_end, GRANULARITY = 2)
+    shift_blocked(o, x, "MICU", fellow_start, fellow_end, GRANULARITY = 4)
+    # shift_blocked_soft(o, x, "MICU", fellow_start, fellow_end, GRANULARITY = 4)
 
 
 def anaesthesia_blocked(o, x, fellow_start, fellow_end):
@@ -386,10 +406,34 @@ def ncc_blocked(o, x, fellow_start, fellow_end):
             o.add(
                 Or(
                     Sum([
-                        If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + GRANULARITY)
+                        If(Or(x[f, w_, "NCC1"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == GRANULARITY,
+                    Sum([
+                        If(Or(x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + GRANULARITY)
                     ]) == GRANULARITY,
                     Sum([
                         If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + GRANULARITY)
+                    ]) == 0,
+                )
+            )
+
+    GRANULARITY2 = 4
+    for f in range(fellow_start, fellow_end):
+        # Consecutivity
+        for w in range(0, W, GRANULARITY2):
+            o.add_soft(
+                Or(
+                    Sum([
+                        If(Or(x[f, w_, "NCC1"], x[f, w_, "Swing"]), 1, 0) for w_ in
+                        range(w, w + GRANULARITY2)
+                    ]) == GRANULARITY2,
+                    Sum([
+                        If(Or(x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
+                        range(w, w + GRANULARITY2)
+                    ]) == GRANULARITY2,
+                    Sum([
+                        If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
+                        range(w, w + GRANULARITY2)
                     ]) == 0,
                 )
             )
