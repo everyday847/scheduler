@@ -47,13 +47,22 @@ def ncc_shifts_covered_swing_deficit(o, x, N, deficit):
         Sum([If(x[f, w, "Swing"], 1, 0) for f in range(N)])
         for w in range(W)]) >= W-deficit)
 
-def stroke_sums(o, x, N):
-    # Every week has at least one person on Stroke and on Telestroke/Clinic
+def stroke_shifts_covered(o, x, N):
+    # Every week has exactly one person on Stroke and on Telestroke/Clinic
+    # Except for the week that Victoria supervises NH Adam his first time.
     for w in range(W):
-        o.add(Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(N)]) >= 1)
-        o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(N)]) >= 1)
-        o.add(Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(N)]) <= 2)
-        o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(N)]) <= 2)
+        o.add(
+            # Technically this allows Victoria and Adam to co-occur any time,
+            # but they will only have the one opportunity while still fitting
+            # other criteria
+            Or(
+                Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(N)]) == 1,
+                And(x[fellows.index("Stroke Victoria"), w, "Stroke"], x[fellows.index("NH Adam"), w, "Stroke"])
+            )
+        )
+        o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(N)]) == 1)
+        # o.add(Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(N)]) <= 2)
+        # o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(N)]) <= 2)
 
 def ncc_stroke_oversight(o, x, fellow_start, fellow_end):
     # IDEALLY every week either NCC1 or NCC2 is neurocrit or stroke.
@@ -111,17 +120,13 @@ def ccm_total_service(o, x, fellow_start, fellow_end):
         zero_shift_service(o, x, f, "Vac")
         zero_shift_service(o, x, f, "ISC")
 
-        # oh, and it's consecutive.
-        # actually to do this, it's just as easy to do blocks
-
         # Total for the year
         o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(52)]) == 3)
         o.add(Sum([If(x[f, w, "Swing"], 1, 0) for w in range(52)]) == 1)
 
         # Consecutivity
         for w in range(0, W, 4):
-            # If the first week of the block is NCC-ish, the rest must be.
-            # Oh no that is insane logic. Either all or none of the block is NCC-ish.
+            # Either all or none of the block is NCC-ish.
             o.add(
                 If(
                     Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + 4)]) > 0,
@@ -155,8 +160,8 @@ def total_nicu_service_exact(o, x, f, n):
 
 def stroke_total_service(o, x, fellow_start, fellow_end):
     for f in range(fellow_start, fellow_end):
-        total_shift_service(o, x, f, "Swing", 2)
-        total_nicu_service(o, x, f, 4) # *non-swing* NICU service!!
+        total_shift_service_exact(o, x, f, "Swing", 2)
+        total_nicu_service_exact(o, x, f, 4) # *non-swing* NICU service!!
         total_shift_service(o, x, f, "Stroke", 11) # 11 or 12 in a 53
         total_shift_service(o, x, f, "Elec", 4)
         total_shift_service(o, x, f, "Vac", 3)
@@ -167,7 +172,7 @@ def stroke_total_service(o, x, fellow_start, fellow_end):
         zero_shift_service(o, x, f, "SICU")
         zero_shift_service(o, x, f, "Anaesthesia")
 
-        # total_shift_service(o, x, f, "Clinic/Elective", 10)
+        total_shift_service(o, x, f, "Clinic/Elective", 11)
         total_shift_service_exact(o, x, f, "SCVMC Rehab", 2)
         total_shift_service_exact(o, x, f, "NIR", 2)
         total_shift_service_exact(o, x, f, "ISC", 1)
@@ -183,7 +188,7 @@ def ncc_jr_total_service(o, x, fellow_start, fellow_end):
         zero_shift_service(o, x, f, "Stroke")
         zero_shift_service(o, x, f, "Telestroke/Clinic")
         total_shift_service(o, x, f, "Swing", 3) # not sure how this was 6 TODO
-        total_nicu_service(o, x, f, 9)
+        total_nicu_service_exact(o, x, f, 9)
         # Stroke-only shifts
         zero_shift_service(o, x, f, "SCVMC Rehab")
         zero_shift_service(o, x, f, "NIR")
@@ -201,7 +206,7 @@ def ncc_sr_total_service(o, x, fellow_start, fellow_end):
         total_shift_service(o, x, f, "Stroke", 2)
         total_shift_service(o, x, f, "Telestroke/Clinic", 2)
         total_shift_service(o, x, f, "Swing", 6)
-        total_nicu_service(o, x, f, 14)
+        total_nicu_service_exact(o, x, f, 14)
         zero_shift_service(o, x, f, "SCVMC Rehab")
         zero_shift_service(o, x, f, "NIR")
         zero_shift_service(o, x, f, "Clinic/Elective")
@@ -209,7 +214,9 @@ def ncc_sr_total_service(o, x, fellow_start, fellow_end):
 
 def nh_total_service(o, x, fellow_start, fellow_end):
     for f in range(fellow_start, fellow_end):
-        total_nicu_service(o, x, f,  4)
+        total_nicu_service_exact(o, x, f,  4)
+        # o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(W)]) <= 8)
+
         total_shift_service_exact(o, x, f, "Swing", 1)
         total_shift_service_exact(o, x, f, "Telestroke/Clinic", 3)
         total_shift_service_exact(o, x, f, "Stroke", 4)
@@ -393,11 +400,11 @@ def vacation_requests(o, x, fellows, fellow_week_pairs, n_vac):
     for f_, w_ in fellow_week_pairs.items():
         f = fellows.index(f_)
         for w in w_[:n_vac]:
-            o.add(
+            o.add_soft(
                 x[f, w, "Vac"]
             )
         for w in w_[n_vac:]:
-            o.add(
+            o.add_soft(
                 x[f, w, "Elec"]
             )
 
@@ -463,6 +470,9 @@ def comparable_amounts_each_half_year(o, x, fellow_start, fellow_end):
 def specific_assignment(o, x, shift, fellows, week):
     o.add(Or(*[x[f, week, shift] for f in fellows]))
 
+def specific_assignment_soft(o, x, shift, fellows, week):
+    o.add_soft(Or(*[x[f, week, shift] for f in fellows]))
+
 def optimize_schedule(
     jr_fellows: List[str],
     sr_fellows: List[str],
@@ -494,7 +504,7 @@ def optimize_schedule(
     # assign NCC fellows fully
     range_fellows_assigned_fully(o, x, shifts, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)
     everyone_one_rotation_per_week(o, x, shifts, fellow_start=0, fellow_end=N)
-    ncc_shifts_covered_swing_deficit(o, x, N,8)
+    ncc_shifts_covered_swing_deficit(o, x, N, deficit=12)
     maximum_consecutive_icu_shifts(o, x, fellow_start=0, fellow_end=N,
         shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=8)
     jr_first_month_micu(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
@@ -509,54 +519,47 @@ def optimize_schedule(
     # vasc_blocked(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)
     # vasc_blocked(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=N)
     ns_blocked(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-    ncc_blocked(o,x, fellow_start=0, fellow_end=N)
+    ncc_blocked(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
     ncc_stroke_oversight(o,x, fellow_start = 0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
     vacation_requests(o,x, fellows, fellow_week_pairs, n_vac=3)
     comparable_amounts_each_half_year(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows)
 
-    if True:
-        if True:
-            """
-            stroke specific
-            """
-            #jeff_is_on_stroke_during_abpn
-            specific_assignment(o, x, shift="Stroke", fellows=[fellows.index("Stroke Jeff")], week=vacation_date_to_week_index((2025, 9, 16)))
+    """
+    stroke specific
+    """
+    # Jeff is on stroke during ABPN
+    specific_assignment(o, x, shift="Stroke", fellows=[fellows.index("Stroke Jeff")], week=vacation_date_to_week_index((2025, 9, 16)))
 
-        if True:
-            # First week of stroke service would be ideal to have David or Prashanth if one can be spared from NCC to allow for stroke fellow onboarding and to participate in resident bootcamp.
-            # TODO: change to Or NCC David, NCC Prash
-            specific_assignment(o, x, shift="Stroke", fellows=[fellows.index("NCC David"), fellows.index("NCC Prash")], week=1)
-            # First week of telestroke can be one of the stroke (or NCC) fellows
-            specific_assignment(o, x, shift="Telestroke/Clinic", fellows=[*range(num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)], week=1)
-            # Week of 9/15/25 telestroke would be ideal to be covered by David or Prashanth if one can be spared from NCC
-            specific_assignment(o, x, shift="Telestroke/Clinic", fellows=[fellows.index("NCC Prash"), fellows.index("NCC David")], week=vacation_date_to_week_index((2025, 9, 16)))
+    # First week of stroke service would be ideal to have David or Prashanth if one can be spared from NCC to allow for stroke fellow onboarding and to participate in resident bootcamp.
+    specific_assignment(o, x, shift="Stroke",
+        fellows=[fellows.index("NCC David"), fellows.index("NCC Prash")], week=1)
+    # First week of telestroke can be one of the stroke (or NCC) fellows
+    specific_assignment(o, x, shift="Telestroke/Clinic",
+        fellows=[*range(num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)], week=1)
+    # Week of 9/15/25 telestroke would be ideal to be covered by David or Prashanth if one can be spared from NCC
+    specific_assignment_soft(o, x, shift="Telestroke/Clinic",
+        fellows=[fellows.index("NCC Prash"), fellows.index("NCC David")], week=vacation_date_to_week_index((2025, 9, 16)))
 
-        if True:
-            # Limit to 2 consecutive weeks on an inpatient service (stroke or NCC), separated by an outpatient rotation
-            # (telestroke, clinic, elective)
-            maximum_consecutive_icu_shifts(o, x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows, shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=2)
+    # Limit to 2 consecutive weeks on an inpatient service (stroke or NCC), separated by an outpatient rotation
+    # (telestroke, clinic, elective)
+    maximum_consecutive_icu_shifts(o, x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows, shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=2)
 
-        if True:
-            # SCVMC rotation for stroke fellows should be 2 weeks consecutive
-            scvmc_blocked(o,x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
+    # SCVMC rotation for stroke fellows should be 2 weeks consecutive
+    scvmc_blocked(o,x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
 
-        if True:
-            # NIR rotation for stroke fellows should 2 weeks non consecutive separated in the first and second half of the year
-            nir_one_week_per_half(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
+    # NIR rotation for stroke fellows should 2 weeks non consecutive separated in the first and second half of the year
+    nir_one_week_per_half(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
 
-        if True:
-            # NIR rotation for stroke fellows should 2 weeks non consecutive separated in the first and second half of the year
-            scvmc_second_half(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
+    # SCVMC, for stroke fellows, happens in the second half of the year
+    scvmc_second_half(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
 
-        if True:
-            stroke_sums(o, x, N)
+    stroke_shifts_covered(o, x, N)
 
-        if False:
-            # NH fellow should be scheduled for their first stroke rotation with another stroke fellow (ideally Victoria)
-            nh_first_stroke_with_victoria(o, x, f=fellows.index("NH Adam"), fprime=fellows.index("Stroke Victoria"))
+    # NH fellow should be scheduled for their first stroke rotation with another stroke fellow (ideally Victoria)
+    # nh_first_stroke_with_victoria(o, x, f=fellows.index("NH Adam"), fprime=fellows.index("Stroke Victoria"))
 
-            # Blocks should be evenly distributed throughout the year in general
-
+    # Blocks should be evenly distributed throughout the year in general
+    # Too vague to stipulate
 
     """
     sum over each fellow.
@@ -570,7 +573,6 @@ def optimize_schedule(
     ncc_sr_total_service(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
     nh_total_service(o,x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows, fellow_end=N)
 
-    print("About to o.check()")
     print(o.check())
 
     m = o.model()
@@ -582,9 +584,10 @@ def optimize_schedule(
     fellows_for_shifts = {
         'NCC1': [[] for w in range(W)],
         'NCC2': [[] for w in range(W)],
-        'Extra': [[] for w in range(W)],
+        'Extra': ['' for w in range(W)],
         'Swing': [[] for w in range(W)],
         'Stroke': [[] for w in range(W)],
+        'Stroke_Supervisory': [[] for w in range(W)],
         'Clinic/Elective': [[] for w in range(W)],
         'Telestroke/Clinic': [[] for w in range(W)],
     }
@@ -600,6 +603,7 @@ def optimize_schedule(
 
     # figure out who's extra and who isn't
     for s, v in fellows_for_shifts.items():
+        if s not in {'NCC1', 'NCC2', 'Extra'}: continue
         for ii, its in enumerate(v):
             if type(its) is list and len(its) == 0:
                 # print(s, 0)
@@ -617,11 +621,38 @@ def optimize_schedule(
                 fellows_for_shifts['Extra'][ii] = sorted(its, key=lambda it: fellows.index(it))[-1] # max(its)
                 fellows_for_shifts[s][ii] = sorted(its, key=lambda it: fellows.index(it))[0] # min(its)
             elif type(its) is list and len(its) > 2:
+                print(s, ii)
                 print(its)
                 quit()
             else:
                 # print(s, ii, its)
                 continue
+
+        for s, v in fellows_for_shifts.items():
+            if s not in {'Stroke'}: continue
+            for ii, its in enumerate(v):
+                if type(its) is list and len(its) == 0:
+                    # print(s, 0)
+                    fellows_for_shifts[s][ii] = ""
+                    # fellows_for_shifts['Extra'][ii] = ""
+                    continue
+                elif type(its) is list and len(its) == 1:
+                    # print(s, 1)
+                    fellows_for_shifts[s][ii] = its[0]
+                    # fellows_for_shifts['Extra'][ii] = ""
+                    continue
+                elif type(its) is list and len(its) == 2:
+                    # print(len(its), its)
+                    if 'NH Adam' in its:
+                        fellows_for_shifts['Stroke_Supervisory'][ii] = 'Stroke Victoria'
+                        fellows_for_shifts[s][ii] = 'NH Adam'
+                elif type(its) is list and len(its) > 2:
+                    print(s, ii)
+                    print(its)
+                    quit()
+                else:
+                    # print(s, ii, its)
+                    continue
     # print(fellows_for_shifts['Extra'])
 
     return shifts_for_fellows, fellows_for_shifts
@@ -808,7 +839,7 @@ if __name__ == "__main__":
         # 'Stroke': [[] for w in range(W)],
         # 'Clinic/Elective': [[] for w in range(W)],
         # 'Telestroke/Clinic': [[] for w in range(W)],
-        shifts = ["NCC1", "NCC2", "Extra", "Swing", "Stroke", "Telestroke/Clinic", "Clinic/Elective"]
+        shifts = ["NCC1", "NCC2", "Extra", "Swing", "Stroke", "Telestroke/Clinic", "Stroke_Supervisory"]
         column_letters = "BCDEFGHIJKLMNOPQRSTUVWXYZ"[:len(shifts)]
         for cl, shift in zip(column_letters, shifts):
             ws[f'{cl}1'] = shift
@@ -840,6 +871,13 @@ if __name__ == "__main__":
                     elif cl == column_letters[len(shifts)-1]:
                         compose_borders(ws[f'{cl}{windex}'], right=thick_side)
 
+                if type(fellows_for_shifts[s][w]) is list and len(fellows_for_shifts[s][w]) == 1:
+                    fellows_for_shifts[s][w] = fellows_for_shifts[s][w][0]
+                if type(fellows_for_shifts[s][w]) is list and len(fellows_for_shifts[s][w]) == 0:
+                    fellows_for_shifts[s][w] = ''
+                elif type(fellows_for_shifts[s][w]) is list:
+                    print(s, w, fellows_for_shifts[s][w])
+                    quit()
                 ws[f'{cl}{windex}'] = fellows_for_shifts[s][w]
                 if fellows_for_shifts[s][w] in fellow_fill_dict:
                     ws[f'{cl}{windex}'].fill = fellow_fill_dict[fellows_for_shifts[s][w]]
