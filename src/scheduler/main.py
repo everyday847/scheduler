@@ -473,6 +473,24 @@ def specific_assignment(o, x, shift, fellows, week):
 def specific_assignment_soft(o, x, shift, fellows, week):
     o.add_soft(Or(*[x[f, week, shift] for f in fellows]))
 
+def first_thirteen_ccm_alphabetical(o, x, fellow_start, fellow_end):
+    """
+    The first CCM fellow works the first block and not the others.
+    """
+
+    for f, w in zip(
+            range(fellow_start, fellow_start+13),
+            range(0, W, 4)
+    ):
+        # f works only in w, w+1, w+2, w+3
+        for w_ in range(W):
+            # The only thing they do is NCC1/2/swing, so let's just focus there
+            for s in ["NCC1", "NCC2", "Swing"]:
+                if w_ < w or w_ > w+3:
+                    o.add(
+                        Not(x[f, w_, s])
+                    )
+
 def optimize_schedule(
     jr_fellows: List[str],
     sr_fellows: List[str],
@@ -572,6 +590,12 @@ def optimize_schedule(
     ncc_jr_total_service(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
     ncc_sr_total_service(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
     nh_total_service(o,x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows, fellow_end=N)
+
+
+
+    # disambiguate arbitrary ccm
+    first_thirteen_ccm_alphabetical(o, x,fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows )
+
 
     print(o.check())
 
