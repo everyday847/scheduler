@@ -1,4 +1,4 @@
-FIRST_DAY_OF_NCC_WEEKS = (2025, 6, 30)
+FIRST_DAY_OF_NCC_WEEKS = (2025, 7, 7)
 
 # What index is that within the whole year?
 from datetime import datetime
@@ -20,7 +20,7 @@ def day_of_year(date_tuple):
 
 # print(day_of_year((2025, 6,30)))
 
-def vacation_date_to_week_index(vacation_date):
+def date_to_week_index(vacation_date):
     """
     :param vacation_date: the (month, day) desired off (usually in written communication as "the week of X"
     :return: the week-index of the NCC year containing it.

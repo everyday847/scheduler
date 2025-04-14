@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_tags import st_tags
 
 from main import vacation_requests
-from vacation_date_to_week_index import vacation_date_to_week_index
+from date_to_week_index import vacation_date_to_week_index
 from main import optimize_schedule
 
 st.markdown("# People")

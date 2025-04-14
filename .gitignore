@@ -1,2 +1,4 @@
 *.xlsx
 src/scheduler/*.xlsx
+**/*.pyc
+**/.idea/*
