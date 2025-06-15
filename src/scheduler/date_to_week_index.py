@@ -1,4 +1,4 @@
-FIRST_DAY_OF_NCC_WEEKS = (2025, 7, 7)
+FIRST_DAY_OF_NCC_WEEKS = (2025, 6, 30)
 
 # What index is that within the whole year?
 from datetime import datetime
