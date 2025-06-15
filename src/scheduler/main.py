@@ -89,6 +89,17 @@ def maximum_consecutive_icu_shifts(o, x, fellow_start, fellow_end, shifts, MAX_C
                 1,
                 0) for i in range(MAX_CONSEC + 1)]) <= MAX_CONSEC)
 
+def maximum_consecutive_icu_shifts_soft(o, x, fellow_start, fellow_end, shifts, MAX_CONSEC):
+
+    for f in range(fellow_start, fellow_end):
+        for w in range(W - MAX_CONSEC):
+            # for r in ["NCC1", "NCC2", "Swing", "SICU", "MICU"]:
+            #     o.add(Sum([If(x[f, w + i, r], 1, 0) for i in range(MAX_CONSEC + 1)]) <= MAX_CONSEC)
+            o.add_soft(Sum([If(
+                Or(*[x[f, w + i, r] for r in shifts]),
+                1,
+                0) for i in range(MAX_CONSEC + 1)]) <= MAX_CONSEC)
+
 def jr_first_month_micu(o, x, fellow_start, fellow_end):
     # jr fellows first month is MICU
     for f in range(fellow_start, fellow_end):
@@ -161,7 +172,7 @@ def total_nicu_service_exact(o, x, f, n):
 
 def stroke_total_service(o, x, fellow_start, fellow_end):
     for f in range(fellow_start, fellow_end):
-        if False:
+        if True:
             total_shift_service_exact(o, x, f, "Swing", 2)
             total_nicu_service_exact(o, x, f, 4) # *non-swing* NICU service!!
         if True:
@@ -447,7 +458,7 @@ def vacation_requests(o, x, fellows, fellow_week_pairs, n_vac):
     for f_, w_ in fellow_week_pairs.items():
         f = fellows.index(f_)
         for w in w_[:n_vac]:
-            o.add_soft(
+            o.add(
                 x[f, w, "Vac"]
             )
         for w in w_[n_vac:]:
@@ -538,23 +549,87 @@ def first_thirteen_ccm_alphabetical(o, x, fellow_start, fellow_end):
                         Not(x[f, w_, s])
                     )
 
+def lia_thing(o, x, fellow_start, fellow_end, shifts):
+    """
+    Lia specifically does 3 shifts of NCC, and nothing after 9/30.
+    """
+    for f in range(fellow_start, fellow_end):
+        # take on some of these pls
+        for w in range(4):
+            o.add(
+                Or([
+                    x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]
+                ])
+            )
+
+            for s in shifts:
+                if s in ["NCC1", "NCC2", "Swing"]: continue
+                o.add(
+                    Not(x[f, w, s])
+                )
+
+        # for w in range(14):
+        #     for s in shifts:
+        #         if s in ["NCC1", "NCC2", "Swing"]: continue
+        #         o.add(
+        #             Not(x[f, w, s])
+        #         )
+        for w in range(4, W):
+            for s in shifts:
+                o.add(
+                    Not(x[f, w, s])
+                )
+
+        # o.add_soft(
+        #     Sum([
+        #         If(
+        #             Or(
+        #                 *[x[f, w, s] for s in ["NCC1", "NCC2", "Swing"]]
+        #             ), 1, 0) for w in range(14)
+        #     ]) == 4
+        # )
+        #
+        o.add_soft(
+            Sum([
+                If(x[f, w, "Swing"], 1, 0) for w in range(14)
+            ]) <= 1
+        )
+
+def stroke_no_block_one_ncc(o, x, fellow_start, fellow_end):
+    for f in range(fellow_start, fellow_end):
+        for w in range(4):
+            o.add_soft(Not(x[f, w, "NCC1"]))
+            o.add_soft(Not(x[f, w, "NCC2"]))
+            o.add(Not(x[f, w, "Swing"]))
+
+def isc(o, x, fellow_start, fellow_end):
+    for f in range(fellow_start, fellow_end):
+        for w in range(52):
+            w_ = date_to_week_index((2026, 2, 5))
+            if w == w_:
+                o.add(x[f, w, "ISC"])
+            else:
+                o.add(Not(x[f, w, "ISC"]))
+
 def optimize_schedule(
     jr_fellows: List[str],
     sr_fellows: List[str],
     stroke_fellows: List[str],
     CCM_fellows: List[str],
     NH_fellows: List[str],
+    lia: List[str],
     shifts: List[str],
     fellow_week_pairs: Dict[str, List[int]],
 ):
-    fellows = jr_fellows + sr_fellows + stroke_fellows + CCM_fellows + NH_fellows
+    fellows = jr_fellows + sr_fellows + stroke_fellows + CCM_fellows + NH_fellows + lia
 
     num_NCC_jr_fellows = len(jr_fellows)
     num_NCC_sr_fellows = len(sr_fellows)
     num_stroke_fellows = len(stroke_fellows)
     num_CCM_fellows = len(CCM_fellows)
     num_NH_fellows = len(NH_fellows)
-    N = num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows + num_CCM_fellows + num_NH_fellows # Number of fellows (example)
+    num_lia = len(lia)
+    N = num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows + num_CCM_fellows + num_NH_fellows + num_lia # Number of fellows (example)
 
 
     # A 3D boolean variable: x[f, w, r] is True if fellow f is assigned to rotation r in week w
@@ -571,7 +646,16 @@ def optimize_schedule(
     everyone_one_rotation_per_week(o, x, shifts, fellow_start=0, fellow_end=N)
     ncc_shifts_covered_swing_deficit(o, x, N, deficit=12)
     maximum_consecutive_icu_shifts(o, x, fellow_start=0, fellow_end=N,
-        shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=8)
+                                   shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=8)
+    # maximum_consecutive_icu_shifts_soft(o, x, fellow_start=0, fellow_end=N,
+    #                                shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=6)
+    maximum_consecutive_icu_shifts(o, x, fellow_start=0, fellow_end=N,
+                                   shifts=["NCC1", "NCC2", "Swing"], MAX_CONSEC=6)
+    # maximum_consecutive_icu_shifts_soft(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows,
+    #                                shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=6)
+    maximum_consecutive_icu_shifts(o, x, fellow_start=0, fellow_end=N,
+                                   shifts=["Swing"], MAX_CONSEC=2)
+
     jr_first_month_micu(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
     jr_ncc_before_19(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
     jr_fellows_n_ncc_before_swing(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows, n=4)
@@ -588,7 +672,7 @@ def optimize_schedule(
     vacation_requests(o,x, fellows, fellow_week_pairs, n_vac=3)
     comparable_amounts_each_half_year(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows)
 
-    if False:
+    if True:
         """
         stroke specific
         """
@@ -601,13 +685,14 @@ def optimize_schedule(
         # First week of telestroke can be one of the stroke (or NCC) fellows
         specific_assignment(o, x, shift="Telestroke/Clinic",
             fellows=[*range(num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)], week=1)
+        isc(o, x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows)
     # Week of 9/15/25 telestroke would be ideal to be covered by David or Prashanth if one can be spared from NCC
     specific_assignment_soft(o, x, shift="Telestroke/Clinic",
         fellows=[fellows.index("NCC Prash"), fellows.index("NCC David")], week=date_to_week_index((2025, 9, 16)))
 
     stroke_shifts_covered(o, x, N)
 
-    if False:
+    if True:
         # Limit to 2 consecutive weeks on an inpatient service (stroke or NCC), separated by an outpatient rotation
         # (telestroke, clinic, elective)
         maximum_consecutive_icu_shifts(o, x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows, shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], MAX_CONSEC=2)
@@ -621,6 +706,18 @@ def optimize_schedule(
         # SCVMC, for stroke fellows, happens in the second half of the year
         scvmc_second_half(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
 
+        stroke_no_block_one_ncc(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
+        stroke_no_block_one_ncc(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows+num_CCM_fellows+num_NH_fellows)
+
+
+    specific_assignment(o, x, shift="Elec",
+        fellows=[fellows.index("Stroke Jeff")], week=0)
+    specific_assignment(o, x, shift="Elec",
+        fellows=[fellows.index("Stroke Jeff")], week=1)
+    specific_assignment(o, x, shift="Elec",
+        fellows=[fellows.index("Stroke Jeff")], week=2)
+    specific_assignment(o, x, shift="Elec",
+        fellows=[fellows.index("Stroke Jeff")], week=3)
 
     # NH fellow should be scheduled for their first stroke rotation with another stroke fellow (ideally Victoria)
     # nh_first_stroke_with_victoria(o, x, f=fellows.index("NH Adam"), fprime=fellows.index("Stroke Victoria"))
@@ -635,18 +732,22 @@ def optimize_schedule(
         stroke_total_service(o,x,
              fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows,
              fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
-    if False:
+    if True:
         ncc_jr_total_service(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
         ncc_sr_total_service(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-        nh_total_service(o,x, fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows, fellow_end=N)
+        nh_total_service(o,x,
+            fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows,
+            fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows+num_NH_fellows)
 
-    if False:
+    if True:
         ccm_total_service(o, x, fellow_start=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows,
                           fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows + num_CCM_fellows)
 
     if True:
         # disambiguate arbitrary ccm
         first_thirteen_ccm_alphabetical(o, x,fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows )
+
+    lia_thing(o,x,fellow_start=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows+num_NH_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows+num_stroke_fellows+num_CCM_fellows+num_NH_fellows+1, shifts=shifts)
 
 
     print(o.check())
@@ -741,6 +842,7 @@ if __name__ == "__main__":
     CCM_fellows = ["CCM Ariana", "CCM Bert", "CCM Chloe", "CCM Dennis", "CCM Edwina", "CCM Frank", "CCM George",
                    "CCM Helen", "CCM Iago", "CCM Jake", "CCM Kyle", "CCM Liana", "CCM Mary", "CCM Ning", "CCM Oyo"]
     NH_fellows = ["NH Adam"]
+    lia = ['NCC Lia']
 
     shifts1 = [
         # NCC fellows do these
@@ -757,7 +859,7 @@ if __name__ == "__main__":
         "Clinic/Elective", "SCVMC Rehab", "NIR", "ISC"
     ]
 
-    fellows = jr_fellows + sr_fellows + stroke_fellows + CCM_fellows + NH_fellows
+    fellows = jr_fellows + sr_fellows + stroke_fellows + CCM_fellows + NH_fellows + lia
 
     fellow_week_pairs = {
         "NCC Prash": [date_to_week_index((2025, 7, 10)),
@@ -800,7 +902,7 @@ if __name__ == "__main__":
 
     # NCC SOLVE.
     shifts_for_fellows, fellows_for_shifts = optimize_schedule(
-        jr_fellows, sr_fellows, stroke_fellows, CCM_fellows, NH_fellows, shifts1, fellow_week_pairs,
+        jr_fellows, sr_fellows, stroke_fellows, CCM_fellows, NH_fellows, lia, shifts1, fellow_week_pairs,
     )
 
     print("Shifts optimized!")
@@ -843,9 +945,12 @@ if __name__ == "__main__":
         stroke_color = "F8CBAD"
         swing_color = "A9D08E"
         vasc_color = "FCE4D6"
+        vasc_clin_color = "DCF4D6"
         sicu_color = "FFE699"
         ns_color = "FFF3CC"
         anaesthesia_color = "F8CBAD"
+        clinel_color = "C4D677"
+        nir_color = "DDB644"
         for f in jr_fellows:
             fellow_fill_dict[f] = openpyxl.styles.PatternFill(
                 start_color=ncc_color, end_color=ncc_color, fill_type='solid')
@@ -869,11 +974,15 @@ if __name__ == "__main__":
         shift_fill_dict['Stroke'] = openpyxl.styles.PatternFill(
             start_color=vasc_color, end_color=vasc_color, fill_type='solid')
         shift_fill_dict['Telestroke/Clinic'] = openpyxl.styles.PatternFill(
-            start_color=vasc_color, end_color=vasc_color, fill_type='solid')
+            start_color=vasc_clin_color, end_color=vasc_clin_color, fill_type='solid')
         shift_fill_dict['NS'] = openpyxl.styles.PatternFill(
             start_color=ns_color, end_color=ns_color, fill_type='solid')
         shift_fill_dict['Anaesthesia'] = openpyxl.styles.PatternFill(
             start_color=anaesthesia_color, end_color=anaesthesia_color, fill_type='solid')
+        shift_fill_dict['Clinic/Elective'] = openpyxl.styles.PatternFill(
+            start_color=clinel_color, end_color=clinel_color, fill_type='solid')
+        shift_fill_dict['NIR'] = openpyxl.styles.PatternFill(
+            start_color=nir_color, end_color=nir_color, fill_type='solid')
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -881,8 +990,8 @@ if __name__ == "__main__":
 
         print("Constructing per-fellow schedule sheet")
         n_fellows_to_output = len(jr_fellows) + len(sr_fellows) + len(stroke_fellows)
-        column_letters = "BCDEFGHIJKLMNOPQRSTUVWXYZ"[:n_fellows_to_output]
-        for cl, fellow in zip(column_letters, fellows[:n_fellows_to_output]):
+        column_letters = "BCDEFGHIJKLMNOPQRSTUVWXYZ"[:n_fellows_to_output+1]
+        for cl, fellow in zip(column_letters, fellows[:n_fellows_to_output]+[fellows[-1]]):
             ws[f'{cl}1'] = fellow
 
         ws[f'A1'] = 'Week'
@@ -893,7 +1002,7 @@ if __name__ == "__main__":
             ws[f'A{windex}'].style = nsYYMMDD
         for windex in tqdm.tqdm(range(2, W + 2)):
             w = windex - 2
-            for cl, fellow in zip(column_letters, fellows[:n_fellows_to_output]):
+            for cl, fellow in zip(column_letters, fellows[:n_fellows_to_output]+[fellows[-1]]):
                 # print(f'formatting {cl}{windex}')
 
                 if (windex-2)%4 == 0:
