@@ -1,26 +1,41 @@
-from flask import Flask, request, jsonify
+from io import BytesIO
+
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
-from .main import optimize_schedule
+
+from .service import get_default_schedule_request, solve_schedule, build_schedule_workbook
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
+
+@app.route('/api/default-schedule', methods=['GET'])
+def default_schedule():
+    return jsonify(get_default_schedule_request())
+
+
 @app.route('/api/schedule', methods=['POST'])
-def your_function():
-    data = request.json
+def schedule():
+    try:
+        return jsonify(solve_schedule(request.get_json(silent=True)))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    shifts_for_fellows, fellows_for_shifts = optimize_schedule(
-        jr_fellows=data['jr_fellows'],
-        sr_fellows=data['sr_fellows'],
-        stroke_fellows=data['stroke_fellows'],
-        CCM_fellows=data['CCM_fellows'],
-        NH_fellows=data['NH_fellows'],
-        # shifts=data['shifts'],
-        fellow_week_pairs=data['fellow_week_pairs']
+
+@app.route('/api/schedule.xlsx', methods=['POST'])
+def schedule_workbook():
+    try:
+        result = solve_schedule(request.get_json(silent=True))
+        workbook = build_schedule_workbook(result)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return send_file(
+        BytesIO(workbook),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="optimized_schedule.xlsx",
     )
-
-    result = {"message": "Data received!", "shifts_for_fellows": shifts_for_fellows, "fellows_for_shifts": fellows_for_shifts}
-    return jsonify(result)
 
 if __name__ == '__main__':
     app.run(debug=True)
