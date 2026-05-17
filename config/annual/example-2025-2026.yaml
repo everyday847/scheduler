@@ -1,0 +1,66 @@
+# Annual Rules describe the current scheduling year: fellows, requests, and exceptions.
+# This file is accepted by `uv run scheduler solve --request ...`.
+
+jr_fellows:
+  - NCC Raya
+  - NCC Joseph
+
+sr_fellows:
+  - NCC David
+  - NCC Prash
+
+stroke_fellows:
+  - Stroke Gabi
+  - Stroke Jeff
+  - Stroke Victoria
+  - Stroke Parshva
+
+CCM_fellows:
+  - CCM Ariana
+  - CCM Bert
+  - CCM Chloe
+  - CCM Dennis
+  - CCM Edwina
+  - CCM Frank
+  - CCM George
+  - CCM Helen
+  - CCM Iago
+  - CCM Jake
+  - CCM Kyle
+  - CCM Liana
+  - CCM Mary
+  - CCM Ning
+  - CCM Oyo
+
+NH_fellows:
+  - NH Adam
+
+lia:
+  - NCC Lia
+
+fellow_week_pairs:
+  NCC Prash: [1, 7, 25, 39, 40, 41, 42]
+  NCC David: [5, 6, 26]
+  NCC Raya: [21, 37]
+  NCC Joseph: [25, 36, 16, 46, 11]
+  Stroke Gabi: [17, 38, 45, 11]
+  Stroke Jeff: [26, 39, 14]
+  Stroke Victoria: [14, 44, 13, 11]
+  Stroke Parshva: [44, 15, 26, 11]
+
+annual_rules:
+  vacation_request_policy:
+    hard_request_count: 3
+
+  named_assignments:
+    - fellow: Stroke Jeff
+      week: 11
+      shift: Stroke
+      strength: hard
+      reason: ABPN
+
+    - fellow: NCC Prash
+      week: 11
+      shift: Telestroke/Clinic
+      strength: soft
+      reason: ABPN backup coverage

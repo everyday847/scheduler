@@ -1,0 +1,38 @@
+# Standing Rules describe how Stanford runs the fellowship program.
+# They should change deliberately and rarely, not during routine schedule tuning.
+
+block_rules:
+  - name: ncc_four_week_blocks
+    fellow_types: [NCC_JR, NCC_SR]
+    shifts: [NCC1, NCC2, Swing]
+    block_size: 4
+    strength: hard
+
+  - name: micu_four_week_blocks
+    fellow_types: [NCC_JR, NCC_SR]
+    shifts: [MICU]
+    block_size: 4
+    strength: hard
+
+  - name: stroke_two_week_blocks
+    fellow_types: [STROKE]
+    shifts: [Stroke, Telestroke/Clinic]
+    block_size: 2
+    strength: hard
+
+max_consecutive:
+  - name: core_icu
+    fellow_types: [NCC_JR, NCC_SR, STROKE, CCM, NH, LIA]
+    shifts: [NCC1, NCC2, Swing, SICU, MICU, Stroke, NIR]
+    weeks: 8
+    strength: hard
+
+  - name: ncc_team
+    fellow_types: [NCC_JR, NCC_SR, STROKE, CCM, NH, LIA]
+    shifts: [NCC1, NCC2, Swing]
+    weeks: 6
+    strength: hard
+
+swing_deficit:
+  fellow_types: [NCC_JR, NCC_SR, STROKE, CCM, NH, LIA]
+  shift: Swing
