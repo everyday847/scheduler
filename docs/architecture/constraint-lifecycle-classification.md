@@ -20,7 +20,7 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 
 | Current code | Current behavior | Notes |
 | --- | --- | --- |
-| `range_fellows_assigned_fully` | NCC and Stroke fellows get a full 52-week assignment. | Standing Rule because it reflects responsibility for these Fellow Types, not solver coherence. |
+| `range_fellows_assigned_fully` | NCC and Stroke fellows get a full 52-week assignment. | Standing Rule because it reflects responsibility for these Fellow Groups, not solver coherence. |
 | `ncc_shifts_covered_swing_deficit` | NCC1 and NCC2 have weekly coverage bounds; Swing has at most one person and permits uncovered weeks. | Mixed. NCC coverage is a Standing Rule; Swing deficit should become a soft minimization preference because the desired value is always as small as possible while still solving. |
 | `ncc_stroke_oversight` | At least one NCC team each week has an NCC or Stroke Fellow. | Standing Rule. The comment says "ideally," so strength may need to become explicit. |
 | `maximum_consecutive_icu_shifts` / `maximum_consecutive_icu_shifts_soft` | Limits consecutive weeks in selected Shift sets. | Standing Rule with configurable thresholds and hard/soft strength. |
@@ -28,9 +28,9 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 | `jr_ncc_before_19` | Junior NCC fellows have NCC before week 19. | Standing Rule with a configurable week threshold. |
 | `jr_fellows_n_ncc_before_swing` | Junior NCC fellows have N NCC weeks before first Swing. | Standing Rule with a configurable count. |
 | `ccm_total_service` | CCM fellows do one NCC-ish block with three NCC weeks and one Swing week, and no other listed shifts. | Standing Rule, though the block structure overlaps with generic Block rules. |
-| `stroke_total_service` | Stroke fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Type. |
-| `ncc_jr_total_service` | Junior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Type. |
-| `ncc_sr_total_service` | Senior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Type. |
+| `stroke_total_service` | Stroke fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
+| `ncc_jr_total_service` | Junior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
+| `ncc_sr_total_service` | Senior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
 | `shift_blocked` / `shift_blocked_soft` | A Shift is all-or-none inside Blocks of a given size. | Standing Rule primitive. |
 | `sicu_blocked`, `micu_blocked`, `anaesthesia_blocked`, `scvmc_blocked`, `vasc_blocked`, `ns_blocked` | Specific Shifts follow two- or four-week Block structure. | Standing Rules; the Block sizes belong in deliberate configuration. |
 | `ncc_blocked` | NCC1/NCC2/Swing follow Block structure. | Standing Rule with a tiered solve strategy: first try hard four-week Blocks; fall back to soft four-week and hard two-week Blocks if needed. |
@@ -68,7 +68,7 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 The first deepening seam should separate constraint lifecycle from solver encoding:
 
 - The solver Adapter owns variable creation, `Optimize`, hard/soft encoding, and model extraction.
-- The Standing Rule catalog owns reusable fellowship policy by Fellow Type, Shift, and Block.
+- The Standing Rule catalog owns reusable fellowship policy by Fellow Group, Shift, and Block.
 - The Annual Rule intake owns user-provided requests, named exceptions, dates, and strength changes.
 - Tiered solving belongs above individual Z3 expressions: for example, NCC Block policy should try stricter Standing Rules first, then relax to fallback strengths when needed.
 - Soft minimization preferences, such as Swing deficit, should be modeled explicitly rather than exposed as ordinary Annual Rule counts.

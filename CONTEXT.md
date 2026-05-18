@@ -10,8 +10,8 @@ A 52-week assignment of fellows to shifts.
 **Fellow**:
 A clinician who may be assigned to one shift in a week.
 
-**Fellow Type**:
-A program role used to group fellows for rules, such as junior NCC, senior NCC, Stroke, CCM, NH, or Lia.
+**Fellow Group**:
+A named cohort declared by Annual YAML and used by Constraints, such as junior NCC, senior NCC, Stroke, CCM, NH, or Lia. The legal group names for a Schedule come from that Schedule's Annual YAML.
 
 **Shift**:
 A named weekly assignment option, such as NCC1, NCC2, Swing, MICU, Stroke, or Vacation.
@@ -42,11 +42,11 @@ _Avoid_: named fellow cohort
 ## Relationships
 
 - A **Schedule** assigns each **Fellow** to zero or one **Shift** per week unless a specific **Constraint** allows an exception.
-- A **Fellow Type** selects groups of **Fellows** for **Standing Rules** and **Annual Rules**.
+- A **Fellow Group** selects cohorts of **Fellows** for **Standing Rules** and **Annual Rules**.
 - An **External Coverage Pool** may be represented by placeholder **Fellows** when the individual identities do not matter to the **Schedule**.
 - A **Block** contains one or more consecutive weeks.
-- A **Solver Invariant** is independent of **Fellow Type** policy.
-- A **Standing Rule** may mention **Fellow Types**, **Shifts**, and **Blocks**.
+- A **Solver Invariant** is independent of **Fellow Group** policy.
+- A **Standing Rule** may mention **Fellow Groups**, **Shifts**, and **Blocks**.
 - An **Annual Rule** may mention specific **Fellows**, dates, vacation requests, supervision requirements, or exam weeks.
 
 ## Example Dialogue
