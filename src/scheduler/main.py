@@ -8,11 +8,11 @@ import tqdm
 try:
     from .date_to_week_index import date_to_week_index
     from .constraints import ScheduleConstraints
-    from .fellow_mapping import FellowMapping, FellowType
+    from .fellow_mapping import FellowMapping
 except ImportError:  # pragma: no cover - supports running from src/scheduler
     from date_to_week_index import date_to_week_index
     from constraints import ScheduleConstraints
-    from fellow_mapping import FellowMapping, FellowType
+    from fellow_mapping import FellowMapping
 
 z3.set_option(verbose=0)
 # Enable parallel solving globally
@@ -58,17 +58,16 @@ def ncc_shifts_covered_swing_deficit(o, x, total_fellows, deficit):
 def stroke_shifts_covered(o, x, total_fellows, fellow_mapping):
     # Every week has exactly one person on Stroke and on Telestroke/Clinic
     # Except for the week that Victoria supervises NH Adam his first time.
+    victoria = fellow_mapping.get_fellow("Stroke Victoria")
+    adam = fellow_mapping.get_fellow("NH Adam")
     for w in range(W):
-        o.add(
-            # Technically this allows Victoria and Adam to co-occur any time,
-            # but they will only have the one opportunity while still fitting
-            # other criteria
-            Or(
-                Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(total_fellows)]) == 1,
-                And(x[fellow_mapping.get_fellow_index("Stroke Victoria"), w, "Stroke"], 
-                    x[fellow_mapping.get_fellow_index("NH Adam"), w, "Stroke"])
+        stroke_coverage = Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(total_fellows)]) == 1
+        if victoria is not None and adam is not None:
+            stroke_coverage = Or(
+                stroke_coverage,
+                And(x[victoria.index, w, "Stroke"], x[adam.index, w, "Stroke"])
             )
-        )
+        o.add(stroke_coverage)
         o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(total_fellows)]) == 1)
 
 def ncc_stroke_oversight(o, x, fellow_indices):
@@ -563,30 +562,24 @@ def isc(o, x, fellow_indices):
             else:
                 o.add(Not(x[f, w, "ISC"]))
 
+def existing_fellow_indices(fellow_mapping, names):
+    return [
+        fellow_mapping.get_fellow_index(name)
+        for name in names
+        if fellow_mapping.get_fellow(name) is not None
+    ]
+
 def optimize_schedule(
-    jr_fellows: List[str],
-    sr_fellows: List[str],
-    stroke_fellows: List[str],
-    CCM_fellows: List[str],
-    NH_fellows: List[str],
-    lia: List[str],
+    fellow_groups: Dict[str, List[str]],
     shifts: List[str],
     fellow_week_pairs: Dict[str, List[int]],
+    annual_rules=None,
 ):
     # Create the fellow mapping
     fellow_mapping = FellowMapping()
-    for name in jr_fellows:
-        fellow_mapping.add_fellow(name, FellowType.NCC_JR)
-    for name in sr_fellows:
-        fellow_mapping.add_fellow(name, FellowType.NCC_SR)
-    for name in stroke_fellows:
-        fellow_mapping.add_fellow(name, FellowType.STROKE)
-    for name in CCM_fellows:
-        fellow_mapping.add_fellow(name, FellowType.CCM)
-    for name in NH_fellows:
-        fellow_mapping.add_fellow(name, FellowType.NH)
-    for name in lia:
-        fellow_mapping.add_fellow(name, FellowType.LIA)
+    for group, fellows in fellow_groups.items():
+        for name in fellows:
+            fellow_mapping.add_fellow(name, group)
 
     # Create the base schedule constraints
     schedule = ScheduleConstraints(fellow_mapping, W, shifts)
@@ -598,7 +591,7 @@ def optimize_schedule(
 
     # Add all other constraints
     # NCC fellows must be assigned fully
-    ncc_and_stroke_indices = fellow_mapping.get_fellow_range(FellowType.NCC_JR, FellowType.STROKE)
+    ncc_and_stroke_indices = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE")
     range_fellows_assigned_fully(o, schedule.x, shifts, 
                                fellow_indices=ncc_and_stroke_indices)
 
@@ -620,13 +613,13 @@ def optimize_schedule(
                                  MAX_CONSEC=2)
 
     # Junior fellow specific constraints
-    jr_indices = fellow_mapping.get_fellow_indices_by_type(FellowType.NCC_JR)
+    jr_indices = fellow_mapping.get_fellow_indices_by_group("NCC_JR")
     jr_first_month_micu(o, schedule.x, fellow_indices=jr_indices)
     jr_ncc_before_19(o, schedule.x, fellow_indices=jr_indices)
     jr_fellows_n_ncc_before_swing(o, schedule.x, fellow_indices=jr_indices, n=4)
 
     # NCC and Stroke fellow constraints
-    ncc_indices = fellow_mapping.get_fellow_range(FellowType.NCC_JR, FellowType.NCC_SR)
+    ncc_indices = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR")
     fourth_block_two_micu_fellows(o, schedule.x, fellow_indices=ncc_indices)
 
     # Block-based rotation constraints
@@ -636,14 +629,14 @@ def optimize_schedule(
     vasc_blocked(o, schedule.x, fellow_indices=ncc_indices)
 
     # Senior fellow specific constraints
-    sr_indices = fellow_mapping.get_fellow_indices_by_type(FellowType.NCC_SR)
+    sr_indices = fellow_mapping.get_fellow_indices_by_group("NCC_SR")
     ns_blocked(o, schedule.x, fellow_indices=sr_indices)
     ncc_blocked(o, schedule.x, fellow_indices=ncc_indices)
 
     # Stroke fellow specific constraints
-    stroke_indices = fellow_mapping.get_fellow_indices_by_type(FellowType.STROKE)
+    stroke_indices = fellow_mapping.get_fellow_indices_by_group("STROKE")
     ncc_stroke_oversight(o, schedule.x, 
-                        fellow_indices=fellow_mapping.get_fellow_range(FellowType.NCC_JR, FellowType.STROKE))
+                        fellow_indices=fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE"))
 
     # Vacation and distribution constraints
     vacation_requests(o, schedule.x, fellow_mapping, fellow_week_pairs, n_vac=3)
@@ -652,31 +645,37 @@ def optimize_schedule(
     # Stroke service specific constraints
     if True:
         # Jeff is on stroke during ABPN
-        specific_assignment(o, schedule.x, 
-                          shift="Stroke", 
-                          fellow_indices=[fellow_mapping.get_fellow_index("Stroke Jeff")], 
-                          week=date_to_week_index((2025, 9, 16)))
+        jeff = existing_fellow_indices(fellow_mapping, ["Stroke Jeff"])
+        if jeff:
+            specific_assignment(o, schedule.x, 
+                              shift="Stroke", 
+                              fellow_indices=jeff, 
+                              week=date_to_week_index((2025, 9, 16)))
 
         # First week assignments
-        first_week_ncc = [fellow_mapping.get_fellow_index(name) for name in ["NCC David", "NCC Prash"]]
-        specific_assignment(o, schedule.x, 
-                          shift="Stroke",
-                          fellow_indices=first_week_ncc, 
-                          week=1)
+        first_week_ncc = existing_fellow_indices(fellow_mapping, ["NCC David", "NCC Prash"])
+        if first_week_ncc:
+            specific_assignment(o, schedule.x, 
+                              shift="Stroke",
+                              fellow_indices=first_week_ncc, 
+                              week=1)
 
-        first_week_telestroke = fellow_mapping.get_fellow_range(FellowType.NCC_JR, FellowType.STROKE)
-        specific_assignment(o, schedule.x, 
-                          shift="Telestroke/Clinic",
-                          fellow_indices=first_week_telestroke, 
-                          week=1)
+        first_week_telestroke = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE")
+        if first_week_telestroke:
+            specific_assignment(o, schedule.x, 
+                              shift="Telestroke/Clinic",
+                              fellow_indices=first_week_telestroke, 
+                              week=1)
 
         isc(o, schedule.x, fellow_indices=stroke_indices)
 
     # Soft constraints for specific assignments
-    specific_assignment_soft(o, schedule.x, 
-                           shift="Telestroke/Clinic",
-                           fellow_indices=[fellow_mapping.get_fellow_index(name) for name in ["NCC Prash", "NCC David"]], 
-                           week=date_to_week_index((2025, 9, 16)))
+    abpn_telestroke = existing_fellow_indices(fellow_mapping, ["NCC Prash", "NCC David"])
+    if abpn_telestroke:
+        specific_assignment_soft(o, schedule.x, 
+                               shift="Telestroke/Clinic",
+                               fellow_indices=abpn_telestroke, 
+                               week=date_to_week_index((2025, 9, 16)))
 
     stroke_shifts_covered(o, schedule.x, fellow_mapping.total_fellows, fellow_mapping)
 
@@ -692,16 +691,17 @@ def optimize_schedule(
         stroke_no_block_one_ncc(o, schedule.x, fellow_indices=stroke_indices)
         
         # NH fellow constraints
-        nh_indices = fellow_mapping.get_fellow_indices_by_type(FellowType.NH)
+        nh_indices = fellow_mapping.get_fellow_indices_by_group("NH")
         stroke_no_block_one_ncc(o, schedule.x, fellow_indices=nh_indices)
 
     # Specific assignments for Jeff
-    jeff_index = fellow_mapping.get_fellow_index("Stroke Jeff")
-    for week in range(4):
-        specific_assignment(o, schedule.x, 
-                          shift="Elec",
-                          fellow_indices=[jeff_index], 
-                          week=week)
+    jeff = existing_fellow_indices(fellow_mapping, ["Stroke Jeff"])
+    if jeff:
+        for week in range(4):
+            specific_assignment(o, schedule.x, 
+                              shift="Elec",
+                              fellow_indices=jeff, 
+                              week=week)
 
     # Service total constraints
     if True:
@@ -714,12 +714,13 @@ def optimize_schedule(
 
     if True:
         # CCM fellow constraints
-        ccm_indices = fellow_mapping.get_fellow_indices_by_type(FellowType.CCM)
+        ccm_indices = fellow_mapping.get_fellow_indices_by_group("CCM")
         ccm_total_service(o, schedule.x, fellow_indices=ccm_indices)
 
     # Lia specific constraints
-    lia_indices = fellow_mapping.get_fellow_indices_by_type(FellowType.LIA)
-    lia_thing(o, schedule.x, fellow_indices=lia_indices, shifts=shifts)
+    lia_indices = fellow_mapping.get_fellow_indices_by_group("LIA")
+    if lia_indices:
+        lia_thing(o, schedule.x, fellow_indices=lia_indices, shifts=shifts)
 
     status = o.check()
     if status != sat:
@@ -764,7 +765,7 @@ def optimize_schedule(
             elif type(its) is list and len(its) == 2:
                 # Sort by fellow type to maintain consistent ordering
                 sorted_fellows = sorted(its, 
-                                     key=lambda name: fellow_mapping.get_fellow(name).type.value)
+                                     key=lambda name: fellow_mapping.get_fellow_group_rank(name))
                 fellows_for_shifts['Extra'][ii] = sorted_fellows[-1]
                 fellows_for_shifts[s][ii] = sorted_fellows[0]
             elif type(its) is list and len(its) > 2:

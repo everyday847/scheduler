@@ -137,6 +137,7 @@ def solve_schedule(raw_request: Dict[str, Any] | None) -> Dict[str, Any]:
         fellow_groups=request["fellow_groups"],
         shifts=request["shifts"],
         fellow_week_pairs=request["fellow_week_pairs"],
+        annual_rules=request.get("annual_rules"),
     )
     return {
         "request": request,

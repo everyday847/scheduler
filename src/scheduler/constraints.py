@@ -1,9 +1,9 @@
 from typing import List, Dict
 from z3 import *
 try:
-    from .fellow_mapping import FellowMapping, FellowType
+    from .fellow_mapping import FellowMapping
 except ImportError:  # pragma: no cover - supports running from src/scheduler
-    from fellow_mapping import FellowMapping, FellowType
+    from fellow_mapping import FellowMapping
 
 class ScheduleConstraints:
     def __init__(self, fellow_mapping: FellowMapping, num_weeks: int, shifts: List[str]):
@@ -49,7 +49,7 @@ class ScheduleConstraints:
         """Add symmetry-breaking constraints to help the solver."""
         # For CCM fellows, break symmetry by assigning them to blocks in alphabetical order
         # This is a fundamental constraint because it's about the representation, not the schedule
-        ccm_fellows = self.fellow_mapping.get_fellows_by_type(FellowType.CCM)
+        ccm_fellows = self.fellow_mapping.get_fellows_by_group("CCM")
         for fellow, w in zip(ccm_fellows, range(0, self.num_weeks, 4)):
             # Each CCM fellow works only in their assigned block
             for w_ in range(self.num_weeks):

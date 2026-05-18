@@ -1,37 +1,30 @@
-from typing import Dict, List, Set, Optional
 from dataclasses import dataclass
-from enum import Enum, auto
-
-class FellowType(Enum):
-    NCC_JR = auto()
-    NCC_SR = auto()
-    STROKE = auto()
-    CCM = auto()
-    NH = auto()
-    LIA = auto()
+from typing import Dict, List, Optional
 
 @dataclass
 class Fellow:
     name: str
-    type: FellowType
+    group: str
     index: int  # Index in the optimization variables
 
 class FellowMapping:
     def __init__(self):
         self._fellows: Dict[str, Fellow] = {}
-        self._type_to_fellows: Dict[FellowType, List[Fellow]] = {
-            fellow_type: [] for fellow_type in FellowType
-        }
+        self._group_to_fellows: Dict[str, List[Fellow]] = {}
+        self._group_order: Dict[str, int] = {}
         self._next_index = 0
         
-    def add_fellow(self, name: str, fellow_type: FellowType) -> Fellow:
+    def add_fellow(self, name: str, group: str) -> Fellow:
         """Add a fellow to the mapping and return their Fellow object."""
         if name in self._fellows:
             raise ValueError(f"Fellow {name} already exists in mapping")
             
-        fellow = Fellow(name=name, type=fellow_type, index=self._next_index)
+        if group not in self._group_order:
+            self._group_order[group] = len(self._group_order)
+
+        fellow = Fellow(name=name, group=group, index=self._next_index)
         self._fellows[name] = fellow
-        self._type_to_fellows[fellow_type].append(fellow)
+        self._group_to_fellows.setdefault(group, []).append(fellow)
         self._next_index += 1
         return fellow
     
@@ -46,21 +39,26 @@ class FellowMapping:
             raise ValueError(f"Fellow {name} not found in mapping")
         return fellow.index
     
-    def get_fellows_by_type(self, fellow_type: FellowType) -> List[Fellow]:
-        """Get all fellows of a particular type."""
-        return self._type_to_fellows[fellow_type]
+    def get_fellows_by_group(self, group: str) -> List[Fellow]:
+        """Get all fellows in a named group."""
+        return self._group_to_fellows.get(group, [])
     
-    def get_fellow_indices_by_type(self, fellow_type: FellowType) -> List[int]:
-        """Get all fellow indices of a particular type."""
-        return [f.index for f in self._type_to_fellows[fellow_type]]
+    def get_fellow_indices_by_group(self, group: str) -> List[int]:
+        """Get all fellow indices in a named group."""
+        return [f.index for f in self.get_fellows_by_group(group)]
     
-    def get_fellow_range(self, start_type: FellowType, end_type: FellowType) -> List[int]:
-        """Get all fellow indices between two types (inclusive)."""
+    def get_fellow_indices_by_groups(self, *groups: str) -> List[int]:
+        """Get all fellow indices in named groups, preserving group order."""
         indices = []
-        for fellow_type in FellowType:
-            if fellow_type.value >= start_type.value and fellow_type.value <= end_type.value:
-                indices.extend(self.get_fellow_indices_by_type(fellow_type))
-        return sorted(indices)
+        for group in groups:
+            indices.extend(self.get_fellow_indices_by_group(group))
+        return indices
+
+    def get_fellow_group_rank(self, name: str) -> int:
+        fellow = self.get_fellow(name)
+        if fellow is None:
+            raise ValueError(f"Fellow {name} not found in mapping")
+        return self._group_order[fellow.group]
     
     @property
     def total_fellows(self) -> int:
