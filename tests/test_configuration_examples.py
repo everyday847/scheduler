@@ -21,7 +21,14 @@ def test_annual_request_example_is_valid_yaml():
     assert request["fellow_groups"]["NCC_JR"] == ["NCC Raya", "NCC Joseph"]
     assert request["fellow_week_pairs"]["NCC Prash"][:3] == [1, 7, 25]
     assert "annual_rules" in request
-    assert request["annual_rules"]["vacation_request_policy"]["hard_request_count"] == 3
+    assert any(
+        rule["kind"] == "vacation_request_policy" and rule["hard_request_count"] == 3
+        for rule in request["annual_rules"]["rules"]
+    )
+    assert any(
+        rule["kind"] == "specific_assignment" and rule["strength"] == "soft"
+        for rule in request["annual_rules"]["rules"]
+    )
 
 
 def test_command_line_tutorial_references_real_commands():

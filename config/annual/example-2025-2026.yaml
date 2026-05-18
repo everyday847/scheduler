@@ -68,18 +68,67 @@ fellow_week_pairs:
   Stroke Parshva: [44, 15, 26, 11]
 
 annual_rules:
-  vacation_request_policy:
-    hard_request_count: 3
+  rules:
+    - name: vacation_requests
+      kind: vacation_request_policy
+      active: true
+      hard_request_count: 3
 
-  named_assignments:
-    - fellow: Stroke Jeff
+    - name: jeff_abpn_stroke
+      kind: specific_assignment
+      active: true
+      fellow: Stroke Jeff
       week: 11
       shift: Stroke
       strength: hard
       reason: ABPN
 
-    - fellow: NCC Prash
+    - name: abpn_backup_telestroke
+      kind: specific_assignment
+      active: true
+      fellows: [NCC Prash, NCC David]
       week: 11
       shift: Telestroke/Clinic
       strength: soft
       reason: ABPN backup coverage
+
+    - name: first_week_senior_on_stroke
+      kind: specific_assignment
+      active: true
+      fellow_groups: [NCC_SR]
+      week: 1
+      shift: Stroke
+      strength: hard
+
+    - name: first_week_telestroke
+      kind: specific_assignment
+      active: true
+      fellow_groups: [NCC_JR, NCC_SR, STROKE]
+      week: 1
+      shift: Telestroke/Clinic
+      strength: hard
+
+    - name: isc
+      kind: isc
+      active: true
+      fellow_groups: [STROKE]
+      date: [2026, 2, 5]
+      strength: hard
+
+    - name: fourth_block_two_micu_fellows
+      kind: fourth_block_two_micu_fellows
+      active: true
+      fellow_groups: [NCC_JR, NCC_SR]
+      strength: hard
+
+    - name: nh_no_first_block_ncc
+      kind: stroke_no_block_one_ncc
+      active: true
+      fellow_groups: [NH]
+      strength: hard
+
+    - name: nh_total_service
+      kind: nh_total_service
+      active: true
+      fellow_groups: [NH]
+      strength: hard

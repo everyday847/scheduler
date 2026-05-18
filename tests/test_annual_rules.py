@@ -1,4 +1,4 @@
-from scheduler.annual_rules import named_assignment, vacation_request_constraints
+from scheduler.annual_rules import constraints_from_config, named_assignment, vacation_request_constraints
 from scheduler.semantic_constraints import ConstraintLifecycle, ConstraintStrength
 
 
@@ -48,3 +48,66 @@ def test_named_assignment_builds_hard_or_soft_annual_rule():
     assert soft.fellows.names == ("NCC Prash",)
     assert soft.shifts.shifts == ("Telestroke/Clinic",)
 
+
+def test_constraints_from_config_builds_vacation_policy_from_request_pairs():
+    constraints = constraints_from_config(
+        {
+            "rules": [
+                {
+                    "name": "vacation_requests",
+                    "kind": "vacation_request_policy",
+                    "active": True,
+                    "hard_request_count": 2,
+                }
+            ]
+        },
+        fellow_week_pairs={"NCC Raya": [1, 7, 25]},
+    )
+
+    assert [constraint.weeks.start for constraint in constraints] == [1, 7, 25]
+    assert [constraint.strength for constraint in constraints] == [
+        ConstraintStrength.HARD,
+        ConstraintStrength.HARD,
+        ConstraintStrength.SOFT,
+    ]
+
+
+def test_constraints_from_config_builds_specific_assignments_for_groups_or_names():
+    constraints = constraints_from_config({
+        "rules": [
+            {
+                "name": "first_week_senior_on_stroke",
+                "kind": "specific_assignment",
+                "active": True,
+                "strength": "hard",
+                "fellow_groups": ["NCC_SR"],
+                "shift": "Stroke",
+                "week": 1,
+            },
+            {
+                "name": "abpn_backup",
+                "kind": "specific_assignment",
+                "active": True,
+                "strength": "soft",
+                "fellows": ["NCC Prash", "NCC David"],
+                "shift": "Telestroke/Clinic",
+                "week": 11,
+            },
+            {
+                "name": "inactive",
+                "kind": "specific_assignment",
+                "active": False,
+                "fellows": ["Stroke Jeff"],
+                "shift": "Stroke",
+                "week": 11,
+            },
+        ]
+    })
+
+    assert len(constraints) == 2
+    assert constraints[0].kind == "specific_assignment"
+    assert constraints[0].fellows.groups == ("NCC_SR",)
+    assert constraints[0].strength is ConstraintStrength.HARD
+    assert constraints[0].weeks.start == 1
+    assert constraints[1].fellows.names == ("NCC Prash", "NCC David")
+    assert constraints[1].strength is ConstraintStrength.SOFT
