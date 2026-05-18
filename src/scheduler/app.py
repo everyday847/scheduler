@@ -1,16 +1,28 @@
 import streamlit as st
 from streamlit_tags import st_tags
 
-from main import vacation_requests
-from date_to_week_index import vacation_date_to_week_index
-from main import optimize_schedule
+try:
+    from .date_to_week_index import vacation_date_to_week_index
+    from .service import DEFAULT_SHIFTS
+    from .main import optimize_schedule
+except ImportError:  # pragma: no cover - supports running from src/scheduler
+    from date_to_week_index import vacation_date_to_week_index
+    from service import DEFAULT_SHIFTS
+    from main import optimize_schedule
 
 st.markdown("# People")
 
-jr_fellows = st_tags(label="Junior NCC fellows:", text="Press enter to add more", value=[])
-sr_fellows = st_tags(label="Senior NCC fellows:", text="Press enter to add more", value=[])
-stroke_fellows = st_tags(label="Stroke fellows:", text="Press enter to add more", value=[])
-CCM_fellows = st_tags(label="CCM rotation fellows:", text="Press enter to add more", value=[])
+fellow_groups = {
+    "NCC_JR": st_tags(label="NCC_JR fellows:", text="Press enter to add more", value=[]),
+    "NCC_SR": st_tags(label="NCC_SR fellows:", text="Press enter to add more", value=[]),
+    "STROKE": st_tags(label="STROKE fellows:", text="Press enter to add more", value=[]),
+    "CCM": st_tags(label="CCM fellows:", text="Press enter to add more", value=[]),
+}
+request_fellows = [
+    fellow
+    for group_name in ("NCC_JR", "NCC_SR", "STROKE")
+    for fellow in fellow_groups[group_name]
+]
 
 W = 52
 
@@ -40,13 +52,7 @@ with st.expander("# Rules"):
 with st.expander("## Vacation"):
 
     vacation_requests = {}
-    for f in jr_fellows:
-        vacation_requests[f] = []
-        for it in range(4):
-            vacation_requests[f].append(
-                vacation_date_to_week_index(st.date_input(f"Vacation for {f} week {it+1}:").timetuple()))
-
-    for f in sr_fellows:
+    for f in request_fellows:
         vacation_requests[f] = []
         for it in range(4):
             vacation_requests[f].append(
@@ -57,7 +63,7 @@ vacation_requests = {
     for k,v in vacation_requests.items()
 }
 
-R = ["NCC1", "NCC2", "Swing", "MICU", "SICU", "Vasc/Clin", "Anaesthesia", "NS", "Elec", "Vac"]
+R = DEFAULT_SHIFTS
 
 def bg_color(x):
     color = '#FFFFFF'
@@ -70,9 +76,9 @@ def bg_color(x):
     if x == 'NS': color = "#FFF3CC"
     if x == 'Anaesthesia': color = "#F8CBAD"
 
-    if x in jr_fellows or x in sr_fellows: color = '#C6E0B4'
-    if x in stroke_fellows: color = '#F8CBAD'
-    if x in CCM_fellows: color = '#B4C6E7'
+    if x in fellow_groups["NCC_JR"] or x in fellow_groups["NCC_SR"]: color = '#C6E0B4'
+    if x in fellow_groups["STROKE"]: color = '#F8CBAD'
+    if x in fellow_groups["CCM"]: color = '#B4C6E7'
 
     return f'background-color: {color}'
 
@@ -91,11 +97,8 @@ def bg_color(x):
 if st.button("optimize"):
     with st.spinner():
         shifts_for_fellows, fellows_for_shifts = optimize_schedule(
-            jr_fellows,
-            sr_fellows,
-            stroke_fellows,
-            CCM_fellows,
-            R,
+            fellow_groups=fellow_groups,
+            shifts=R,
             fellow_week_pairs=vacation_requests
         )
 
@@ -103,8 +106,7 @@ if st.button("optimize"):
         df1 = pandas.DataFrame.from_dict([
             {
                 'Week': ii,
-                **{jr: shifts_for_fellows[jr][ii] for jr in jr_fellows},
-                **{sr: shifts_for_fellows[sr][ii] for sr in sr_fellows}
+                **{fellow: shifts_for_fellows[fellow][ii] for fellow in request_fellows}
 
             }
         for ii in range(W)])
@@ -121,22 +123,3 @@ if st.button("optimize"):
 
         st.dataframe(df2.style.applymap(lambda x: bg_color(x)), #[{'selector': 'MICU', 'props': 'background-color: #e6ffe6;'}]),
              hide_index=True)
-
-
-#     range_fellows_assigned_fully(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-#     everyone_one_rotation_per_week(o, x, fellow_start=0, fellow_end=N)
-#     ncc_shifts_covered_swing_deficit(o, x, N,8)
-#     maximum_consecutive_icu_shifts(o, x, fellow_start=0, fellow_end=N, MAX_CONSEC=8)
-#     jr_first_month_micu(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
-#     jr_ncc_before_19(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
-#     jr_fellows_n_ncc_before_swing(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows, n=4)
-#     fourth_block_two_micu_fellows(o, x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-#
-#     sicu_blocked(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
-#     micu_blocked(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-#     anaesthesia_blocked(o,x, fellow_start=0, fellow_end=num_NCC_jr_fellows)
-#     vasc_blocked(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-#     ns_blocked(o,x, fellow_start=num_NCC_jr_fellows, fellow_end=num_NCC_jr_fellows+num_NCC_sr_fellows)
-#     ncc_blocked(o,x, fellow_start=0, fellow_end=N)
-#     ncc_stroke_oversight(o,x, fellow_start = 0, fellow_end=num_NCC_jr_fellows + num_NCC_sr_fellows + num_stroke_fellows)
-#     vacation_requests(o,x, fellows, fellow_week_pairs, n_vac=3)

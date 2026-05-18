@@ -4,12 +4,14 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 
 const defaultRequest = {
-  jr_fellows: ['NCC Raya', 'NCC Joseph'],
-  sr_fellows: ['NCC David', 'NCC Prash'],
-  stroke_fellows: ['Stroke Gabi'],
-  CCM_fellows: ['CCM Ariana'],
-  NH_fellows: ['NH Adam'],
-  lia: ['NCC Lia'],
+  fellow_groups: {
+    NCC_JR: ['NCC Raya', 'NCC Joseph'],
+    NCC_SR: ['NCC David', 'NCC Prash'],
+    STROKE: ['Stroke Gabi'],
+    CCM: ['CCM Ariana'],
+    NH: ['NH Adam'],
+    LIA: ['NCC Lia'],
+  },
   shifts: ['NCC1', 'NCC2', 'Swing', 'MICU', 'Stroke', 'Telestroke/Clinic'],
   fellow_week_pairs: {
     'NCC Raya': [21],
@@ -62,8 +64,8 @@ test('loads seeded fellow groups from the backend', async () => {
   render(<App />);
 
   expect(await screen.findByRole('heading', { name: /fellow scheduler/i })).toBeInTheDocument();
-  await waitFor(() => expect(screen.getByLabelText(/junior ncc fellows/i)).toHaveValue('NCC Raya\nNCC Joseph'));
-  expect(screen.getByLabelText(/stroke fellows/i)).toHaveValue('Stroke Gabi');
+  await waitFor(() => expect(screen.getByLabelText(/NCC_JR fellows/i)).toHaveValue('NCC Raya\nNCC Joseph'));
+  expect(screen.getByLabelText(/STROKE fellows/i)).toHaveValue('Stroke Gabi');
   expect(screen.getByText('NCC Raya')).toBeInTheDocument();
   expect(screen.getByDisplayValue('21')).toBeInTheDocument();
 });
@@ -71,7 +73,7 @@ test('loads seeded fellow groups from the backend', async () => {
 test('posts schedule request and renders returned tables', async () => {
   render(<App />);
 
-  await screen.findByLabelText(/junior ncc fellows/i);
+  await screen.findByLabelText(/NCC_JR fellows/i);
   await waitFor(() => expect(screen.getByRole('button', { name: /generate schedule/i })).toBeEnabled());
   await userEvent.click(screen.getByRole('button', { name: /generate schedule/i }));
 

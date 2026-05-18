@@ -4,9 +4,8 @@ import './App.css';
 const API_BASE = 'http://127.0.0.1:5000';
 const WEEK_COUNT = 52;
 
-type FellowGroupKey = 'jr_fellows' | 'sr_fellows' | 'stroke_fellows' | 'CCM_fellows' | 'NH_fellows' | 'lia';
-
-type ScheduleRequest = Record<FellowGroupKey, string[]> & {
+type ScheduleRequest = {
+  fellow_groups: Record<string, string[]>;
   shifts: string[];
   fellow_week_pairs: Record<string, number[]>;
 };
@@ -18,24 +17,10 @@ type ScheduleResult = {
 };
 
 const emptyRequest: ScheduleRequest = {
-  jr_fellows: [],
-  sr_fellows: [],
-  stroke_fellows: [],
-  CCM_fellows: [],
-  NH_fellows: [],
-  lia: [],
+  fellow_groups: {},
   shifts: [],
   fellow_week_pairs: {},
 };
-
-const groupLabels: Array<[FellowGroupKey, string]> = [
-  ['jr_fellows', 'Junior NCC fellows'],
-  ['sr_fellows', 'Senior NCC fellows'],
-  ['stroke_fellows', 'Stroke fellows'],
-  ['CCM_fellows', 'CCM fellows'],
-  ['NH_fellows', 'NH fellows'],
-  ['lia', 'Lia'],
-];
 
 const shiftOrder = ['NCC1', 'NCC2', 'Extra', 'Swing', 'Stroke', 'Telestroke/Clinic', 'Stroke_Supervisory'];
 
@@ -68,10 +53,11 @@ function App() {
     };
   }, []);
 
-  const requestFellows = useMemo(
-    () => [...request.jr_fellows, ...request.sr_fellows, ...request.stroke_fellows],
-    [request.jr_fellows, request.sr_fellows, request.stroke_fellows],
-  );
+  const groupEntries = useMemo(() => Object.entries(request.fellow_groups), [request.fellow_groups]);
+
+  const requestFellows = useMemo(() => {
+    return groupEntries.flatMap(([, fellows]) => fellows);
+  }, [groupEntries]);
 
   const visibleWeekPairs = useMemo(() => {
     return requestFellows.map((fellow) => ({
@@ -80,12 +66,15 @@ function App() {
     }));
   }, [request.fellow_week_pairs, requestFellows]);
 
-  const updateGroup = (key: FellowGroupKey, value: string) => {
+  const updateGroup = (groupName: string, value: string) => {
     const fellows = value
       .split('\n')
       .map((item) => item.trim())
       .filter(Boolean);
-    setRequest((current) => ({ ...current, [key]: fellows }));
+    setRequest((current) => ({
+      ...current,
+      fellow_groups: { ...current.fellow_groups, [groupName]: fellows },
+    }));
   };
 
   const updateWeek = (fellow: string, index: number, value: string) => {
@@ -181,18 +170,21 @@ function App() {
         {loadingDefaults ? <p className="status-line">Loading defaults...</p> : null}
 
         <div className="input-stack">
-          {groupLabels.map(([key, label]) => (
-            <label className="field-group" key={key}>
-              <span>{label}</span>
-              <textarea
-                aria-label={label}
-                value={request[key].join('\n')}
-                onChange={(event) => updateGroup(key, event.target.value)}
-                rows={key === 'CCM_fellows' ? 6 : 3}
-                spellCheck={false}
-              />
-            </label>
-          ))}
+          {groupEntries.map(([groupName, fellows]) => {
+            const label = `${groupName} fellows`;
+            return (
+              <label className="field-group" key={groupName}>
+                <span>{label}</span>
+                <textarea
+                  aria-label={label}
+                  value={fellows.join('\n')}
+                  onChange={(event) => updateGroup(groupName, event.target.value)}
+                  rows={Math.min(8, Math.max(3, fellows.length + 1))}
+                  spellCheck={false}
+                />
+              </label>
+            );
+          })}
         </div>
       </section>
 
