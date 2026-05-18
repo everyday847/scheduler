@@ -57,8 +57,13 @@ def _default_request(args: argparse.Namespace) -> int:
 def _solve(args: argparse.Namespace) -> int:
     request = _read_yaml_mapping(args.request)
     result = service.solve_schedule(request)
+    print("Schedule solved successfully.")
+
     workbook = service.build_schedule_workbook(result)
+    print("Workbook built.")
+
     args.output.write_bytes(workbook)
+    
     return 0
 
 

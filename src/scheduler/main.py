@@ -16,7 +16,9 @@ except ImportError:  # pragma: no cover - supports running from src/scheduler
 
 z3.set_option(verbose=0)
 # Enable parallel solving globally
+set_param('tactic.default_tactic', 'smt')
 set_param('parallel.enable', True)
+set_param('verbose', 10)
 
 # Not too dangerous to make global
 W = 52
@@ -43,8 +45,12 @@ def ncc_shifts_covered_swing_deficit(o, x, total_fellows, deficit):
         o.add(Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) >= 1)
         o.add(Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) <= 2)
         o.add(Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) <= 2)
+        
         # At most one extra fellow on at once.
         o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for f in range(total_fellows)]) <= 3)
+
+        # Covering swing as well
+        o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for f in range(total_fellows)]) <= 4)
 
         # LE because inadequacy
         o.add(Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)]) <= 1)
@@ -57,16 +63,8 @@ def ncc_shifts_covered_swing_deficit(o, x, total_fellows, deficit):
 
 def stroke_shifts_covered(o, x, total_fellows, fellow_mapping):
     # Every week has exactly one person on Stroke and on Telestroke/Clinic
-    # Except for the week that Victoria supervises NH Adam his first time.
-    victoria = fellow_mapping.get_fellow("Stroke Victoria")
-    adam = fellow_mapping.get_fellow("NH Adam")
     for w in range(W):
         stroke_coverage = Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(total_fellows)]) == 1
-        if victoria is not None and adam is not None:
-            stroke_coverage = Or(
-                stroke_coverage,
-                And(x[victoria.index, w, "Stroke"], x[adam.index, w, "Stroke"])
-            )
         o.add(stroke_coverage)
         o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(total_fellows)]) == 1)
 
@@ -596,7 +594,7 @@ def optimize_schedule(
                                fellow_indices=ncc_and_stroke_indices)
 
     # Basic coverage and deficit constraints
-    ncc_shifts_covered_swing_deficit(o, schedule.x, fellow_mapping.total_fellows, deficit=12)
+    ncc_shifts_covered_swing_deficit(o, schedule.x, fellow_mapping.total_fellows, deficit=8)
 
     # Maximum consecutive shifts constraints
     maximum_consecutive_icu_shifts(o, schedule.x, 
@@ -644,38 +642,26 @@ def optimize_schedule(
 
     # Stroke service specific constraints
     if True:
-        # Jeff is on stroke during ABPN
-        jeff = existing_fellow_indices(fellow_mapping, ["Stroke Jeff"])
-        if jeff:
-            specific_assignment(o, schedule.x, 
-                              shift="Stroke", 
-                              fellow_indices=jeff, 
-                              week=date_to_week_index((2025, 9, 16)))
-
-        # First week assignments
-        first_week_ncc = existing_fellow_indices(fellow_mapping, ["NCC David", "NCC Prash"])
-        if first_week_ncc:
-            specific_assignment(o, schedule.x, 
-                              shift="Stroke",
-                              fellow_indices=first_week_ncc, 
-                              week=1)
+        # First week assignments: a senior
+        specific_assignment(o, schedule.x, 
+                            shift="Stroke",
+                            fellow_indices=fellow_mapping.get_fellow_indices_by_group("NCC_SR"), 
+                            week=1)
 
         first_week_telestroke = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE")
-        if first_week_telestroke:
-            specific_assignment(o, schedule.x, 
-                              shift="Telestroke/Clinic",
-                              fellow_indices=first_week_telestroke, 
-                              week=1)
+        specific_assignment(o, schedule.x, 
+                            shift="Telestroke/Clinic",
+                            fellow_indices=first_week_telestroke, 
+                            week=1)
 
+        # TODO: date shouldn't be hardcoded inside the function.
         isc(o, schedule.x, fellow_indices=stroke_indices)
 
-    # Soft constraints for specific assignments
-    abpn_telestroke = existing_fellow_indices(fellow_mapping, ["NCC Prash", "NCC David"])
-    if abpn_telestroke:
+        # Soft constraints for specific assignments
         specific_assignment_soft(o, schedule.x, 
-                               shift="Telestroke/Clinic",
-                               fellow_indices=abpn_telestroke, 
-                               week=date_to_week_index((2025, 9, 16)))
+                            shift="Telestroke/Clinic",
+                            fellow_indices=fellow_mapping.get_fellow_indices_by_group("NCC_SR"), 
+                            week=date_to_week_index((2025, 9, 16)))
 
     stroke_shifts_covered(o, schedule.x, fellow_mapping.total_fellows, fellow_mapping)
 
@@ -690,18 +676,10 @@ def optimize_schedule(
         scvmc_second_half(o, schedule.x, fellow_indices=stroke_indices)
         stroke_no_block_one_ncc(o, schedule.x, fellow_indices=stroke_indices)
         
-        # NH fellow constraints
-        nh_indices = fellow_mapping.get_fellow_indices_by_group("NH")
-        stroke_no_block_one_ncc(o, schedule.x, fellow_indices=nh_indices)
+    # NH fellow constraints
+    nh_indices = fellow_mapping.get_fellow_indices_by_group("NH")
+    stroke_no_block_one_ncc(o, schedule.x, fellow_indices=nh_indices)
 
-    # Specific assignments for Jeff
-    jeff = existing_fellow_indices(fellow_mapping, ["Stroke Jeff"])
-    if jeff:
-        for week in range(4):
-            specific_assignment(o, schedule.x, 
-                              shift="Elec",
-                              fellow_indices=jeff, 
-                              week=week)
 
     # Service total constraints
     if True:
@@ -717,13 +695,9 @@ def optimize_schedule(
         ccm_indices = fellow_mapping.get_fellow_indices_by_group("CCM")
         ccm_total_service(o, schedule.x, fellow_indices=ccm_indices)
 
-    # Lia specific constraints
-    lia_indices = fellow_mapping.get_fellow_indices_by_group("LIA")
-    if lia_indices:
-        lia_thing(o, schedule.x, fellow_indices=lia_indices, shifts=shifts)
-
     status = o.check()
     if status != sat:
+        o.unsat_core() 
         raise ValueError(f"Schedule solver returned {status}")
 
     m = o.model()
@@ -768,10 +742,13 @@ def optimize_schedule(
                                      key=lambda name: fellow_mapping.get_fellow_group_rank(name))
                 fellows_for_shifts['Extra'][ii] = sorted_fellows[-1]
                 fellows_for_shifts[s][ii] = sorted_fellows[0]
-            elif type(its) is list and len(its) > 2:
-                print(s, ii)
-                print(its)
-                quit()
+            elif (type(its) is list and len(its) > 2) or (type(its) is list and s == 'Extra'):
+                print(f"Warning: overassignment in {s}:")
+                print(f"at {ii} we have assigned {its}")
+            # elif type(its) is list and len(its) > 2:
+            #     print(s, ii)
+            #     print(its)
+            #     quit()
 
     # Process stroke assignments
     for s, v in fellows_for_shifts.items():
@@ -781,14 +758,17 @@ def optimize_schedule(
                 fellows_for_shifts[s][ii] = ""
             elif type(its) is list and len(its) == 1:
                 fellows_for_shifts[s][ii] = its[0]
-            elif type(its) is list and len(its) == 2:
-                if 'NH Adam' in its:
-                    fellows_for_shifts['Stroke_Supervisory'][ii] = 'Stroke Victoria'
-                    fellows_for_shifts[s][ii] = 'NH Adam'
-            elif type(its) is list and len(its) > 2:
-                print(s, ii)
-                print(its)
-                quit()
+            else:
+                print(f"Warning: overassignment in {s}:")
+                print(f"at {ii} we have assigned {its}")
+            # elif type(its) is list and len(its) == 2:
+            #     if 'NH Adam' in its:
+            #         fellows_for_shifts['Stroke_Supervisory'][ii] = 'Stroke Victoria'
+            #         fellows_for_shifts[s][ii] = 'NH Adam'
+            # elif type(its) is list and len(its) > 2:
+            #     print(s, ii)
+            #     print(its)
+            #     quit()
 
     return shifts_for_fellows, fellows_for_shifts
 

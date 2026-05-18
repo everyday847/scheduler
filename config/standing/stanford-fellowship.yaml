@@ -6,7 +6,7 @@ block_rules:
     fellow_groups: [NCC_JR, NCC_SR]
     shifts: [NCC1, NCC2, Swing]
     block_size: 4
-    strength: hard
+    strength: soft
 
   - name: micu_four_week_blocks
     fellow_groups: [NCC_JR, NCC_SR]
@@ -22,17 +22,17 @@ block_rules:
 
 max_consecutive:
   - name: core_icu
-    fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH, LIA]
+    fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2, Swing, SICU, MICU, Stroke, NIR]
     weeks: 8
     strength: hard
 
   - name: ncc_team
-    fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH, LIA]
+    fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2, Swing]
     weeks: 6
     strength: hard
 
 swing_deficit:
-  fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH, LIA]
+  fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
   shift: Swing
