@@ -86,6 +86,46 @@ def test_solve_schedule_normalizes_and_returns_optimizer_result(monkeypatch):
     })
 
     assert captured["jr_fellows"] == ["NCC Raya"]
-    assert captured["sr_fellows"] == ["NCC David", "NCC Prash"]
+    assert captured["sr_fellows"] == []
+    assert captured["stroke_fellows"] == []
+    assert captured["CCM_fellows"] == []
+    assert captured["NH_fellows"] == []
+    assert captured["lia"] == []
     assert captured["fellow_week_pairs"] == {"NCC Raya": [0, 1]}
     assert result["shifts_for_fellows"]["NCC Raya"][0] == "MICU"
+
+
+def test_normalize_schedule_request_does_not_backfill_default_fellows():
+    from scheduler.service import normalize_schedule_request
+
+    request = normalize_schedule_request({
+        "jr_fellows": ["NCC New"],
+        "sr_fellows": [],
+        "stroke_fellows": [],
+        "CCM_fellows": [],
+        "fellow_week_pairs": {},
+    })
+
+    assert request["jr_fellows"] == ["NCC New"]
+    assert request["sr_fellows"] == []
+    assert request["stroke_fellows"] == []
+    assert request["CCM_fellows"] == []
+    assert request["NH_fellows"] == []
+    assert request["lia"] == []
+    assert request["fellow_week_pairs"] == {}
+    assert "NCC Prash" not in request["fellow_week_pairs"]
+
+
+def test_normalize_schedule_request_rejects_requests_for_missing_fellows():
+    import pytest
+
+    from scheduler.service import normalize_schedule_request
+
+    with pytest.raises(ValueError, match="Vacation request references unknown fellow: NCC Prash"):
+        normalize_schedule_request({
+            "jr_fellows": ["NCC New"],
+            "sr_fellows": [],
+            "stroke_fellows": [],
+            "CCM_fellows": [],
+            "fellow_week_pairs": {"NCC Prash": [1]},
+        })

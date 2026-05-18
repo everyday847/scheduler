@@ -64,6 +64,8 @@ fellow_week_pairs:
   NCC Raya: [21, 37]
 ```
 
+Omitted fellow cohorts are treated as empty. For example, if the YAML has no `lia` key, the request has no Lia fellow; the scheduler will not backfill `NCC Lia` from the seed data. Vacation requests must reference fellows declared in the same YAML file.
+
 The `annual_rules` section is tutorial-forward: it documents the intended semantic home for year-specific policy, but `src/scheduler/main.py` does not consume every entry yet.
 
 ```yaml
@@ -72,7 +74,7 @@ annual_rules:
     hard_request_count: 3
 ```
 
-For example, a coordinator can try honoring each fellow's top five vacation/elective requests. If that does not solve, change `hard_request_count` to `4` or `3` in this section as the semantic architecture is wired through. In the current legacy solver, the hard request count is still fixed in `src/scheduler/main.py`.
+For example, a coordinator can try honoring each fellow's top five vacation/elective requests. If that does not solve, change `hard_request_count` to `4` or `3` in this section as the semantic architecture is wired through. The YAML request itself is now authoritative for who is present and which fellows have vacation requests.
 
 ## Solve A Schedule
 

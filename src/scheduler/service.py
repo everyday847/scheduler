@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from io import BytesIO
 from typing import Any, Dict, List
 
@@ -113,10 +112,12 @@ def get_default_schedule_request() -> Dict[str, Any]:
 
 def normalize_schedule_request(raw_request: Dict[str, Any] | None) -> Dict[str, Any]:
     if raw_request is None:
-        raise ValueError("Request body must be JSON.")
+        raise ValueError("Request body must be YAML or JSON.")
 
-    defaults = get_default_schedule_request()
-    request = deepcopy(defaults)
+    if not isinstance(raw_request, dict):
+        raise ValueError("Schedule request must be an object.")
+
+    request: Dict[str, Any] = {}
     for key in [
         "jr_fellows",
         "sr_fellows",
@@ -126,11 +127,13 @@ def normalize_schedule_request(raw_request: Dict[str, Any] | None) -> Dict[str, 
         "lia",
         "shifts",
     ]:
-        if key in raw_request:
-            request[key] = _string_list(raw_request[key], key)
+        if key == "shifts":
+            request[key] = _string_list(raw_request.get(key, DEFAULT_SHIFTS), key)
+        else:
+            request[key] = _string_list(raw_request.get(key, []), key)
 
-    if "fellow_week_pairs" in raw_request:
-        request["fellow_week_pairs"] = _week_pairs(raw_request["fellow_week_pairs"])
+    request["fellow_week_pairs"] = _week_pairs(raw_request.get("fellow_week_pairs", {}))
+    _validate_fellow_week_pairs_reference_known_fellows(request)
 
     return request
 
@@ -190,6 +193,20 @@ def _week_pairs(value: Any) -> Dict[str, List[int]]:
             parsed_weeks.append(week)
         pairs[fellow] = parsed_weeks
     return pairs
+
+
+def _validate_fellow_week_pairs_reference_known_fellows(request: Dict[str, Any]) -> None:
+    known_fellows = set(
+        request["jr_fellows"]
+        + request["sr_fellows"]
+        + request["stroke_fellows"]
+        + request["CCM_fellows"]
+        + request["NH_fellows"]
+        + request["lia"]
+    )
+    for fellow in request["fellow_week_pairs"]:
+        if fellow not in known_fellows:
+            raise ValueError(f"Vacation request references unknown fellow: {fellow}")
 
 
 def _build_per_fellow_sheet(ws, request: Dict[str, Any], shifts_for_fellows: Dict[str, List[str]]) -> None:
