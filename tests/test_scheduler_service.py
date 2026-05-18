@@ -12,11 +12,11 @@ def test_default_schedule_request_contains_seed_data():
 
     request = get_default_schedule_request()
 
-    assert request["jr_fellows"] == ["NCC Raya", "NCC Joseph"]
-    assert request["sr_fellows"] == ["NCC David", "NCC Prash"]
-    assert "Stroke Gabi" in request["stroke_fellows"]
-    assert "NH Adam" in request["NH_fellows"]
-    assert request["lia"] == ["NCC Lia"]
+    assert request["fellow_groups"]["NCC_JR"] == ["NCC Raya", "NCC Joseph"]
+    assert request["fellow_groups"]["NCC_SR"] == ["NCC David", "NCC Prash"]
+    assert "Stroke Gabi" in request["fellow_groups"]["STROKE"]
+    assert "NH Adam" in request["fellow_groups"]["NH"]
+    assert request["fellow_groups"]["LIA"] == ["NCC Lia"]
     assert request["fellow_week_pairs"]["NCC Prash"][:3] == [1, 7, 25]
     assert "Clinic/Elective" in request["shifts"]
 
@@ -26,12 +26,10 @@ def test_build_schedule_workbook_returns_xlsx_bytes():
 
     result = {
         "request": {
-            "jr_fellows": ["NCC Raya"],
-            "sr_fellows": [],
-            "stroke_fellows": ["Stroke Gabi"],
-            "CCM_fellows": [],
-            "NH_fellows": [],
-            "lia": [],
+            "fellow_groups": {
+                "NCC_JR": ["NCC Raya"],
+                "STROKE": ["Stroke Gabi"],
+            },
         },
         "shifts_for_fellows": {
             "NCC Raya": ["MICU"] * 52,
@@ -62,8 +60,8 @@ def test_flask_default_schedule_endpoint_returns_seed_data():
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["jr_fellows"] == ["NCC Raya", "NCC Joseph"]
-    assert payload["lia"] == ["NCC Lia"]
+    assert payload["fellow_groups"]["NCC_JR"] == ["NCC Raya", "NCC Joseph"]
+    assert payload["fellow_groups"]["LIA"] == ["NCC Lia"]
 
 
 def test_solve_schedule_normalizes_and_returns_optimizer_result(monkeypatch):
@@ -81,16 +79,11 @@ def test_solve_schedule_normalizes_and_returns_optimizer_result(monkeypatch):
     monkeypatch.setattr(service, "optimize_schedule", fake_optimize_schedule)
 
     result = service.solve_schedule({
-        "jr_fellows": ["NCC Raya"],
+        "fellow_groups": {"NEW_GROUP": ["NCC Raya"]},
         "fellow_week_pairs": {"NCC Raya": [0, 1]},
     })
 
-    assert captured["jr_fellows"] == ["NCC Raya"]
-    assert captured["sr_fellows"] == []
-    assert captured["stroke_fellows"] == []
-    assert captured["CCM_fellows"] == []
-    assert captured["NH_fellows"] == []
-    assert captured["lia"] == []
+    assert captured["fellow_groups"] == {"NEW_GROUP": ["NCC Raya"]}
     assert captured["fellow_week_pairs"] == {"NCC Raya": [0, 1]}
     assert result["shifts_for_fellows"]["NCC Raya"][0] == "MICU"
 
@@ -99,19 +92,11 @@ def test_normalize_schedule_request_does_not_backfill_default_fellows():
     from scheduler.service import normalize_schedule_request
 
     request = normalize_schedule_request({
-        "jr_fellows": ["NCC New"],
-        "sr_fellows": [],
-        "stroke_fellows": [],
-        "CCM_fellows": [],
+        "fellow_groups": {"NEW_GROUP": ["NCC New"]},
         "fellow_week_pairs": {},
     })
 
-    assert request["jr_fellows"] == ["NCC New"]
-    assert request["sr_fellows"] == []
-    assert request["stroke_fellows"] == []
-    assert request["CCM_fellows"] == []
-    assert request["NH_fellows"] == []
-    assert request["lia"] == []
+    assert request["fellow_groups"] == {"NEW_GROUP": ["NCC New"]}
     assert request["fellow_week_pairs"] == {}
     assert "NCC Prash" not in request["fellow_week_pairs"]
 
@@ -123,9 +108,20 @@ def test_normalize_schedule_request_rejects_requests_for_missing_fellows():
 
     with pytest.raises(ValueError, match="Vacation request references unknown fellow: NCC Prash"):
         normalize_schedule_request({
-            "jr_fellows": ["NCC New"],
-            "sr_fellows": [],
-            "stroke_fellows": [],
-            "CCM_fellows": [],
+            "fellow_groups": {"NEW_GROUP": ["NCC New"]},
             "fellow_week_pairs": {"NCC Prash": [1]},
+        })
+
+
+def test_normalize_schedule_request_rejects_duplicate_fellows_across_groups():
+    import pytest
+
+    from scheduler.service import normalize_schedule_request
+
+    with pytest.raises(ValueError, match="Fellow NCC New appears in multiple fellow_groups"):
+        normalize_schedule_request({
+            "fellow_groups": {
+                "GROUP_A": ["NCC New"],
+                "GROUP_B": ["NCC New"],
+            },
         })

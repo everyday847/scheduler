@@ -34,28 +34,30 @@ DEFAULT_SHIFTS = [
 
 def get_default_schedule_request() -> Dict[str, Any]:
     return {
-        "jr_fellows": ["NCC Raya", "NCC Joseph"],
-        "sr_fellows": ["NCC David", "NCC Prash"],
-        "stroke_fellows": ["Stroke Gabi", "Stroke Jeff", "Stroke Victoria", "Stroke Parshva"],
-        "CCM_fellows": [
-            "CCM Ariana",
-            "CCM Bert",
-            "CCM Chloe",
-            "CCM Dennis",
-            "CCM Edwina",
-            "CCM Frank",
-            "CCM George",
-            "CCM Helen",
-            "CCM Iago",
-            "CCM Jake",
-            "CCM Kyle",
-            "CCM Liana",
-            "CCM Mary",
-            "CCM Ning",
-            "CCM Oyo",
-        ],
-        "NH_fellows": ["NH Adam"],
-        "lia": ["NCC Lia"],
+        "fellow_groups": {
+            "NCC_JR": ["NCC Raya", "NCC Joseph"],
+            "NCC_SR": ["NCC David", "NCC Prash"],
+            "STROKE": ["Stroke Gabi", "Stroke Jeff", "Stroke Victoria", "Stroke Parshva"],
+            "CCM": [
+                "CCM Ariana",
+                "CCM Bert",
+                "CCM Chloe",
+                "CCM Dennis",
+                "CCM Edwina",
+                "CCM Frank",
+                "CCM George",
+                "CCM Helen",
+                "CCM Iago",
+                "CCM Jake",
+                "CCM Kyle",
+                "CCM Liana",
+                "CCM Mary",
+                "CCM Ning",
+                "CCM Oyo",
+            ],
+            "NH": ["NH Adam"],
+            "LIA": ["NCC Lia"],
+        },
         "shifts": list(DEFAULT_SHIFTS),
         "fellow_week_pairs": {
             "NCC Prash": [
@@ -117,23 +119,14 @@ def normalize_schedule_request(raw_request: Dict[str, Any] | None) -> Dict[str, 
     if not isinstance(raw_request, dict):
         raise ValueError("Schedule request must be an object.")
 
-    request: Dict[str, Any] = {}
-    for key in [
-        "jr_fellows",
-        "sr_fellows",
-        "stroke_fellows",
-        "CCM_fellows",
-        "NH_fellows",
-        "lia",
-        "shifts",
-    ]:
-        if key == "shifts":
-            request[key] = _string_list(raw_request.get(key, DEFAULT_SHIFTS), key)
-        else:
-            request[key] = _string_list(raw_request.get(key, []), key)
-
+    request: Dict[str, Any] = {
+        "fellow_groups": _fellow_groups(raw_request.get("fellow_groups", {})),
+        "shifts": _string_list(raw_request.get("shifts", DEFAULT_SHIFTS), "shifts"),
+    }
     request["fellow_week_pairs"] = _week_pairs(raw_request.get("fellow_week_pairs", {}))
-    _validate_fellow_week_pairs_reference_known_fellows(request)
+    if "annual_rules" in raw_request:
+        request["annual_rules"] = raw_request["annual_rules"]
+    _validate_request_references(request)
 
     return request
 
@@ -141,12 +134,7 @@ def normalize_schedule_request(raw_request: Dict[str, Any] | None) -> Dict[str, 
 def solve_schedule(raw_request: Dict[str, Any] | None) -> Dict[str, Any]:
     request = normalize_schedule_request(raw_request)
     shifts_for_fellows, fellows_for_shifts = optimize_schedule(
-        jr_fellows=request["jr_fellows"],
-        sr_fellows=request["sr_fellows"],
-        stroke_fellows=request["stroke_fellows"],
-        CCM_fellows=request["CCM_fellows"],
-        NH_fellows=request["NH_fellows"],
-        lia=request["lia"],
+        fellow_groups=request["fellow_groups"],
         shifts=request["shifts"],
         fellow_week_pairs=request["fellow_week_pairs"],
     )
@@ -178,6 +166,18 @@ def _string_list(value: Any, key: str) -> List[str]:
     return [item.strip() for item in value if item.strip()]
 
 
+def _fellow_groups(value: Any) -> Dict[str, List[str]]:
+    if not isinstance(value, dict):
+        raise ValueError("fellow_groups must be an object.")
+
+    groups: Dict[str, List[str]] = {}
+    for group_name, fellows in value.items():
+        if not isinstance(group_name, str) or not group_name.strip():
+            raise ValueError("fellow_groups keys must be non-empty strings.")
+        groups[group_name.strip()] = _string_list(fellows, f"fellow_groups.{group_name}")
+    return groups
+
+
 def _week_pairs(value: Any) -> Dict[str, List[int]]:
     if not isinstance(value, dict):
         raise ValueError("fellow_week_pairs must be an object.")
@@ -195,15 +195,14 @@ def _week_pairs(value: Any) -> Dict[str, List[int]]:
     return pairs
 
 
-def _validate_fellow_week_pairs_reference_known_fellows(request: Dict[str, Any]) -> None:
-    known_fellows = set(
-        request["jr_fellows"]
-        + request["sr_fellows"]
-        + request["stroke_fellows"]
-        + request["CCM_fellows"]
-        + request["NH_fellows"]
-        + request["lia"]
-    )
+def _validate_request_references(request: Dict[str, Any]) -> None:
+    known_fellows: set[str] = set()
+    for fellows in request["fellow_groups"].values():
+        for fellow in fellows:
+            if fellow in known_fellows:
+                raise ValueError(f"Fellow {fellow} appears in multiple fellow_groups")
+            known_fellows.add(fellow)
+
     for fellow in request["fellow_week_pairs"]:
         if fellow not in known_fellows:
             raise ValueError(f"Vacation request references unknown fellow: {fellow}")
@@ -211,13 +210,11 @@ def _validate_fellow_week_pairs_reference_known_fellows(request: Dict[str, Any])
 
 def _build_per_fellow_sheet(ws, request: Dict[str, Any], shifts_for_fellows: Dict[str, List[str]]) -> None:
     ws.title = "Per-Fellow Schedule"
-    fellows = (
-        request["jr_fellows"]
-        + request["sr_fellows"]
-        + request["stroke_fellows"]
-        + request["NH_fellows"]
-        + request["lia"]
-    )
+    fellows = [
+        fellow
+        for group_fellows in request["fellow_groups"].values()
+        for fellow in group_fellows
+    ]
     _write_table(ws, ["Week"] + fellows, [
         [week] + [shifts_for_fellows.get(fellow, [""] * W)[week] for fellow in fellows]
         for week in range(W)
