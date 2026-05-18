@@ -24,8 +24,7 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 | `ncc_shifts_covered_swing_deficit` | NCC1 and NCC2 have weekly coverage bounds; Swing has at most one person and permits uncovered weeks. | Mixed. NCC coverage is a Standing Rule; Swing deficit should become a soft minimization preference because the desired value is always as small as possible while still solving. |
 | `ncc_stroke_oversight` | At least one NCC team each week has an NCC or Stroke Fellow. | Standing Rule. The comment says "ideally," so strength may need to become explicit. |
 | `maximum_consecutive_icu_shifts` / `maximum_consecutive_icu_shifts_soft` | Limits consecutive weeks in selected Shift sets. | Standing Rule with configurable thresholds and hard/soft strength. |
-| `jr_first_month_micu` | Junior NCC fellows start with MICU in the first month. | Standing Rule. |
-| `jr_ncc_before_19` | Junior NCC fellows have NCC before week 19. | Standing Rule with a configurable week threshold. |
+| `ncc_jr_service_profile` window totals | Junior NCC fellows start with MICU in the first month and have NCC before week 19. | Standing Rule expressed declaratively with service-profile window counts. |
 | `jr_fellows_n_ncc_before_swing` | Junior NCC fellows have N NCC weeks before first Swing. | Standing Rule with a configurable count. |
 | `ccm_service_profile` in Standing Rule YAML | CCM fellows do one NCC-ish block with three NCC weeks, one Swing week, and no service on excluded shifts. | Standing Rule expressed declaratively with service totals and active-block counts. |
 | `stroke_service_profile` in Standing Rule YAML | Stroke fellows have fixed service totals and forbidden Shifts. | Standing Rule expressed declaratively by Fellow Group. |

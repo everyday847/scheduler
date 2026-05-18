@@ -106,12 +106,6 @@ def maximum_consecutive_icu_shifts_soft(o, x, fellow_indices, shifts, MAX_CONSEC
                 1,
                 0) for i in range(MAX_CONSEC + 1)]) <= MAX_CONSEC)
 
-def jr_first_month_micu(o, x, fellow_indices):
-    # jr fellows first month is MICU
-    for f in fellow_indices:
-        for w in range(4):
-            o.add(x[f, w, "MICU"])
-
 def jr_ncc_before_19(o, x, fellow_indices):
     # jr fellows have a block of NCC before week 19
     for f in fellow_indices:
@@ -450,9 +444,7 @@ def _rule_handlers():
         "full_assignment": _apply_full_assignment,
         "fourth_block_two_micu_fellows": _apply_fourth_block_two_micu_fellows,
         "isc": _apply_isc,
-        "jr_first_month_micu": _apply_jr_first_month_micu,
         "jr_ncc_before_swing": _apply_jr_ncc_before_swing,
-        "jr_ncc_before_week": _apply_jr_ncc_before_week,
         "max_consecutive": _apply_max_consecutive,
         "minimize_uncovered_shift_weeks": _apply_minimize_uncovered_shift_weeks,
         "ncc_coverage": _apply_ncc_coverage,
@@ -543,20 +535,6 @@ def _apply_max_consecutive(o, x, context, constraint, fellow_indices):
         )
 
 
-def _apply_jr_first_month_micu(o, x, context, constraint, fellow_indices):
-    jr_first_month_micu(o, x, fellow_indices=fellow_indices)
-
-
-def _apply_jr_ncc_before_week(o, x, context, constraint, fellow_indices):
-    threshold = constraint.params["week"] if "week" in constraint.params else constraint.weeks.start
-    for f in fellow_indices:
-        _add_by_strength(
-            o,
-            constraint,
-            Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(4, threshold)]) >= 1,
-        )
-
-
 def _apply_jr_ncc_before_swing(o, x, context, constraint, fellow_indices):
     jr_fellows_n_ncc_before_swing(
         o,
@@ -587,6 +565,18 @@ def _apply_service_profile(o, x, context, constraint, fellow_indices):
                 constraint,
                 _count_relation(
                     _shift_count(x, f, range(context.week_count), total["shifts"]),
+                    total["relation"],
+                    total["weeks"],
+                ),
+            )
+
+        for total in constraint.params.get("window_totals", []):
+            window_start, window_end = total["window"]
+            _add_by_strength(
+                o,
+                constraint,
+                _count_relation(
+                    _shift_count(x, f, range(window_start, window_end), total["shifts"]),
                     total["relation"],
                     total["weeks"],
                 ),

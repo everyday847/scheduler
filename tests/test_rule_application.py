@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from z3 import Bool, Optimize, sat, unsat
+from z3 import Bool, Not, Optimize, sat, unsat
 
 from scheduler.main import _rule_handlers
 from scheduler.rule_application import RuleApplicationContext, apply_constraints
@@ -147,6 +147,40 @@ def test_service_profile_requires_service_weeks_to_share_one_active_block():
     apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
     optimizer.add(variables[0, 0, "NCC1"])
     optimizer.add(variables[0, 4, "Swing"])
+
+    assert optimizer.check() == unsat
+
+
+def test_service_profile_enforces_window_totals():
+    optimizer, variables, context = _small_z3_context()
+    constraint = SemanticConstraint(
+        kind="service_profile",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.HARD,
+        fellows=FellowSelector.by_groups("CCM"),
+        params={
+            "name": "windowed_profile",
+            "window_totals": [
+                {"shifts": ["MICU"], "relation": "exactly", "weeks": 2, "window": [0, 2]},
+                {"shifts": ["NCC1", "NCC2"], "relation": "at_least", "weeks": 1, "window": [2, 6]},
+            ],
+        },
+    )
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "MICU"])
+    optimizer.add(variables[0, 1, "MICU"])
+    optimizer.add(variables[0, 4, "NCC1"])
+
+    assert optimizer.check() == sat
+
+    optimizer, variables, context = _small_z3_context()
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "MICU"])
+    optimizer.add(variables[0, 1, "MICU"])
+    for week in range(2, 6):
+        optimizer.add(Not(variables[0, week, "NCC1"]))
+        optimizer.add(Not(variables[0, week, "NCC2"]))
 
     assert optimizer.check() == unsat
 

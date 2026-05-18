@@ -48,19 +48,6 @@ rules:
     shifts: [Swing]
     weeks: 2
 
-  - name: junior_first_month_micu
-    kind: jr_first_month_micu
-    active: true
-    strength: hard
-    fellow_groups: [NCC_JR]
-
-  - name: junior_ncc_before_week
-    kind: jr_ncc_before_week
-    active: true
-    strength: hard
-    fellow_groups: [NCC_JR]
-    week: 19
-
   - name: junior_ncc_before_swing
     kind: jr_ncc_before_swing
     active: true
@@ -253,6 +240,15 @@ rules:
       - shifts: [NCC1, NCC2]
         relation: exactly
         weeks: 9
+    window_totals:
+      - shifts: [MICU]
+        relation: exactly
+        weeks: 4
+        window: [0, 4]
+      - shifts: [NCC1, NCC2]
+        relation: at_least
+        weeks: 1
+        window: [4, 19]
 
   - name: ncc_sr_service_profile
     kind: service_profile

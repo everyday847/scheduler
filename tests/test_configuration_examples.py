@@ -51,6 +51,10 @@ def test_ncc_and_stroke_service_are_defined_declaratively_in_standing_yaml():
     assert {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 9} in rules["ncc_jr_service_profile"]["totals"]
     assert {"shifts": ["MICU"], "relation": "at_least", "weeks": 20} in rules["ncc_jr_service_profile"]["totals"]
     assert "Stroke" in rules["ncc_jr_service_profile"]["zero_shifts"]
+    assert {"shifts": ["MICU"], "relation": "exactly", "weeks": 4, "window": [0, 4]} in rules["ncc_jr_service_profile"]["window_totals"]
+    assert {"shifts": ["NCC1", "NCC2"], "relation": "at_least", "weeks": 1, "window": [4, 19]} in rules["ncc_jr_service_profile"]["window_totals"]
+    assert "junior_first_month_micu" not in rules
+    assert "junior_ncc_before_week" not in rules
 
     assert rules["ncc_sr_service_profile"]["kind"] == "service_profile"
     assert rules["ncc_sr_service_profile"]["fellow_groups"] == ["NCC_SR"]
