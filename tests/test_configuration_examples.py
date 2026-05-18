@@ -42,6 +42,42 @@ def test_ccm_service_is_defined_declaratively_in_standing_yaml():
     ]
 
 
+def test_ncc_and_stroke_service_are_defined_declaratively_in_standing_yaml():
+    config = yaml.safe_load((ROOT / "config/standing/stanford-fellowship.yaml").read_text())
+    rules = {rule["name"]: rule for rule in config["rules"]}
+
+    assert rules["ncc_jr_service_profile"]["kind"] == "service_profile"
+    assert rules["ncc_jr_service_profile"]["fellow_groups"] == ["NCC_JR"]
+    assert {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 9} in rules["ncc_jr_service_profile"]["totals"]
+    assert {"shifts": ["MICU"], "relation": "at_least", "weeks": 20} in rules["ncc_jr_service_profile"]["totals"]
+    assert "Stroke" in rules["ncc_jr_service_profile"]["zero_shifts"]
+
+    assert rules["ncc_sr_service_profile"]["kind"] == "service_profile"
+    assert rules["ncc_sr_service_profile"]["fellow_groups"] == ["NCC_SR"]
+    assert {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 14} in rules["ncc_sr_service_profile"]["totals"]
+    assert {"shifts": ["Swing"], "relation": "at_least", "weeks": 6} in rules["ncc_sr_service_profile"]["totals"]
+    assert "SICU" in rules["ncc_sr_service_profile"]["zero_shifts"]
+
+    assert rules["stroke_service_profile"]["kind"] == "service_profile"
+    assert rules["stroke_service_profile"]["fellow_groups"] == ["STROKE"]
+    assert {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 4} in rules["stroke_service_profile"]["totals"]
+    assert {"shifts": ["Swing"], "relation": "exactly", "weeks": 2} in rules["stroke_service_profile"]["totals"]
+    assert {"shifts": ["Stroke"], "relation": "at_least", "weeks": 11} in rules["stroke_service_profile"]["totals"]
+    assert "MICU" in rules["stroke_service_profile"]["zero_shifts"]
+
+
+def test_nh_service_is_defined_declaratively_in_annual_yaml():
+    request = yaml.safe_load((ROOT / "config/annual/example-2025-2026.yaml").read_text())
+    rules = {rule["name"]: rule for rule in request["annual_rules"]["rules"]}
+
+    assert rules["nh_service_profile"]["kind"] == "service_profile"
+    assert rules["nh_service_profile"]["fellow_groups"] == ["NH"]
+    assert {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 4} in rules["nh_service_profile"]["totals"]
+    assert {"shifts": ["Swing"], "relation": "exactly", "weeks": 1} in rules["nh_service_profile"]["totals"]
+    assert {"shifts": ["Telestroke/Clinic"], "relation": "exactly", "weeks": 3} in rules["nh_service_profile"]["totals"]
+    assert "MICU" in rules["nh_service_profile"]["zero_shifts"]
+
+
 def test_annual_request_example_is_valid_yaml():
     request = yaml.safe_load((ROOT / "config/annual/example-2025-2026.yaml").read_text())
 

@@ -176,23 +176,121 @@ rules:
     strength: hard
     fellow_groups: [STROKE]
 
-  - name: stroke_total_service
-    kind: stroke_total_service
+  - name: stroke_service_profile
+    kind: service_profile
     active: true
     strength: hard
     fellow_groups: [STROKE]
+    zero_shifts:
+      - NS
+      - MICU
+      - SICU
+      - Anaesthesia
+    totals:
+      - shifts: [Swing]
+        relation: exactly
+        weeks: 2
+      - shifts: [NCC1, NCC2]
+        relation: exactly
+        weeks: 4
+      - shifts: [Stroke]
+        relation: at_least
+        weeks: 11
+      - shifts: [Elec]
+        relation: at_least
+        weeks: 4
+      - shifts: [Vac]
+        relation: at_least
+        weeks: 3
+      - shifts: [Telestroke/Clinic]
+        relation: at_least
+        weeks: 11
+      - shifts: [Clinic/Elective]
+        relation: at_least
+        weeks: 11
+      - shifts: [SCVMC Rehab]
+        relation: exactly
+        weeks: 2
+      - shifts: [NIR]
+        relation: exactly
+        weeks: 2
+      - shifts: [ISC]
+        relation: exactly
+        weeks: 1
 
-  - name: ncc_jr_total_service
-    kind: ncc_jr_total_service
+  - name: ncc_jr_service_profile
+    kind: service_profile
     active: true
     strength: hard
     fellow_groups: [NCC_JR]
+    zero_shifts:
+      - NS
+      - Stroke
+      - Telestroke/Clinic
+      - SCVMC Rehab
+      - NIR
+      - Clinic/Elective
+      - ISC
+    totals:
+      - shifts: [MICU]
+        relation: at_least
+        weeks: 20
+      - shifts: [Anaesthesia]
+        relation: at_least
+        weeks: 4
+      - shifts: [Elec]
+        relation: at_least
+        weeks: 9
+      - shifts: [Vac]
+        relation: at_least
+        weeks: 3
+      - shifts: [SICU]
+        relation: at_least
+        weeks: 4
+      - shifts: [Swing]
+        relation: at_least
+        weeks: 3
+      - shifts: [NCC1, NCC2]
+        relation: exactly
+        weeks: 9
 
-  - name: ncc_sr_total_service
-    kind: ncc_sr_total_service
+  - name: ncc_sr_service_profile
+    kind: service_profile
     active: true
     strength: hard
     fellow_groups: [NCC_SR]
+    zero_shifts:
+      - Anaesthesia
+      - SICU
+      - SCVMC Rehab
+      - NIR
+      - Clinic/Elective
+      - ISC
+    totals:
+      - shifts: [MICU]
+        relation: at_least
+        weeks: 8
+      - shifts: [Elec]
+        relation: at_least
+        weeks: 10
+      - shifts: [Vac]
+        relation: at_least
+        weeks: 3
+      - shifts: [NS]
+        relation: at_least
+        weeks: 7
+      - shifts: [Stroke]
+        relation: at_least
+        weeks: 2
+      - shifts: [Telestroke/Clinic]
+        relation: at_least
+        weeks: 2
+      - shifts: [Swing]
+        relation: at_least
+        weeks: 6
+      - shifts: [NCC1, NCC2]
+        relation: exactly
+        weeks: 14
 
   - name: ccm_service_profile
     kind: service_profile

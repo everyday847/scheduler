@@ -28,9 +28,9 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 | `jr_ncc_before_19` | Junior NCC fellows have NCC before week 19. | Standing Rule with a configurable week threshold. |
 | `jr_fellows_n_ncc_before_swing` | Junior NCC fellows have N NCC weeks before first Swing. | Standing Rule with a configurable count. |
 | `ccm_service_profile` in Standing Rule YAML | CCM fellows do one NCC-ish block with three NCC weeks, one Swing week, and no service on excluded shifts. | Standing Rule expressed declaratively with service totals and active-block counts. |
-| `stroke_total_service` | Stroke fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
-| `ncc_jr_total_service` | Junior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
-| `ncc_sr_total_service` | Senior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
+| `stroke_service_profile` in Standing Rule YAML | Stroke fellows have fixed service totals and forbidden Shifts. | Standing Rule expressed declaratively by Fellow Group. |
+| `ncc_jr_service_profile` in Standing Rule YAML | Junior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule expressed declaratively by Fellow Group. |
+| `ncc_sr_service_profile` in Standing Rule YAML | Senior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule expressed declaratively by Fellow Group. |
 | `shift_blocked` / `shift_blocked_soft` | A Shift is all-or-none inside Blocks of a given size. | Standing Rule primitive. |
 | `sicu_blocked`, `micu_blocked`, `anaesthesia_blocked`, `scvmc_blocked`, `vasc_blocked`, `ns_blocked` | Specific Shifts follow two- or four-week Block structure. | Standing Rules; the Block sizes belong in deliberate configuration. |
 | `ncc_blocked` | NCC1/NCC2/Swing follow Block structure. | Standing Rule with a tiered solve strategy: first try hard four-week Blocks; fall back to soft four-week and hard two-week Blocks if needed. |
@@ -47,7 +47,7 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 | `specific_assignment` / `specific_assignment_soft` | Forces or prefers a named assignment in a week. | Annual Rule primitive. |
 | `nh_first_stroke_with_victoria` | Requires a specific Fellow's first Stroke week to overlap with Victoria. | Annual Rule primitive; currently not called directly. |
 | `stroke_shifts_covered` | Stroke and Telestroke/Clinic coverage, with a Victoria/Adam co-assignment exception. | Mixed. Coverage is a Standing Rule; the named co-assignment exception is an Annual Rule. |
-| `nh_total_service` | NH fellows have fixed service totals and forbidden Shifts for a year when NH service is present. | Annual Rule because NH service is not present every year. |
+| `nh_service_profile` in Annual Rule YAML | NH fellows have fixed service totals and forbidden Shifts for a year when NH service is present. | Annual Rule because NH service is not present every year. |
 | `stroke_no_block_one_ncc` for NH fellows | NH fellows avoid NCC1/NCC2 and cannot do Swing in the first block. | Annual Rule when NH service is present. |
 | `fourth_block_two_micu_fellows` | Requires two MICU fellows during weeks 12-15. | Annual Rule. |
 | Jeff ABPN assignment in `optimize_schedule` | Forces Stroke Jeff to Stroke during the ABPN week. | Annual Rule. |

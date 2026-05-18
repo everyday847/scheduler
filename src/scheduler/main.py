@@ -119,98 +119,6 @@ def jr_ncc_before_19(o, x, fellow_indices):
             Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(4, 19)]) >= 1
         )
 
-def total_shift_service(o, x, f, shift, n):
-    o.add(Sum([If(x[f, w, shift], 1, 0) for w in range(W)]) >= n)
-
-def total_shift_service_exact(o, x, f, shift, n):
-    o.add(Sum([If(x[f, w, shift], 1, 0) for w in range(W)]) == n)
-
-def zero_shift_service(o, x, f, shift):
-    for w in range(W):
-        o.add(Not(x[f, w, shift]))
-
-def total_nicu_service(o, x, f, n):
-    o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(W)]) >= n)
-
-def total_nicu_service_exact(o, x, f, n):
-    o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(W)]) == n)
-
-def stroke_total_service(o, x, fellow_indices):
-    for f in fellow_indices:
-        if True:
-            total_shift_service_exact(o, x, f, "Swing", 2)
-            total_nicu_service_exact(o, x, f, 4) # *non-swing* NICU service!!
-        if True:
-            total_shift_service(o, x, f, "Stroke", 11) # 11 or 12 in a 53
-            total_shift_service(o, x, f, "Elec", 4)
-            total_shift_service(o, x, f, "Vac", 3)
-            total_shift_service(o, x, f, "Telestroke/Clinic", 11)
-        # NCC ONLY
-        zero_shift_service(o, x, f, "NS")
-        zero_shift_service(o, x, f, "MICU")
-        zero_shift_service(o, x, f, "SICU")
-        zero_shift_service(o, x, f, "Anaesthesia")
-        if True:
-            total_shift_service(o, x, f, "Clinic/Elective", 11)
-            total_shift_service_exact(o, x, f, "SCVMC Rehab", 2)
-            total_shift_service_exact(o, x, f, "NIR", 2)
-            total_shift_service_exact(o, x, f, "ISC", 1)
-
-def ncc_jr_total_service(o, x, fellow_indices):
-    for f in fellow_indices:
-        total_shift_service(o, x, f, "MICU", 20)
-        total_shift_service(o, x, f, "Anaesthesia", 4)
-        total_shift_service(o, x, f, "Elec", 9)
-        total_shift_service(o, x, f, "Vac", 3)
-        zero_shift_service(o, x, f, "NS")
-        total_shift_service(o, x, f, "SICU", 4)
-        zero_shift_service(o, x, f, "Stroke")
-        zero_shift_service(o, x, f, "Telestroke/Clinic")
-        total_shift_service(o, x, f, "Swing", 3) # not sure how this was 6 TODO
-        total_nicu_service_exact(o, x, f, 9)
-        # Stroke-only shifts
-        zero_shift_service(o, x, f, "SCVMC Rehab")
-        zero_shift_service(o, x, f, "NIR")
-        zero_shift_service(o, x, f, "Clinic/Elective")
-        zero_shift_service(o, x, f, "ISC")
-
-def ncc_sr_total_service(o, x, fellow_indices):
-    for f in fellow_indices:
-        total_shift_service(o, x, f, "MICU", 8)
-        zero_shift_service(o, x, f, "Anaesthesia")
-        total_shift_service(o, x, f, "Elec", 10)
-        total_shift_service(o, x, f, "Vac", 3)
-        total_shift_service(o, x, f, "NS", 7)
-        zero_shift_service(o, x, f, "SICU")
-        total_shift_service(o, x, f, "Stroke", 2)
-        total_shift_service(o, x, f, "Telestroke/Clinic", 2)
-        total_shift_service(o, x, f, "Swing", 6)
-        total_nicu_service_exact(o, x, f, 14)
-        zero_shift_service(o, x, f, "SCVMC Rehab")
-        zero_shift_service(o, x, f, "NIR")
-        zero_shift_service(o, x, f, "Clinic/Elective")
-        zero_shift_service(o, x, f, "ISC")
-
-def nh_total_service(o, x, fellow_indices):
-    for f in fellow_indices:
-        total_nicu_service_exact(o, x, f, 4)
-        total_shift_service_exact(o, x, f, "Swing", 1)
-        total_shift_service_exact(o, x, f, "Telestroke/Clinic", 3)
-        total_shift_service_exact(o, x, f, "Stroke", 4)
-
-        zero_shift_service(o, x, f, "MICU")
-        zero_shift_service(o, x, f, "Anaesthesia")
-        zero_shift_service(o, x, f, "Elec")
-        zero_shift_service(o, x, f, "Vac")
-        zero_shift_service(o, x, f, "NS")
-        zero_shift_service(o, x, f, "SICU")
-
-        zero_shift_service(o, x, f, "SCVMC Rehab")
-        zero_shift_service(o, x, f, "NIR")
-        zero_shift_service(o, x, f, "Clinic/Elective")
-        zero_shift_service(o, x, f, "ISC")
-
-
 def jr_fellows_n_ncc_before_swing(o, x, fellow_indices, n):
     # jr fellows have 4x NCC before their first swing
     for f in fellow_indices:
@@ -549,16 +457,12 @@ def _rule_handlers():
         "minimize_uncovered_shift_weeks": _apply_minimize_uncovered_shift_weeks,
         "ncc_coverage": _apply_ncc_coverage,
         "ncc_stroke_oversight": _apply_ncc_stroke_oversight,
-        "nh_total_service": _apply_nh_total_service,
-        "ncc_jr_total_service": _apply_ncc_jr_total_service,
-        "ncc_sr_total_service": _apply_ncc_sr_total_service,
         "nir_one_week_per_half": _apply_nir_one_week_per_half,
         "scvmc_second_half": _apply_scvmc_second_half,
         "service_profile": _apply_service_profile,
         "specific_assignment": _apply_specific_assignment,
         "stroke_shift_coverage": _apply_stroke_shift_coverage,
         "stroke_no_block_one_ncc": _apply_stroke_no_block_one_ncc,
-        "stroke_total_service": _apply_stroke_total_service,
     }
 
 
@@ -745,11 +649,6 @@ def _apply_stroke_no_block_one_ncc(o, x, context, constraint, fellow_indices):
     stroke_no_block_one_ncc(o, x, fellow_indices=fellow_indices)
 
 
-def _apply_nh_total_service(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
-    nh_total_service(o, x, fellow_indices=fellow_indices)
-
-
 def _apply_stroke_shift_coverage(o, x, context, constraint, fellow_indices):
     _require_hard_constraint(constraint)
     stroke_shifts_covered(o, x, context.fellow_mapping.total_fellows, context.fellow_mapping)
@@ -768,21 +667,6 @@ def _apply_nir_one_week_per_half(o, x, context, constraint, fellow_indices):
 def _apply_scvmc_second_half(o, x, context, constraint, fellow_indices):
     _require_hard_constraint(constraint)
     scvmc_second_half(o, x, fellow_indices=fellow_indices)
-
-
-def _apply_stroke_total_service(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
-    stroke_total_service(o, x, fellow_indices=fellow_indices)
-
-
-def _apply_ncc_jr_total_service(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
-    ncc_jr_total_service(o, x, fellow_indices=fellow_indices)
-
-
-def _apply_ncc_sr_total_service(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
-    ncc_sr_total_service(o, x, fellow_indices=fellow_indices)
 
 
 def _shift_count(x, fellow_index, weeks, shifts):

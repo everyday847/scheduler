@@ -304,13 +304,35 @@ def _default_annual_rules() -> Dict[str, Any]:
                 "fellow_groups": ["NH"],
                 "strength": "hard",
             },
-            {
-                "name": "nh_total_service",
-                "kind": "nh_total_service",
-                "active": True,
-                "fellow_groups": ["NH"],
-                "strength": "hard",
-            },
+            _nh_service_profile_rule(),
+        ],
+    }
+
+
+def _nh_service_profile_rule() -> Dict[str, Any]:
+    return {
+        "name": "nh_service_profile",
+        "kind": "service_profile",
+        "active": True,
+        "fellow_groups": ["NH"],
+        "strength": "hard",
+        "zero_shifts": [
+            "MICU",
+            "Anaesthesia",
+            "Elec",
+            "Vac",
+            "NS",
+            "SICU",
+            "SCVMC Rehab",
+            "NIR",
+            "Clinic/Elective",
+            "ISC",
+        ],
+        "totals": [
+            {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 4},
+            {"shifts": ["Swing"], "relation": "exactly", "weeks": 1},
+            {"shifts": ["Telestroke/Clinic"], "relation": "exactly", "weeks": 3},
+            {"shifts": ["Stroke"], "relation": "exactly", "weeks": 4},
         ],
     }
 

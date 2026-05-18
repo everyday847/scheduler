@@ -127,8 +127,32 @@ annual_rules:
       fellow_groups: [NH]
       strength: hard
 
-    - name: nh_total_service
-      kind: nh_total_service
+    - name: nh_service_profile
+      kind: service_profile
       active: true
       fellow_groups: [NH]
       strength: hard
+      zero_shifts:
+        - MICU
+        - Anaesthesia
+        - Elec
+        - Vac
+        - NS
+        - SICU
+        - SCVMC Rehab
+        - NIR
+        - Clinic/Elective
+        - ISC
+      totals:
+        - shifts: [NCC1, NCC2]
+          relation: exactly
+          weeks: 4
+        - shifts: [Swing]
+          relation: exactly
+          weeks: 1
+        - shifts: [Telestroke/Clinic]
+          relation: exactly
+          weeks: 3
+        - shifts: [Stroke]
+          relation: exactly
+          weeks: 4
