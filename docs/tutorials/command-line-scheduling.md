@@ -113,6 +113,36 @@ rules:
     strength: soft
 ```
 
+Service expectations can also be defined as data instead of named Python macros:
+
+```yaml
+rules:
+  - name: ccm_service_profile
+    kind: service_profile
+    active: true
+    strength: hard
+    fellow_groups: [CCM]
+    zero_shifts: [NS, MICU, SICU, Anaesthesia, Stroke, Clinic/Elective, Telestroke/Clinic, Elec, SCVMC Rehab, NIR, Vac, ISC]
+    totals:
+      - shifts: [NCC1, NCC2]
+        relation: exactly
+        weeks: 3
+      - shifts: [Swing]
+        relation: exactly
+        weeks: 1
+    active_blocks:
+      - name: ccm_ncc_block
+        block_size: 4
+        trigger_shifts: [NCC1, NCC2, Swing]
+        counts:
+          - shifts: [NCC1, NCC2, Swing]
+            relation: exactly
+            weeks: 4
+          - shifts: [Swing]
+            relation: exactly
+            weeks: 1
+```
+
 This file is intentionally separate from annual requests. A fellowship coordinator should not need to edit it during ordinary schedule tuning.
 
 ## Configuration Sweeps

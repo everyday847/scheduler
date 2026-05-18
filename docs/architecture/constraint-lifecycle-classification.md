@@ -27,7 +27,7 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 | `jr_first_month_micu` | Junior NCC fellows start with MICU in the first month. | Standing Rule. |
 | `jr_ncc_before_19` | Junior NCC fellows have NCC before week 19. | Standing Rule with a configurable week threshold. |
 | `jr_fellows_n_ncc_before_swing` | Junior NCC fellows have N NCC weeks before first Swing. | Standing Rule with a configurable count. |
-| `ccm_total_service` | CCM fellows do one NCC-ish block with three NCC weeks and one Swing week, and no other listed shifts. | Standing Rule, though the block structure overlaps with generic Block rules. |
+| `ccm_service_profile` in Standing Rule YAML | CCM fellows do one NCC-ish block with three NCC weeks, one Swing week, and no service on excluded shifts. | Standing Rule expressed declaratively with service totals and active-block counts. |
 | `stroke_total_service` | Stroke fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
 | `ncc_jr_total_service` | Junior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |
 | `ncc_sr_total_service` | Senior NCC fellows have fixed service totals and forbidden Shifts. | Standing Rule by Fellow Group. |

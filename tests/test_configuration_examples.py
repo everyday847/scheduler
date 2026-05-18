@@ -19,6 +19,29 @@ def test_standing_rule_example_is_valid_yaml():
     assert all("active" in rule for rule in config["rules"])
 
 
+def test_ccm_service_is_defined_declaratively_in_standing_yaml():
+    config = yaml.safe_load((ROOT / "config/standing/stanford-fellowship.yaml").read_text())
+
+    ccm_rule = next(rule for rule in config["rules"] if rule["name"] == "ccm_service_profile")
+
+    assert ccm_rule["kind"] == "service_profile"
+    assert ccm_rule["fellow_groups"] == ["CCM"]
+    assert "MICU" in ccm_rule["zero_shifts"]
+    assert {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 3} in ccm_rule["totals"]
+    assert {"shifts": ["Swing"], "relation": "exactly", "weeks": 1} in ccm_rule["totals"]
+    assert ccm_rule["active_blocks"] == [
+        {
+            "name": "ccm_ncc_block",
+            "block_size": 4,
+            "trigger_shifts": ["NCC1", "NCC2", "Swing"],
+            "counts": [
+                {"shifts": ["NCC1", "NCC2", "Swing"], "relation": "exactly", "weeks": 4},
+                {"shifts": ["Swing"], "relation": "exactly", "weeks": 1},
+            ],
+        }
+    ]
+
+
 def test_annual_request_example_is_valid_yaml():
     request = yaml.safe_load((ROOT / "config/annual/example-2025-2026.yaml").read_text())
 

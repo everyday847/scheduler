@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 
+from z3 import Bool, Optimize, sat, unsat
+
+from scheduler.main import _rule_handlers
 from scheduler.rule_application import RuleApplicationContext, apply_constraints
 from scheduler.semantic_constraints import (
     ConstraintLifecycle,
@@ -31,6 +34,7 @@ class FakeFellowMapping:
             "NCC_JR": [0],
             "NCC_SR": [1],
             "STROKE": [2],
+            "CCM": [0],
         }
         return [
             index
@@ -101,3 +105,85 @@ def test_apply_constraints_rejects_unknown_rule_kinds():
         assert "Unsupported rule kind: not_supported" in str(exc)
     else:
         raise AssertionError("Expected unsupported rule kind to raise")
+
+
+def test_service_profile_forbids_zero_shifts():
+    optimizer, variables, context = _small_z3_context()
+    constraint = _ccm_service_profile()
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "MICU"])
+
+    assert optimizer.check() == unsat
+
+
+def test_service_profile_enforces_total_shift_counts():
+    optimizer, variables, context = _small_z3_context()
+    constraint = _ccm_service_profile()
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(variables[0, 1, "NCC1"])
+    optimizer.add(variables[0, 2, "NCC2"])
+    optimizer.add(variables[0, 3, "Swing"])
+
+    assert optimizer.check() == sat
+
+    optimizer, variables, context = _small_z3_context()
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(variables[0, 1, "NCC1"])
+    optimizer.add(variables[0, 2, "NCC2"])
+    optimizer.add(variables[0, 3, "NCC2"])
+    optimizer.add(variables[0, 3, "Swing"])
+
+    assert optimizer.check() == unsat
+
+
+def test_service_profile_requires_service_weeks_to_share_one_active_block():
+    optimizer, variables, context = _small_z3_context()
+    constraint = _ccm_service_profile()
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(variables[0, 4, "Swing"])
+
+    assert optimizer.check() == unsat
+
+
+def _small_z3_context():
+    shifts = ["NCC1", "NCC2", "Swing", "MICU"]
+    variables = {
+        (0, week, shift): Bool(f"x_0_{week}_{shift}")
+        for week in range(8)
+        for shift in shifts
+    }
+    return Optimize(), variables, RuleApplicationContext(FakeFellowMapping(), shifts=shifts, week_count=8)
+
+
+def _ccm_service_profile():
+    return SemanticConstraint(
+        kind="service_profile",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.HARD,
+        fellows=FellowSelector.by_groups("CCM"),
+        params={
+            "name": "ccm_service_profile",
+            "zero_shifts": ["MICU"],
+            "totals": [
+                {"shifts": ["NCC1", "NCC2"], "relation": "exactly", "weeks": 3},
+                {"shifts": ["Swing"], "relation": "exactly", "weeks": 1},
+            ],
+            "active_blocks": [
+                {
+                    "name": "ccm_ncc_block",
+                    "block_size": 4,
+                    "trigger_shifts": ["NCC1", "NCC2", "Swing"],
+                    "counts": [
+                        {"shifts": ["NCC1", "NCC2", "Swing"], "relation": "exactly", "weeks": 4},
+                        {"shifts": ["Swing"], "relation": "exactly", "weeks": 1},
+                    ],
+                }
+            ],
+        },
+    )

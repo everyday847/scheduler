@@ -119,47 +119,6 @@ def jr_ncc_before_19(o, x, fellow_indices):
             Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(4, 19)]) >= 1
         )
 
-def ccm_total_service(o, x, fellow_indices):
-    # ccm fellows have precisely one month of NCC, of which one week is swing
-    # TODO: follow 'block' boundaries
-    for f in fellow_indices:
-        zero_shift_service(o, x, f, "NS")
-        # Well, they do plenty of this, but we're not in charge of it
-        zero_shift_service(o, x, f, "MICU")
-        zero_shift_service(o, x, f, "SICU")
-        zero_shift_service(o, x, f, "Anaesthesia")
-        zero_shift_service(o, x, f, "Stroke") # 11 or 12 in a 53
-        zero_shift_service(o, x, f, "Clinic/Elective")
-        zero_shift_service(o, x, f, "Telestroke/Clinic")
-        zero_shift_service(o, x, f, "Elec")
-        zero_shift_service(o, x, f, "SCVMC Rehab")
-        zero_shift_service(o, x, f, "NIR")
-        zero_shift_service(o, x, f, "Vac")
-        zero_shift_service(o, x, f, "ISC")
-
-        # Total for the year
-        o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(52)]) == 3)
-        o.add(Sum([If(x[f, w, "Swing"], 1, 0) for w in range(52)]) == 1)
-
-        # Consecutivity
-        for w in range(0, W, 4):
-            # Either all or none of the block is NCC-ish.
-            o.add(
-                If(
-                    Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in range(w, w + 4)]) > 0,
-                    Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
-                         range(w, w + 4)]),
-                    4) == 4 # if the whole block isn't NCCish, this doesn't fail condition
-            )
-            o.add(
-                If(
-                    Sum([If(Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"], x[f, w_, "Swing"]), 1, 0) for w_ in
-                         range(w, w + 4)]) > 0,
-                    Sum([If(x[f, w_, "Swing"], 1, 0) for w_ in
-                         range(w, w + 4)]),
-                    1) == 1  # if the whole block isn't NCCish, this doesn't fail condition
-            )
-
 def total_shift_service(o, x, f, shift, n):
     o.add(Sum([If(x[f, w, shift], 1, 0) for w in range(W)]) >= n)
 
@@ -579,7 +538,6 @@ def existing_fellow_indices(fellow_mapping, names):
 def _rule_handlers():
     return {
         "all_or_none_block": _apply_all_or_none_block,
-        "ccm_total_service": _apply_ccm_total_service,
         "comparable_half_year_distribution": _apply_comparable_half_year_distribution,
         "full_assignment": _apply_full_assignment,
         "fourth_block_two_micu_fellows": _apply_fourth_block_two_micu_fellows,
@@ -596,6 +554,7 @@ def _rule_handlers():
         "ncc_sr_total_service": _apply_ncc_sr_total_service,
         "nir_one_week_per_half": _apply_nir_one_week_per_half,
         "scvmc_second_half": _apply_scvmc_second_half,
+        "service_profile": _apply_service_profile,
         "specific_assignment": _apply_specific_assignment,
         "stroke_shift_coverage": _apply_stroke_shift_coverage,
         "stroke_no_block_one_ncc": _apply_stroke_no_block_one_ncc,
@@ -712,6 +671,39 @@ def _apply_all_or_none_block(o, x, context, constraint, fellow_indices):
             shift_blocked(o, x, shift, fellow_indices=fellow_indices, GRANULARITY=block_size)
 
 
+def _apply_service_profile(o, x, context, constraint, fellow_indices):
+    for f in fellow_indices:
+        for shift in constraint.params.get("zero_shifts", []):
+            for week in range(context.week_count):
+                _add_by_strength(o, constraint, Not(x[f, week, shift]))
+
+        for total in constraint.params.get("totals", []):
+            _add_by_strength(
+                o,
+                constraint,
+                _count_relation(
+                    _shift_count(x, f, range(context.week_count), total["shifts"]),
+                    total["relation"],
+                    total["weeks"],
+                ),
+            )
+
+        for active_block in constraint.params.get("active_blocks", []):
+            block_size = active_block["block_size"]
+            for block_start in range(0, context.week_count, block_size):
+                block_weeks = range(block_start, min(block_start + block_size, context.week_count))
+                trigger_count = _shift_count(x, f, block_weeks, active_block["trigger_shifts"])
+                block_conditions = [
+                    _count_relation(
+                        _shift_count(x, f, block_weeks, count_rule["shifts"]),
+                        count_rule["relation"],
+                        count_rule["weeks"],
+                    )
+                    for count_rule in active_block["counts"]
+                ]
+                _add_by_strength(o, constraint, Implies(trigger_count > 0, And(*block_conditions)))
+
+
 def _apply_ncc_stroke_oversight(o, x, context, constraint, fellow_indices):
     for w in range(context.week_count):
         _add_by_strength(
@@ -793,9 +785,22 @@ def _apply_ncc_sr_total_service(o, x, context, constraint, fellow_indices):
     ncc_sr_total_service(o, x, fellow_indices=fellow_indices)
 
 
-def _apply_ccm_total_service(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
-    ccm_total_service(o, x, fellow_indices=fellow_indices)
+def _shift_count(x, fellow_index, weeks, shifts):
+    return Sum([
+        If(x[fellow_index, week, shift], 1, 0)
+        for week in weeks
+        for shift in shifts
+    ])
+
+
+def _count_relation(count, relation, expected):
+    if relation == "exactly":
+        return count == expected
+    if relation == "at_least":
+        return count >= expected
+    if relation == "at_most":
+        return count <= expected
+    raise ValueError(f"Unknown service count relation: {relation}")
 
 
 def _default_standing_constraints():
