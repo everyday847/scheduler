@@ -19,6 +19,10 @@ def test_default_schedule_request_contains_seed_data():
     assert request["fellow_groups"]["LIA"] == ["NCC Lia"]
     assert request["fellow_week_pairs"]["NCC Prash"][:3] == [1, 7, 25]
     assert "Clinic/Elective" in request["shifts"]
+    assert any(
+        rule["kind"] == "vacation_request_policy"
+        for rule in request["annual_rules"]["rules"]
+    )
 
 
 def test_build_schedule_workbook_returns_xlsx_bytes():
@@ -86,6 +90,69 @@ def test_solve_schedule_normalizes_and_returns_optimizer_result(monkeypatch):
     assert captured["fellow_groups"] == {"NEW_GROUP": ["NCC Raya"]}
     assert captured["fellow_week_pairs"] == {"NCC Raya": [0, 1]}
     assert result["shifts_for_fellows"]["NCC Raya"][0] == "MICU"
+
+
+def test_solve_schedule_loads_standing_and_annual_constraints(monkeypatch, tmp_path):
+    from scheduler import service
+
+    standing_config = tmp_path / "standing.yaml"
+    standing_config.write_text("""
+rules:
+  - name: ncc_coverage
+    kind: ncc_coverage
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+    shifts: [NCC1, NCC2, Swing]
+    swing_deficit: 8
+""")
+    monkeypatch.setattr(service, "STANDING_RULE_CONFIG", standing_config)
+    captured = {}
+
+    def fake_optimize_schedule(**kwargs):
+        captured.update(kwargs)
+        return (
+            {"NCC Raya": ["MICU"] * 52},
+            {"NCC1": ["NCC Raya"] * 52, "NCC2": [""] * 52},
+        )
+
+    monkeypatch.setattr(service, "optimize_schedule", fake_optimize_schedule)
+
+    service.solve_schedule({
+        "fellow_groups": {"NCC_JR": ["NCC Raya"]},
+        "fellow_week_pairs": {"NCC Raya": [0, 1, 2]},
+        "annual_rules": {
+            "rules": [
+                {
+                    "name": "vacation_requests",
+                    "kind": "vacation_request_policy",
+                    "active": True,
+                    "hard_request_count": 2,
+                },
+                {
+                    "name": "first_week",
+                    "kind": "specific_assignment",
+                    "active": True,
+                    "fellow_groups": ["NCC_JR"],
+                    "shift": "Stroke",
+                    "week": 1,
+                    "strength": "soft",
+                },
+            ],
+        },
+    })
+
+    kinds = [constraint.kind for constraint in captured["constraints"]]
+    assert kinds == [
+        "ncc_coverage",
+        "specific_assignment",
+        "specific_assignment",
+        "specific_assignment",
+        "specific_assignment",
+    ]
+    assert captured["constraints"][0].params["swing_deficit"] == 8
+    assert captured["constraints"][2].strength.value == "hard"
+    assert captured["constraints"][-1].strength.value == "soft"
 
 
 def test_normalize_schedule_request_does_not_backfill_default_fellows():

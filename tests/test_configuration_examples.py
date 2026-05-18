@@ -2,6 +2,10 @@ from pathlib import Path
 
 import yaml
 
+from scheduler.annual_rules import constraints_from_config as annual_constraints_from_config
+from scheduler.main import _rule_handlers
+from scheduler.standing_rules import constraints_from_config as standing_constraints_from_config
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,6 +33,25 @@ def test_annual_request_example_is_valid_yaml():
         rule["kind"] == "specific_assignment" and rule["strength"] == "soft"
         for rule in request["annual_rules"]["rules"]
     )
+
+
+def test_configuration_rule_kinds_have_optimizer_handlers():
+    standing = yaml.safe_load((ROOT / "config/standing/stanford-fellowship.yaml").read_text())
+    annual = yaml.safe_load((ROOT / "config/annual/example-2025-2026.yaml").read_text())
+    constraints = [
+        *standing_constraints_from_config(standing),
+        *annual_constraints_from_config(
+            annual["annual_rules"],
+            fellow_week_pairs=annual["fellow_week_pairs"],
+        ),
+    ]
+
+    missing = {
+        constraint.kind
+        for constraint in constraints
+        if constraint.kind not in _rule_handlers()
+    }
+    assert missing == set()
 
 
 def test_command_line_tutorial_references_real_commands():

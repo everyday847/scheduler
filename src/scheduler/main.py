@@ -2,6 +2,8 @@ from typing import List, Dict
 
 from z3 import *
 import openpyxl
+from pathlib import Path
+import yaml
 
 import tqdm
 
@@ -9,10 +11,16 @@ try:
     from .date_to_week_index import date_to_week_index
     from .constraints import ScheduleConstraints
     from .fellow_mapping import FellowMapping
+    from .rule_application import RuleApplicationContext, apply_constraints
+    from .semantic_constraints import ConstraintStrength
+    from .standing_rules import constraints_from_config as standing_constraints_from_config
 except ImportError:  # pragma: no cover - supports running from src/scheduler
     from date_to_week_index import date_to_week_index
     from constraints import ScheduleConstraints
     from fellow_mapping import FellowMapping
+    from rule_application import RuleApplicationContext, apply_constraints
+    from semantic_constraints import ConstraintStrength
+    from standing_rules import constraints_from_config as standing_constraints_from_config
 
 z3.set_option(verbose=0)
 # Enable parallel solving globally
@@ -22,6 +30,7 @@ set_param('verbose', 10)
 
 # Not too dangerous to make global
 W = 52
+STANDING_RULE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "standing" / "stanford-fellowship.yaml"
 
 def range_fellows_assigned_fully(o, x, R, fellow_indices):
     # Each NCC fellow has exactly one rotation per week, because we are responsible for their schedule.
@@ -567,11 +576,214 @@ def existing_fellow_indices(fellow_mapping, names):
         if fellow_mapping.get_fellow(name) is not None
     ]
 
+def _rule_handlers():
+    return {
+        "all_or_none_block": _apply_all_or_none_block,
+        "ccm_total_service": _apply_ccm_total_service,
+        "comparable_half_year_distribution": _apply_comparable_half_year_distribution,
+        "full_assignment": _apply_full_assignment,
+        "fourth_block_two_micu_fellows": _apply_fourth_block_two_micu_fellows,
+        "isc": _apply_isc,
+        "jr_first_month_micu": _apply_jr_first_month_micu,
+        "jr_ncc_before_swing": _apply_jr_ncc_before_swing,
+        "jr_ncc_before_week": _apply_jr_ncc_before_week,
+        "max_consecutive": _apply_max_consecutive,
+        "minimize_uncovered_shift_weeks": _apply_minimize_uncovered_shift_weeks,
+        "ncc_coverage": _apply_ncc_coverage,
+        "ncc_stroke_oversight": _apply_ncc_stroke_oversight,
+        "nh_total_service": _apply_nh_total_service,
+        "ncc_jr_total_service": _apply_ncc_jr_total_service,
+        "ncc_sr_total_service": _apply_ncc_sr_total_service,
+        "nir_one_week_per_half": _apply_nir_one_week_per_half,
+        "scvmc_second_half": _apply_scvmc_second_half,
+        "specific_assignment": _apply_specific_assignment,
+        "stroke_shift_coverage": _apply_stroke_shift_coverage,
+        "stroke_no_block_one_ncc": _apply_stroke_no_block_one_ncc,
+        "stroke_total_service": _apply_stroke_total_service,
+    }
+
+
+def _add_by_strength(o, constraint, expression):
+    if constraint.strength is ConstraintStrength.HARD:
+        o.add(expression)
+    elif constraint.strength is ConstraintStrength.SOFT:
+        o.add_soft(expression)
+    else:
+        raise ValueError(f"Constraint strength {constraint.strength.value} is not valid for {constraint.kind}")
+
+
+def _apply_full_assignment(o, x, context, constraint, fellow_indices):
+    range_fellows_assigned_fully(o, x, context.shifts, fellow_indices=fellow_indices)
+
+
+def _apply_ncc_coverage(o, x, context, constraint, fellow_indices):
+    total_fellows = context.fellow_mapping.total_fellows
+    max_ncc_fellows = constraint.params.get("max_ncc_fellows", 3)
+    max_ncc_plus_swing_fellows = constraint.params.get("max_ncc_plus_swing_fellows", 4)
+    for w in range(context.week_count):
+        o.add(Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) >= 1)
+        o.add(Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) >= 1)
+        o.add(Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) <= 2)
+        o.add(Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) <= 2)
+        o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_fellows)
+        o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_plus_swing_fellows)
+        o.add(Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)]) <= 1)
+
+    if "swing_deficit" in constraint.params:
+        o.add(Sum([
+            Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)])
+            for w in range(context.week_count)
+        ]) >= context.week_count - constraint.params["swing_deficit"])
+
+
+def _apply_minimize_uncovered_shift_weeks(o, x, context, constraint, fellow_indices):
+    if not fellow_indices:
+        return
+    uncovered_week_count = Sum([
+        If(
+            Or(*[
+                x[f, week, shift]
+                for f in fellow_indices
+                for shift in constraint.shifts.shifts
+            ]),
+            0,
+            1,
+        )
+        for week in range(context.week_count)
+    ])
+    o.minimize(uncovered_week_count)
+
+
+def _apply_max_consecutive(o, x, context, constraint, fellow_indices):
+    if constraint.strength is ConstraintStrength.SOFT:
+        maximum_consecutive_icu_shifts_soft(
+            o,
+            x,
+            fellow_indices=fellow_indices,
+            shifts=list(constraint.shifts.shifts),
+            MAX_CONSEC=constraint.params["weeks"],
+        )
+    else:
+        maximum_consecutive_icu_shifts(
+            o,
+            x,
+            fellow_indices=fellow_indices,
+            shifts=list(constraint.shifts.shifts),
+            MAX_CONSEC=constraint.params["weeks"],
+        )
+
+
+def _apply_jr_first_month_micu(o, x, context, constraint, fellow_indices):
+    jr_first_month_micu(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_jr_ncc_before_week(o, x, context, constraint, fellow_indices):
+    threshold = constraint.params["week"] if "week" in constraint.params else constraint.weeks.start
+    for f in fellow_indices:
+        _add_by_strength(
+            o,
+            constraint,
+            Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for w in range(4, threshold)]) >= 1,
+        )
+
+
+def _apply_jr_ncc_before_swing(o, x, context, constraint, fellow_indices):
+    jr_fellows_n_ncc_before_swing(
+        o,
+        x,
+        fellow_indices=fellow_indices,
+        n=constraint.params.get("ncc_weeks", 4),
+    )
+
+
+def _apply_all_or_none_block(o, x, context, constraint, fellow_indices):
+    block_size = constraint.params["block_size"]
+    for shift in constraint.shifts.shifts:
+        if constraint.strength is ConstraintStrength.SOFT:
+            shift_blocked_soft(o, x, shift, fellow_indices=fellow_indices, GRANULARITY=block_size)
+        else:
+            shift_blocked(o, x, shift, fellow_indices=fellow_indices, GRANULARITY=block_size)
+
+
+def _apply_ncc_stroke_oversight(o, x, context, constraint, fellow_indices):
+    ncc_stroke_oversight(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_specific_assignment(o, x, context, constraint, fellow_indices):
+    if not fellow_indices:
+        return
+    week = constraint.weeks.start
+    shift = constraint.shifts.shifts[0]
+    if constraint.strength is ConstraintStrength.SOFT:
+        specific_assignment_soft(o, x, shift=shift, fellow_indices=fellow_indices, week=week)
+    else:
+        specific_assignment(o, x, shift=shift, fellow_indices=fellow_indices, week=week)
+
+
+def _apply_fourth_block_two_micu_fellows(o, x, context, constraint, fellow_indices):
+    fourth_block_two_micu_fellows(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_isc(o, x, context, constraint, fellow_indices):
+    target_date = tuple(constraint.params.get("date", (2026, 2, 5)))
+    target_week = date_to_week_index(target_date)
+    for f in fellow_indices:
+        for w in range(context.week_count):
+            _add_by_strength(o, constraint, x[f, w, "ISC"] if w == target_week else Not(x[f, w, "ISC"]))
+
+
+def _apply_stroke_no_block_one_ncc(o, x, context, constraint, fellow_indices):
+    stroke_no_block_one_ncc(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_nh_total_service(o, x, context, constraint, fellow_indices):
+    nh_total_service(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_stroke_shift_coverage(o, x, context, constraint, fellow_indices):
+    stroke_shifts_covered(o, x, context.fellow_mapping.total_fellows, context.fellow_mapping)
+
+
+def _apply_comparable_half_year_distribution(o, x, context, constraint, fellow_indices):
+    comparable_amounts_each_half_year(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_nir_one_week_per_half(o, x, context, constraint, fellow_indices):
+    nir_one_week_per_half(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_scvmc_second_half(o, x, context, constraint, fellow_indices):
+    scvmc_second_half(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_stroke_total_service(o, x, context, constraint, fellow_indices):
+    stroke_total_service(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_ncc_jr_total_service(o, x, context, constraint, fellow_indices):
+    ncc_jr_total_service(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_ncc_sr_total_service(o, x, context, constraint, fellow_indices):
+    ncc_sr_total_service(o, x, fellow_indices=fellow_indices)
+
+
+def _apply_ccm_total_service(o, x, context, constraint, fellow_indices):
+    ccm_total_service(o, x, fellow_indices=fellow_indices)
+
+
+def _default_standing_constraints():
+    data = yaml.safe_load(STANDING_RULE_CONFIG.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{STANDING_RULE_CONFIG} must contain a YAML mapping.")
+    return standing_constraints_from_config(data)
+
+
 def optimize_schedule(
     fellow_groups: Dict[str, List[str]],
     shifts: List[str],
     fellow_week_pairs: Dict[str, List[int]],
-    annual_rules=None,
+    constraints=None,
 ):
     # Create the fellow mapping
     fellow_mapping = FellowMapping()
@@ -587,113 +799,9 @@ def optimize_schedule(
     # Add fundamental constraints
     schedule.add_fundamental_constraints(o)
 
-    # Add all other constraints
-    # NCC fellows must be assigned fully
-    ncc_and_stroke_indices = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE")
-    range_fellows_assigned_fully(o, schedule.x, shifts, 
-                               fellow_indices=ncc_and_stroke_indices)
-
-    # Basic coverage and deficit constraints
-    ncc_shifts_covered_swing_deficit(o, schedule.x, fellow_mapping.total_fellows, deficit=8)
-
-    # Maximum consecutive shifts constraints
-    maximum_consecutive_icu_shifts(o, schedule.x, 
-                                 fellow_indices=fellow_mapping.all_fellow_indices,
-                                 shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], 
-                                 MAX_CONSEC=8)
-    maximum_consecutive_icu_shifts(o, schedule.x, 
-                                 fellow_indices=fellow_mapping.all_fellow_indices,
-                                 shifts=["NCC1", "NCC2", "Swing"], 
-                                 MAX_CONSEC=6)
-    maximum_consecutive_icu_shifts(o, schedule.x, 
-                                 fellow_indices=fellow_mapping.all_fellow_indices,
-                                 shifts=["Swing"], 
-                                 MAX_CONSEC=2)
-
-    # Junior fellow specific constraints
-    jr_indices = fellow_mapping.get_fellow_indices_by_group("NCC_JR")
-    jr_first_month_micu(o, schedule.x, fellow_indices=jr_indices)
-    jr_ncc_before_19(o, schedule.x, fellow_indices=jr_indices)
-    jr_fellows_n_ncc_before_swing(o, schedule.x, fellow_indices=jr_indices, n=4)
-
-    # NCC and Stroke fellow constraints
-    ncc_indices = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR")
-    fourth_block_two_micu_fellows(o, schedule.x, fellow_indices=ncc_indices)
-
-    # Block-based rotation constraints
-    sicu_blocked(o, schedule.x, fellow_indices=jr_indices)
-    micu_blocked(o, schedule.x, fellow_indices=ncc_indices)
-    anaesthesia_blocked(o, schedule.x, fellow_indices=jr_indices)
-    vasc_blocked(o, schedule.x, fellow_indices=ncc_indices)
-
-    # Senior fellow specific constraints
-    sr_indices = fellow_mapping.get_fellow_indices_by_group("NCC_SR")
-    ns_blocked(o, schedule.x, fellow_indices=sr_indices)
-    ncc_blocked(o, schedule.x, fellow_indices=ncc_indices)
-
-    # Stroke fellow specific constraints
-    stroke_indices = fellow_mapping.get_fellow_indices_by_group("STROKE")
-    ncc_stroke_oversight(o, schedule.x, 
-                        fellow_indices=fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE"))
-
-    # Vacation and distribution constraints
-    vacation_requests(o, schedule.x, fellow_mapping, fellow_week_pairs, n_vac=3)
-    comparable_amounts_each_half_year(o, schedule.x, fellow_indices=ncc_indices)
-
-    # Stroke service specific constraints
-    if True:
-        # First week assignments: a senior
-        specific_assignment(o, schedule.x, 
-                            shift="Stroke",
-                            fellow_indices=fellow_mapping.get_fellow_indices_by_group("NCC_SR"), 
-                            week=1)
-
-        first_week_telestroke = fellow_mapping.get_fellow_indices_by_groups("NCC_JR", "NCC_SR", "STROKE")
-        specific_assignment(o, schedule.x, 
-                            shift="Telestroke/Clinic",
-                            fellow_indices=first_week_telestroke, 
-                            week=1)
-
-        # TODO: date shouldn't be hardcoded inside the function.
-        isc(o, schedule.x, fellow_indices=stroke_indices)
-
-        # Soft constraints for specific assignments
-        specific_assignment_soft(o, schedule.x, 
-                            shift="Telestroke/Clinic",
-                            fellow_indices=fellow_mapping.get_fellow_indices_by_group("NCC_SR"), 
-                            week=date_to_week_index((2025, 9, 16)))
-
-    stroke_shifts_covered(o, schedule.x, fellow_mapping.total_fellows, fellow_mapping)
-
-    # Stroke fellow specific constraints
-    if True:
-        maximum_consecutive_icu_shifts(o, schedule.x, 
-                                     fellow_indices=stroke_indices,
-                                     shifts=["NCC1", "NCC2", "Swing", "SICU", "MICU", "Stroke", "NIR"], 
-                                     MAX_CONSEC=2)
-        scvmc_blocked(o, schedule.x, fellow_indices=stroke_indices)
-        nir_one_week_per_half(o, schedule.x, fellow_indices=stroke_indices)
-        scvmc_second_half(o, schedule.x, fellow_indices=stroke_indices)
-        stroke_no_block_one_ncc(o, schedule.x, fellow_indices=stroke_indices)
-        
-    # NH fellow constraints
-    nh_indices = fellow_mapping.get_fellow_indices_by_group("NH")
-    stroke_no_block_one_ncc(o, schedule.x, fellow_indices=nh_indices)
-
-
-    # Service total constraints
-    if True:
-        stroke_total_service(o, schedule.x, fellow_indices=stroke_indices)
-        ncc_jr_total_service(o, schedule.x, fellow_indices=jr_indices)
-        ncc_sr_total_service(o, schedule.x, fellow_indices=sr_indices)
-        
-        # NH fellow service constraints
-        nh_total_service(o, schedule.x, fellow_indices=nh_indices)
-
-    if True:
-        # CCM fellow constraints
-        ccm_indices = fellow_mapping.get_fellow_indices_by_group("CCM")
-        ccm_total_service(o, schedule.x, fellow_indices=ccm_indices)
+    rule_context = RuleApplicationContext(fellow_mapping, shifts=shifts, week_count=W)
+    active_constraints = _default_standing_constraints() if constraints is None else constraints
+    apply_constraints(o, schedule.x, active_constraints, rule_context, _rule_handlers())
 
     status = o.check()
     if status != sat:

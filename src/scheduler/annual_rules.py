@@ -21,7 +21,6 @@ _STANDARD_RULE_KEYS = {
     "shifts",
     "strength",
     "week",
-    "weeks",
 }
 
 
@@ -135,7 +134,7 @@ def _shifts(rule: dict) -> list[str]:
 def _week_span(rule: dict) -> WeekSpan | None:
     if "week" in rule:
         return WeekSpan(rule["week"], rule["week"] + 1)
-    if "weeks" in rule:
+    if isinstance(rule.get("weeks"), (list, tuple)):
         start, end = rule["weeks"]
         return WeekSpan(start, end)
     return None

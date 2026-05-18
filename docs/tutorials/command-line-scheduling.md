@@ -1,20 +1,18 @@
 # Command Line Scheduling
 
-This tutorial shows the current command line workflow and where configuration belongs while the semantic constraint architecture is being built out.
+This tutorial shows the command line workflow and where configuration belongs.
 
 ## Current State
 
-`src/scheduler/main.py` is still the legacy Z3 solver. It has not yet been fully migrated to consume the semantic **Constraint** model in `src/scheduler/semantic_constraints.py`.
-
-The new architecture currently provides:
+The scheduler now uses YAML to declare the scheduling vocabulary and the policy rules that are safe to tune. The main pieces are:
 
 - `src/scheduler/semantic_constraints.py` for lifecycle-aware **Constraints**.
-- `src/scheduler/standing_rules.py` for YAML-shaped **Standing Rule** configuration.
-- `src/scheduler/annual_rules.py` for **Annual Rule** builders.
-- `src/scheduler/z3_adapter.py` for the first small semantic-to-Z3 adapter.
-- `src/scheduler/cli.py` for a practical YAML command line entry point.
+- `src/scheduler/standing_rules.py` for **Standing Rule** YAML.
+- `src/scheduler/annual_rules.py` for **Annual Rule** YAML.
+- `src/scheduler/rule_application.py` for applying semantic rules to the Z3 optimizer.
+- `src/scheduler/cli.py` for the YAML command line entry point.
 
-The CLI still routes solving through `src/scheduler/service.py`, which calls the legacy `optimize_schedule` in `src/scheduler/main.py`. That keeps the current scheduler usable while rules are migrated incrementally.
+`src/scheduler/main.py` still owns the Z3 helper functions and model extraction, but recurring and year-specific policy is now routed through semantic rules before it reaches those helpers.
 
 ## Where Configuration Lives
 
@@ -69,15 +67,24 @@ fellow_week_pairs:
 
 There are no privileged public keys like `jr_fellows` or `lia`. If a group exists for a year, define it under `fellow_groups`. If the YAML has no `LIA` group, the request has no Lia fellow. Vacation requests must reference fellows declared in the same YAML file.
 
-The `annual_rules` section is tutorial-forward: it documents the intended semantic home for year-specific policy, but `src/scheduler/main.py` does not consume every entry yet.
-
 ```yaml
 annual_rules:
-  vacation_request_policy:
-    hard_request_count: 3
+  rules:
+    - name: vacation_requests
+      kind: vacation_request_policy
+      active: true
+      hard_request_count: 3
+
+    - name: first_week_senior_on_stroke
+      kind: specific_assignment
+      active: true
+      fellow_groups: [NCC_SR]
+      week: 1
+      shift: Stroke
+      strength: hard
 ```
 
-For example, a coordinator can try honoring each fellow's top five vacation/elective requests. If that does not solve, change `hard_request_count` to `4` or `3` in this section as the semantic architecture is wired through. The YAML request itself is now authoritative for who is present and which fellows have vacation requests.
+For example, a coordinator can try honoring each fellow's top five vacation/elective requests. If that does not solve, change `hard_request_count` to `4` or `3`. Rules can also be disabled with `active: false`; supported assignment-like rules can be relaxed with `strength: soft`.
 
 ## Solve A Schedule
 
@@ -96,22 +103,23 @@ Standing Rules belong in `config/standing/stanford-fellowship.yaml`.
 Example:
 
 ```yaml
-block_rules:
+rules:
   - name: ncc_four_week_blocks
+    kind: all_or_none_block
+    active: true
     fellow_groups: [NCC_JR, NCC_SR]
     shifts: [NCC1, NCC2, Swing]
     block_size: 4
-    strength: hard
+    strength: soft
 ```
 
 This file is intentionally separate from annual requests. A fellowship coordinator should not need to edit it during ordinary schedule tuning.
 
-## What Should Move Next
+## Configuration Sweeps
 
-The next migration step is to make `src/scheduler/main.py` assemble constraints from:
+Because rules are declarative YAML, you can create variants by copying an annual file and changing a small number of values:
 
-1. Solver invariants owned by the Z3 adapter.
-2. Standing Rules loaded from `config/standing/stanford-fellowship.yaml`.
-3. Annual Rules loaded from a request YAML file.
-
-Until then, treat the YAML examples as the public workflow and the legacy solver as the execution engine.
+- `active: false` to disable a rule.
+- `strength: soft` to relax a supported hard preference.
+- `hard_request_count` to sweep vacation request strictness.
+- `fellow_groups` to represent which cohorts are present this year.

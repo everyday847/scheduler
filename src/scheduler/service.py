@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List
 
 import openpyxl
+import yaml
 
 try:
+    from . import annual_rules, standing_rules
     from .date_to_week_index import date_to_week_index
     from .main import W, optimize_schedule
 except ImportError:  # pragma: no cover - supports running from src/scheduler
+    import annual_rules
+    import standing_rules
     from date_to_week_index import date_to_week_index
     from main import W, optimize_schedule
+
+STANDING_RULE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "standing" / "stanford-fellowship.yaml"
 
 
 DEFAULT_SHIFTS = [
@@ -109,6 +116,7 @@ def get_default_schedule_request() -> Dict[str, Any]:
                 date_to_week_index((2025, 9, 16)),
             ],
         },
+        "annual_rules": _default_annual_rules(),
     }
 
 
@@ -137,7 +145,7 @@ def solve_schedule(raw_request: Dict[str, Any] | None) -> Dict[str, Any]:
         fellow_groups=request["fellow_groups"],
         shifts=request["shifts"],
         fellow_week_pairs=request["fellow_week_pairs"],
-        annual_rules=request.get("annual_rules"),
+        constraints=_configured_constraints(request),
     )
     return {
         "request": request,
@@ -207,6 +215,104 @@ def _validate_request_references(request: Dict[str, Any]) -> None:
     for fellow in request["fellow_week_pairs"]:
         if fellow not in known_fellows:
             raise ValueError(f"Vacation request references unknown fellow: {fellow}")
+
+
+def _configured_constraints(request: Dict[str, Any]):
+    standing_config = _read_yaml_mapping(STANDING_RULE_CONFIG)
+    return [
+        *standing_rules.constraints_from_config(standing_config),
+        *annual_rules.constraints_from_config(
+            request.get("annual_rules"),
+            fellow_week_pairs=request["fellow_week_pairs"],
+        ),
+    ]
+
+
+def _read_yaml_mapping(path: Path) -> dict[str, Any]:
+    data = yaml.safe_load(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a YAML mapping.")
+    return data
+
+
+def _default_annual_rules() -> Dict[str, Any]:
+    return {
+        "rules": [
+            {
+                "name": "vacation_requests",
+                "kind": "vacation_request_policy",
+                "active": True,
+                "hard_request_count": 3,
+            },
+            {
+                "name": "jeff_abpn_stroke",
+                "kind": "specific_assignment",
+                "active": True,
+                "fellow": "Stroke Jeff",
+                "week": 11,
+                "shift": "Stroke",
+                "strength": "hard",
+                "reason": "ABPN",
+            },
+            {
+                "name": "abpn_backup_telestroke",
+                "kind": "specific_assignment",
+                "active": True,
+                "fellows": ["NCC Prash", "NCC David"],
+                "week": 11,
+                "shift": "Telestroke/Clinic",
+                "strength": "soft",
+                "reason": "ABPN backup coverage",
+            },
+            {
+                "name": "first_week_senior_on_stroke",
+                "kind": "specific_assignment",
+                "active": True,
+                "fellow_groups": ["NCC_SR"],
+                "week": 1,
+                "shift": "Stroke",
+                "strength": "hard",
+            },
+            {
+                "name": "first_week_telestroke",
+                "kind": "specific_assignment",
+                "active": True,
+                "fellow_groups": ["NCC_JR", "NCC_SR", "STROKE"],
+                "week": 1,
+                "shift": "Telestroke/Clinic",
+                "strength": "hard",
+            },
+            {
+                "name": "isc",
+                "kind": "isc",
+                "active": True,
+                "fellow_groups": ["STROKE"],
+                "date": [2026, 2, 5],
+                "strength": "hard",
+            },
+            {
+                "name": "fourth_block_two_micu_fellows",
+                "kind": "fourth_block_two_micu_fellows",
+                "active": True,
+                "fellow_groups": ["NCC_JR", "NCC_SR"],
+                "strength": "hard",
+            },
+            {
+                "name": "nh_no_first_block_ncc",
+                "kind": "stroke_no_block_one_ncc",
+                "active": True,
+                "fellow_groups": ["NH"],
+                "strength": "hard",
+            },
+            {
+                "name": "nh_total_service",
+                "kind": "nh_total_service",
+                "active": True,
+                "fellow_groups": ["NH"],
+                "strength": "hard",
+            },
+        ],
+    }
 
 
 def _build_per_fellow_sheet(ws, request: Dict[str, Any], shifts_for_fellows: Dict[str, List[str]]) -> None:
