@@ -612,8 +612,15 @@ def _add_by_strength(o, constraint, expression):
         raise ValueError(f"Constraint strength {constraint.strength.value} is not valid for {constraint.kind}")
 
 
+def _require_hard_constraint(constraint):
+    if constraint.strength is not ConstraintStrength.HARD:
+        raise ValueError(f"{constraint.kind} currently supports only hard strength.")
+
+
 def _apply_full_assignment(o, x, context, constraint, fellow_indices):
-    range_fellows_assigned_fully(o, x, context.shifts, fellow_indices=fellow_indices)
+    for f in fellow_indices:
+        for w in range(context.week_count):
+            _add_by_strength(o, constraint, AtLeast(*[x[f, w, r] for r in context.shifts], 1))
 
 
 def _apply_ncc_coverage(o, x, context, constraint, fellow_indices):
@@ -621,16 +628,16 @@ def _apply_ncc_coverage(o, x, context, constraint, fellow_indices):
     max_ncc_fellows = constraint.params.get("max_ncc_fellows", 3)
     max_ncc_plus_swing_fellows = constraint.params.get("max_ncc_plus_swing_fellows", 4)
     for w in range(context.week_count):
-        o.add(Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) >= 1)
-        o.add(Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) >= 1)
-        o.add(Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) <= 2)
-        o.add(Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) <= 2)
-        o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_fellows)
-        o.add(Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_plus_swing_fellows)
-        o.add(Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)]) <= 1)
+        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) >= 1)
+        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) >= 1)
+        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) <= 2)
+        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) <= 2)
+        _add_by_strength(o, constraint, Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_fellows)
+        _add_by_strength(o, constraint, Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_plus_swing_fellows)
+        _add_by_strength(o, constraint, Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)]) <= 1)
 
     if "swing_deficit" in constraint.params:
-        o.add(Sum([
+        _add_by_strength(o, constraint, Sum([
             Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)])
             for w in range(context.week_count)
         ]) >= context.week_count - constraint.params["swing_deficit"])
@@ -706,7 +713,15 @@ def _apply_all_or_none_block(o, x, context, constraint, fellow_indices):
 
 
 def _apply_ncc_stroke_oversight(o, x, context, constraint, fellow_indices):
-    ncc_stroke_oversight(o, x, fellow_indices=fellow_indices)
+    for w in range(context.week_count):
+        _add_by_strength(
+            o,
+            constraint,
+            Sum([
+                If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0)
+                for f in fellow_indices
+            ]) >= 1,
+        )
 
 
 def _apply_specific_assignment(o, x, context, constraint, fellow_indices):
@@ -721,6 +736,7 @@ def _apply_specific_assignment(o, x, context, constraint, fellow_indices):
 
 
 def _apply_fourth_block_two_micu_fellows(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     fourth_block_two_micu_fellows(o, x, fellow_indices=fellow_indices)
 
 
@@ -733,42 +749,52 @@ def _apply_isc(o, x, context, constraint, fellow_indices):
 
 
 def _apply_stroke_no_block_one_ncc(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     stroke_no_block_one_ncc(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_nh_total_service(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     nh_total_service(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_stroke_shift_coverage(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     stroke_shifts_covered(o, x, context.fellow_mapping.total_fellows, context.fellow_mapping)
 
 
 def _apply_comparable_half_year_distribution(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     comparable_amounts_each_half_year(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_nir_one_week_per_half(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     nir_one_week_per_half(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_scvmc_second_half(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     scvmc_second_half(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_stroke_total_service(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     stroke_total_service(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_ncc_jr_total_service(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     ncc_jr_total_service(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_ncc_sr_total_service(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     ncc_sr_total_service(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_ccm_total_service(o, x, context, constraint, fellow_indices):
+    _require_hard_constraint(constraint)
     ccm_total_service(o, x, fellow_indices=fellow_indices)
 
 
