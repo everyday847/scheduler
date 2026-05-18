@@ -12,7 +12,7 @@ def test_default_request_writes_yaml(tmp_path):
 
     assert exit_code == 0
     request = yaml.safe_load(output.read_text())
-    assert request["jr_fellows"] == ["NCC Raya", "NCC Joseph"]
+    assert request["fellow_groups"]["NCC_JR"] == ["NCC Raya", "NCC Joseph"]
     assert request["fellow_week_pairs"]["NCC Prash"][:3] == [1, 7, 25]
 
 
@@ -20,7 +20,7 @@ def test_solve_reads_yaml_and_writes_workbook(tmp_path, monkeypatch):
     request_path = tmp_path / "annual-request.yaml"
     output_path = tmp_path / "optimized_schedule.xlsx"
     request_path.write_text(yaml.safe_dump({
-        "jr_fellows": ["NCC Raya"],
+        "fellow_groups": {"NCC_JR": ["NCC Raya"]},
         "fellow_week_pairs": {"NCC Raya": [0, 1]},
     }))
     captured = {}
@@ -45,7 +45,7 @@ def test_solve_reads_yaml_and_writes_workbook(tmp_path, monkeypatch):
     ])
 
     assert exit_code == 0
-    assert captured["raw_request"]["jr_fellows"] == ["NCC Raya"]
+    assert captured["raw_request"]["fellow_groups"] == {"NCC_JR": ["NCC Raya"]}
     assert captured["raw_request"]["fellow_week_pairs"] == {"NCC Raya": [0, 1]}
     assert captured["workbook_result"]["request"] == captured["raw_request"]
     assert output_path.read_bytes() == b"fake-xlsx"
@@ -59,4 +59,3 @@ def test_solve_rejects_empty_yaml_request(tmp_path, capsys):
 
     assert exit_code == 2
     assert "must contain a YAML mapping" in capsys.readouterr().err
-

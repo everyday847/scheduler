@@ -27,19 +27,19 @@ def test_week_span_rejects_empty_or_backwards_ranges():
         WeekSpan(start=-1, end=2)
 
 
-def test_fellow_selector_can_target_type_names_or_specific_fellows():
-    by_type = FellowSelector.by_types("NCC_JR", "NCC_SR")
+def test_fellow_selector_can_target_group_names_or_specific_fellows():
+    by_group = FellowSelector.by_groups("NCC_JR", "NCC_SR")
     by_name = FellowSelector.by_names("NCC Raya", "NCC Joseph")
 
-    assert by_type.types == ("NCC_JR", "NCC_SR")
-    assert by_type.names == ()
+    assert by_group.groups == ("NCC_JR", "NCC_SR")
+    assert by_group.names == ()
     assert by_name.names == ("NCC Raya", "NCC Joseph")
-    assert by_name.types == ()
+    assert by_name.groups == ()
 
 
 def test_fellow_selector_requires_one_target_kind():
     with pytest.raises(ValueError, match="exactly one"):
-        FellowSelector(names=("NCC Raya",), types=("NCC_JR",))
+        FellowSelector(names=("NCC Raya",), groups=("NCC_JR",))
 
     with pytest.raises(ValueError, match="exactly one"):
         FellowSelector()

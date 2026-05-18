@@ -9,7 +9,7 @@ def test_constraints_from_config_builds_block_rules():
         "block_rules": [
             {
                 "name": "micu_blocks",
-                "fellow_types": ["NCC_JR", "NCC_SR"],
+                "fellow_groups": ["NCC_JR", "NCC_SR"],
                 "shifts": ["MICU"],
                 "block_size": 4,
                 "strength": "hard",
@@ -22,7 +22,7 @@ def test_constraints_from_config_builds_block_rules():
     assert constraint.kind == "all_or_none_block"
     assert constraint.lifecycle is ConstraintLifecycle.STANDING_RULE
     assert constraint.strength is ConstraintStrength.HARD
-    assert constraint.fellows.types == ("NCC_JR", "NCC_SR")
+    assert constraint.fellows.groups == ("NCC_JR", "NCC_SR")
     assert constraint.shifts.shifts == ("MICU",)
     assert constraint.params == {"block_size": 4, "name": "micu_blocks"}
 
@@ -32,7 +32,7 @@ def test_constraints_from_config_builds_max_consecutive_rules():
         "max_consecutive": [
             {
                 "name": "core_icu",
-                "fellow_types": ["NCC_JR", "NCC_SR", "STROKE"],
+                "fellow_groups": ["NCC_JR", "NCC_SR", "STROKE"],
                 "shifts": ["NCC1", "NCC2", "Swing", "MICU"],
                 "weeks": 8,
                 "strength": "soft",
@@ -51,7 +51,7 @@ def test_constraints_from_config_builds_max_consecutive_rules():
 def test_constraints_from_config_builds_swing_deficit_minimization():
     constraints = constraints_from_config({
         "swing_deficit": {
-            "fellow_types": ["NCC_JR", "NCC_SR", "STROKE", "CCM", "NH", "LIA"],
+            "fellow_groups": ["NCC_JR", "NCC_SR", "STROKE", "CCM", "NH", "LIA"],
             "shift": "Swing",
         }
     })
@@ -61,7 +61,7 @@ def test_constraints_from_config_builds_swing_deficit_minimization():
     assert constraint.kind == "minimize_uncovered_shift_weeks"
     assert constraint.lifecycle is ConstraintLifecycle.STANDING_RULE
     assert constraint.strength is ConstraintStrength.MINIMIZE
-    assert constraint.fellows.types == ("NCC_JR", "NCC_SR", "STROKE", "CCM", "NH", "LIA")
+    assert constraint.fellows.groups == ("NCC_JR", "NCC_SR", "STROKE", "CCM", "NH", "LIA")
     assert constraint.shifts.shifts == ("Swing",)
 
 
@@ -71,11 +71,10 @@ def test_constraints_from_config_rejects_unknown_strength():
             "block_rules": [
                 {
                     "name": "bad",
-                    "fellow_types": ["NCC_JR"],
+                    "fellow_groups": ["NCC_JR"],
                     "shifts": ["MICU"],
                     "block_size": 4,
                     "strength": "required",
                 }
             ]
         })
-

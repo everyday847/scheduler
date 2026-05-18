@@ -1,42 +1,61 @@
-# Annual Rules describe the current scheduling year: fellows, requests, and exceptions.
+# Annual YAML defines the scheduling vocabulary for the current year:
+# shifts, fellow groups, requests, and exceptions.
 # This file is accepted by `uv run scheduler solve --request ...`.
 
-jr_fellows:
-  - NCC Raya
-  - NCC Joseph
+shifts:
+  - SICU
+  - MICU
+  - NS
+  - Anaesthesia
+  - NCC1
+  - NCC2
+  - Swing
+  - Elec
+  - Vac
+  - Stroke
+  - Telestroke/Clinic
+  - Clinic/Elective
+  - SCVMC Rehab
+  - NIR
+  - ISC
 
-sr_fellows:
-  - NCC David
-  - NCC Prash
+fellow_groups:
+  NCC_JR:
+    - NCC Raya
+    - NCC Joseph
 
-stroke_fellows:
-  - Stroke Gabi
-  - Stroke Jeff
-  - Stroke Victoria
-  - Stroke Parshva
+  NCC_SR:
+    - NCC David
+    - NCC Prash
 
-CCM_fellows:
-  - CCM Ariana
-  - CCM Bert
-  - CCM Chloe
-  - CCM Dennis
-  - CCM Edwina
-  - CCM Frank
-  - CCM George
-  - CCM Helen
-  - CCM Iago
-  - CCM Jake
-  - CCM Kyle
-  - CCM Liana
-  - CCM Mary
-  - CCM Ning
-  - CCM Oyo
+  STROKE:
+    - Stroke Gabi
+    - Stroke Jeff
+    - Stroke Victoria
+    - Stroke Parshva
 
-NH_fellows:
-  - NH Adam
+  CCM:
+    - CCM Ariana
+    - CCM Bert
+    - CCM Chloe
+    - CCM Dennis
+    - CCM Edwina
+    - CCM Frank
+    - CCM George
+    - CCM Helen
+    - CCM Iago
+    - CCM Jake
+    - CCM Kyle
+    - CCM Liana
+    - CCM Mary
+    - CCM Ning
+    - CCM Oyo
 
-lia:
-  - NCC Lia
+  NH:
+    - NH Adam
+
+  LIA:
+    - NCC Lia
 
 fellow_week_pairs:
   NCC Prash: [1, 7, 25, 39, 40, 41, 42]

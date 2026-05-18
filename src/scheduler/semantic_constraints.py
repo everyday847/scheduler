@@ -20,20 +20,20 @@ class ConstraintStrength(Enum):
 @dataclass(frozen=True)
 class FellowSelector:
     names: tuple[str, ...] = ()
-    types: tuple[str, ...] = ()
+    groups: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if bool(self.names) == bool(self.types):
-            raise ValueError("FellowSelector must target exactly one of names or types.")
-        _require_non_empty_strings(self.names or self.types, "FellowSelector targets")
+        if bool(self.names) == bool(self.groups):
+            raise ValueError("FellowSelector must target exactly one of names or groups.")
+        _require_non_empty_strings(self.names or self.groups, "FellowSelector targets")
 
     @classmethod
     def by_names(cls, *names: str) -> FellowSelector:
         return cls(names=tuple(names))
 
     @classmethod
-    def by_types(cls, *types: str) -> FellowSelector:
-        return cls(types=tuple(types))
+    def by_groups(cls, *groups: str) -> FellowSelector:
+        return cls(groups=tuple(groups))
 
 
 @dataclass(frozen=True)

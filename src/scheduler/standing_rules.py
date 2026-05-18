@@ -31,7 +31,7 @@ def _block_rule(rule: dict[str, Any]) -> SemanticConstraint:
         kind="all_or_none_block",
         lifecycle=ConstraintLifecycle.STANDING_RULE,
         strength=_strength(rule.get("strength", "hard")),
-        fellows=FellowSelector.by_types(*rule["fellow_types"]),
+        fellows=FellowSelector.by_groups(*rule["fellow_groups"]),
         shifts=ShiftSet(rule["name"], tuple(rule["shifts"])),
         params={
             "block_size": rule["block_size"],
@@ -45,7 +45,7 @@ def _max_consecutive_rule(rule: dict[str, Any]) -> SemanticConstraint:
         kind="max_consecutive",
         lifecycle=ConstraintLifecycle.STANDING_RULE,
         strength=_strength(rule.get("strength", "hard")),
-        fellows=FellowSelector.by_types(*rule["fellow_types"]),
+        fellows=FellowSelector.by_groups(*rule["fellow_groups"]),
         shifts=ShiftSet(rule["name"], tuple(rule["shifts"])),
         params={
             "weeks": rule["weeks"],
@@ -60,7 +60,7 @@ def _swing_deficit_rule(rule: dict[str, Any]) -> SemanticConstraint:
         kind="minimize_uncovered_shift_weeks",
         lifecycle=ConstraintLifecycle.STANDING_RULE,
         strength=ConstraintStrength.MINIMIZE,
-        fellows=FellowSelector.by_types(*rule["fellow_types"]),
+        fellows=FellowSelector.by_groups(*rule["fellow_groups"]),
         shifts=ShiftSet.single(shift),
         params={"shift": shift},
     )

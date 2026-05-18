@@ -35,7 +35,7 @@ def test_compile_at_most_one_shift_per_week_rejects_double_assignment():
         kind="at_most_one_shift_per_week",
         lifecycle=ConstraintLifecycle.SOLVER_INVARIANT,
         strength=ConstraintStrength.HARD,
-        fellows=FellowSelector.by_types("NCC_JR"),
+        fellows=FellowSelector.by_groups("NCC_JR"),
         weeks=WeekSpan(0, 1),
         shifts=ShiftSet("all", ("MICU", "NCC1")),
     )
@@ -59,7 +59,7 @@ def test_compile_soft_assignment_does_not_make_conflicting_schedule_unsat():
         kind="at_most_one_shift_per_week",
         lifecycle=ConstraintLifecycle.SOLVER_INVARIANT,
         strength=ConstraintStrength.HARD,
-        fellows=FellowSelector.by_types("NCC_JR"),
+        fellows=FellowSelector.by_groups("NCC_JR"),
         weeks=WeekSpan(0, 1),
         shifts=ShiftSet("all", ("MICU", "NCC1")),
     )
@@ -85,7 +85,7 @@ def test_compile_all_or_none_block_fills_rest_of_block():
         kind="all_or_none_block",
         lifecycle=ConstraintLifecycle.STANDING_RULE,
         strength=ConstraintStrength.HARD,
-        fellows=FellowSelector.by_types("NCC_JR"),
+        fellows=FellowSelector.by_groups("NCC_JR"),
         weeks=WeekSpan(0, 2),
         shifts=ShiftSet.single("MICU"),
         params={"block_size": 2},
@@ -110,7 +110,7 @@ def test_compile_minimize_uncovered_shift_weeks_assigns_shift_when_possible():
         kind="minimize_uncovered_shift_weeks",
         lifecycle=ConstraintLifecycle.STANDING_RULE,
         strength=ConstraintStrength.MINIMIZE,
-        fellows=FellowSelector.by_types("NCC_JR"),
+        fellows=FellowSelector.by_groups("NCC_JR"),
         weeks=WeekSpan(0, 2),
         shifts=ShiftSet.single("Swing"),
     )
@@ -120,4 +120,3 @@ def test_compile_minimize_uncovered_shift_weeks_assigns_shift_when_possible():
     assert adapter.check() == sat
     assert adapter.model_value("NCC Raya", 0, "Swing") is True
     assert adapter.model_value("NCC Raya", 1, "Swing") is True
-

@@ -114,7 +114,7 @@ class Z3ScheduleAdapter:
         return tuple(
             fellow_name
             for fellow_name, fellow_type in self.fellows.items()
-            if fellow_type in selector.types
+            if fellow_type in selector.groups
         )
 
 

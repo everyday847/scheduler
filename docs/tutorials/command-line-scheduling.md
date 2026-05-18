@@ -45,26 +45,29 @@ uv run scheduler default-request
 
 Open `config/annual/my-2025-2026.yaml`.
 
-The current solver reads these top-level fields:
+The annual YAML defines the vocabulary used by the solver and by constraints:
 
 ```yaml
-jr_fellows:
-  - NCC Raya
-sr_fellows:
-  - NCC David
-stroke_fellows:
-  - Stroke Gabi
-CCM_fellows:
-  - CCM Ariana
-NH_fellows:
-  - NH Adam
-lia:
-  - NCC Lia
+shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  - MICU
+  - Vac
+fellow_groups:
+  NCC_JR:
+    - NCC Raya
+  NCC_SR:
+    - NCC David
+  STROKE:
+    - Stroke Gabi
+  CCM:
+    - CCM Ariana
 fellow_week_pairs:
   NCC Raya: [21, 37]
 ```
 
-Omitted fellow cohorts are treated as empty. For example, if the YAML has no `lia` key, the request has no Lia fellow; the scheduler will not backfill `NCC Lia` from the seed data. Vacation requests must reference fellows declared in the same YAML file.
+There are no privileged public keys like `jr_fellows` or `lia`. If a group exists for a year, define it under `fellow_groups`. If the YAML has no `LIA` group, the request has no Lia fellow. Vacation requests must reference fellows declared in the same YAML file.
 
 The `annual_rules` section is tutorial-forward: it documents the intended semantic home for year-specific policy, but `src/scheduler/main.py` does not consume every entry yet.
 
@@ -95,7 +98,7 @@ Example:
 ```yaml
 block_rules:
   - name: ncc_four_week_blocks
-    fellow_types: [NCC_JR, NCC_SR]
+    fellow_groups: [NCC_JR, NCC_SR]
     shifts: [NCC1, NCC2, Swing]
     block_size: 4
     strength: hard
