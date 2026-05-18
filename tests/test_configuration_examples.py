@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_standing_rule_example_is_valid_yaml():
     config = yaml.safe_load((ROOT / "config/standing/stanford-fellowship.yaml").read_text())
 
-    assert "block_rules" in config
-    assert "max_consecutive" in config
-    assert config["swing_deficit"]["shift"] == "Swing"
-    assert any(rule["name"] == "ncc_four_week_blocks" for rule in config["block_rules"])
+    assert "rules" in config
+    assert any(rule["name"] == "ncc_four_week_blocks" for rule in config["rules"])
+    assert any(rule["kind"] == "ncc_coverage" for rule in config["rules"])
+    assert all("active" in rule for rule in config["rules"])
 
 
 def test_annual_request_example_is_valid_yaml():

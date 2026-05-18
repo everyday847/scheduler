@@ -1,38 +1,117 @@
 # Standing Rules describe how Stanford runs the fellowship program.
 # They should change deliberately and rarely, not during routine schedule tuning.
 
-block_rules:
-  - name: ncc_four_week_blocks
-    fellow_groups: [NCC_JR, NCC_SR]
+rules:
+  - name: full_assignment_for_owned_schedules
+    kind: full_assignment
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR, NCC_SR, STROKE]
+
+  - name: ncc_coverage
+    kind: ncc_coverage
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2, Swing]
-    block_size: 4
-    strength: soft
+    swing_deficit: 8
+    max_ncc_fellows: 3
+    max_ncc_plus_swing_fellows: 4
 
-  - name: micu_four_week_blocks
-    fellow_groups: [NCC_JR, NCC_SR]
-    shifts: [MICU]
-    block_size: 4
-    strength: hard
-
-  - name: stroke_two_week_blocks
-    fellow_groups: [STROKE]
-    shifts: [Stroke, Telestroke/Clinic]
-    block_size: 2
-    strength: hard
-
-max_consecutive:
   - name: core_icu
+    kind: max_consecutive
+    active: true
+    strength: hard
     fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2, Swing, SICU, MICU, Stroke, NIR]
     weeks: 8
-    strength: hard
 
   - name: ncc_team
+    kind: max_consecutive
+    active: true
+    strength: hard
     fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2, Swing]
     weeks: 6
-    strength: hard
 
-swing_deficit:
-  fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
-  shift: Swing
+  - name: swing
+    kind: max_consecutive
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [Swing]
+    weeks: 2
+
+  - name: junior_first_month_micu
+    kind: jr_first_month_micu
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+
+  - name: junior_ncc_before_week
+    kind: jr_ncc_before_week
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+    week: 19
+
+  - name: junior_ncc_before_swing
+    kind: jr_ncc_before_swing
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+    ncc_weeks: 4
+
+  - name: ncc_four_week_blocks
+    kind: all_or_none_block
+    active: true
+    strength: soft
+    fellow_groups: [NCC_JR, NCC_SR]
+    shifts: [NCC1, NCC2, Swing]
+    block_size: 4
+
+  - name: micu_four_week_blocks
+    kind: all_or_none_block
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR, NCC_SR]
+    shifts: [MICU]
+    block_size: 4
+
+  - name: sicu_four_week_blocks
+    kind: all_or_none_block
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+    shifts: [SICU]
+    block_size: 4
+
+  - name: anaesthesia_two_week_blocks
+    kind: all_or_none_block
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+    shifts: [Anaesthesia]
+    block_size: 2
+
+  - name: ns_four_week_blocks
+    kind: all_or_none_block
+    active: true
+    strength: hard
+    fellow_groups: [NCC_SR]
+    shifts: [NS]
+    block_size: 4
+
+  - name: stroke_two_week_blocks
+    kind: all_or_none_block
+    active: true
+    strength: hard
+    fellow_groups: [STROKE]
+    shifts: [Stroke, Telestroke/Clinic]
+    block_size: 2
+
+  - name: ncc_stroke_oversight
+    kind: ncc_stroke_oversight
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR, NCC_SR, STROKE]
