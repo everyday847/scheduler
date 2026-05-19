@@ -440,6 +440,8 @@ def existing_fellow_indices(fellow_mapping, names):
 def _rule_handlers():
     return {
         "all_or_none_block": _apply_all_or_none_block,
+        "block_shift_count": _apply_block_shift_count,
+        "block_shift_set_choice": _apply_block_shift_set_choice,
         "comparable_half_year_distribution": _apply_comparable_half_year_distribution,
         "full_assignment": _apply_full_assignment,
         "fourth_block_two_micu_fellows": _apply_fourth_block_two_micu_fellows,
@@ -551,6 +553,34 @@ def _apply_all_or_none_block(o, x, context, constraint, fellow_indices):
             shift_blocked_soft(o, x, shift, fellow_indices=fellow_indices, GRANULARITY=block_size)
         else:
             shift_blocked(o, x, shift, fellow_indices=fellow_indices, GRANULARITY=block_size)
+
+
+def _apply_block_shift_count(o, x, context, constraint, fellow_indices):
+    shifts = list(constraint.shifts.shifts) if constraint.shifts else constraint.params["shifts"]
+    block_size = constraint.params["block_size"]
+    allowed_counts = constraint.params["allowed_counts"]
+    for f in fellow_indices:
+        for block_start in range(0, context.week_count, block_size):
+            block_weeks = range(block_start, min(block_start + block_size, context.week_count))
+            count = _shift_count(x, f, block_weeks, shifts)
+            _add_by_strength(o, constraint, Or(*[count == allowed for allowed in allowed_counts]))
+
+
+def _apply_block_shift_set_choice(o, x, context, constraint, fellow_indices):
+    block_size = constraint.params["block_size"]
+    choices = constraint.params["choices"]
+    trigger_shifts = sorted({shift for choice in choices for shift in choice})
+    for f in fellow_indices:
+        for block_start in range(0, context.week_count, block_size):
+            block_weeks = range(block_start, min(block_start + block_size, context.week_count))
+            block_length = len(list(block_weeks))
+            choice_expressions = [
+                _shift_count(x, f, block_weeks, choice) == block_length
+                for choice in choices
+            ]
+            if constraint.params.get("allow_none", False):
+                choice_expressions.append(_shift_count(x, f, block_weeks, trigger_shifts) == 0)
+            _add_by_strength(o, constraint, Or(*choice_expressions))
 
 
 def _apply_service_profile(o, x, context, constraint, fellow_indices):

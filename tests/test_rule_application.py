@@ -185,6 +185,73 @@ def test_service_profile_enforces_window_totals():
     assert optimizer.check() == unsat
 
 
+def test_block_shift_set_choice_rejects_mixed_choices_inside_block():
+    optimizer, variables, context = _small_z3_context()
+    constraint = SemanticConstraint(
+        kind="block_shift_set_choice",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.HARD,
+        fellows=FellowSelector.by_groups("CCM"),
+        params={
+            "name": "ncc_two_week_block_choice",
+            "block_size": 2,
+            "choices": [["NCC1", "Swing"], ["NCC2", "Swing"]],
+            "allow_none": True,
+        },
+    )
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(variables[0, 1, "Swing"])
+
+    assert optimizer.check() == sat
+
+    optimizer, variables, context = _small_z3_context()
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(Not(variables[0, 0, "NCC2"]))
+    optimizer.add(Not(variables[0, 0, "Swing"]))
+    optimizer.add(Not(variables[0, 1, "NCC1"]))
+    optimizer.add(variables[0, 1, "NCC2"])
+    optimizer.add(Not(variables[0, 1, "Swing"]))
+
+    assert optimizer.check() == unsat
+
+
+def test_block_shift_count_allows_configured_block_counts():
+    optimizer, variables, context = _small_z3_context()
+    constraint = SemanticConstraint(
+        kind="block_shift_count",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.HARD,
+        fellows=FellowSelector.by_groups("CCM"),
+        shifts=None,
+        params={
+            "name": "ns_four_week_blocks",
+            "block_size": 4,
+            "shifts": ["MICU"],
+            "allowed_counts": [0, 3, 4],
+        },
+    )
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "MICU"])
+    optimizer.add(variables[0, 1, "MICU"])
+    optimizer.add(variables[0, 2, "MICU"])
+    optimizer.add(Not(variables[0, 3, "MICU"]))
+
+    assert optimizer.check() == sat
+
+    optimizer, variables, context = _small_z3_context()
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "MICU"])
+    optimizer.add(variables[0, 1, "MICU"])
+    optimizer.add(Not(variables[0, 2, "MICU"]))
+    optimizer.add(Not(variables[0, 3, "MICU"]))
+
+    assert optimizer.check() == unsat
+
+
 def _small_z3_context():
     shifts = ["NCC1", "NCC2", "Swing", "MICU"]
     variables = {

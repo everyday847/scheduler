@@ -55,13 +55,27 @@ rules:
     fellow_groups: [NCC_JR]
     ncc_weeks: 4
 
-  - name: ncc_four_week_blocks
-    kind: all_or_none_block
+  - name: ncc_two_week_block_choice
+    kind: block_shift_set_choice
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR, NCC_SR]
+    block_size: 2
+    choices:
+      - [NCC1, Swing]
+      - [NCC2, Swing]
+    allow_none: true
+
+  - name: ncc_four_week_block_preference
+    kind: block_shift_set_choice
     active: true
     strength: soft
     fellow_groups: [NCC_JR, NCC_SR]
-    shifts: [NCC1, NCC2, Swing]
     block_size: 4
+    choices:
+      - [NCC1, Swing]
+      - [NCC2, Swing]
+    allow_none: true
 
   - name: micu_four_week_blocks
     kind: all_or_none_block
@@ -79,21 +93,22 @@ rules:
     shifts: [SICU]
     block_size: 4
 
-  - name: anaesthesia_two_week_blocks
+  - name: anaesthesia_four_week_blocks
     kind: all_or_none_block
     active: true
     strength: hard
     fellow_groups: [NCC_JR]
     shifts: [Anaesthesia]
-    block_size: 2
+    block_size: 4
 
   - name: ns_four_week_blocks
-    kind: all_or_none_block
+    kind: block_shift_count
     active: true
     strength: hard
     fellow_groups: [NCC_SR]
     shifts: [NS]
     block_size: 4
+    allowed_counts: [0, 3, 4]
 
   - name: stroke_two_week_blocks
     kind: all_or_none_block

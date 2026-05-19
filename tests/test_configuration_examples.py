@@ -12,9 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_standing_rule_example_is_valid_yaml():
     config = yaml.safe_load((ROOT / "config/standing/stanford-fellowship.yaml").read_text())
+    rules = {rule["name"]: rule for rule in config["rules"]}
 
     assert "rules" in config
-    assert any(rule["name"] == "ncc_four_week_blocks" for rule in config["rules"])
+    assert "ncc_two_week_block_choice" in rules
+    assert rules["ncc_two_week_block_choice"]["kind"] == "block_shift_set_choice"
+    assert rules["ncc_two_week_block_choice"]["choices"] == [["NCC1", "Swing"], ["NCC2", "Swing"]]
+    assert rules["ncc_two_week_block_choice"]["block_size"] == 2
+    assert rules["ncc_four_week_block_preference"]["strength"] == "soft"
+    assert rules["ns_four_week_blocks"]["kind"] == "block_shift_count"
+    assert rules["ns_four_week_blocks"]["allowed_counts"] == [0, 3, 4]
+    assert rules["anaesthesia_four_week_blocks"]["block_size"] == 4
     assert any(rule["kind"] == "ncc_coverage" for rule in config["rules"])
     assert all("active" in rule for rule in config["rules"])
 
