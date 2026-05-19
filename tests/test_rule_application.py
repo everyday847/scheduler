@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from z3 import Bool, Not, Optimize, sat, unsat
+from z3 import Bool, Not, Optimize, Z3_OP_PB_EQ, sat, unsat
 
-from scheduler.main import _rule_handlers
+from scheduler.main import _count_relation, _rule_handlers
 from scheduler.rule_application import RuleApplicationContext, apply_constraints
 from scheduler.semantic_constraints import (
     ConstraintLifecycle,
@@ -107,6 +107,12 @@ def test_apply_constraints_rejects_unknown_rule_kinds():
         raise AssertionError("Expected unsupported rule kind to raise")
 
 
+def test_count_relation_uses_pseudo_boolean_exact_counts_for_boolean_terms():
+    expression = _count_relation([Bool("a"), Bool("b")], "exactly", 1)
+
+    assert expression.decl().kind() == Z3_OP_PB_EQ
+
+
 def test_service_profile_forbids_zero_shifts():
     optimizer, variables, context = _small_z3_context()
     constraint = _ccm_service_profile()
@@ -181,6 +187,33 @@ def test_service_profile_enforces_window_totals():
     for week in range(2, 6):
         optimizer.add(Not(variables[0, week, "NCC1"]))
         optimizer.add(Not(variables[0, week, "NCC2"]))
+
+    assert optimizer.check() == unsat
+
+
+def test_jr_ncc_before_swing_requires_ncc_before_each_swing_week():
+    optimizer, variables, context = _small_z3_context()
+    constraint = SemanticConstraint(
+        kind="jr_ncc_before_swing",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.HARD,
+        fellows=FellowSelector.by_groups("CCM"),
+        params={"ncc_weeks": 2},
+    )
+
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(variables[0, 1, "NCC2"])
+    optimizer.add(variables[0, 2, "Swing"])
+
+    assert optimizer.check() == sat
+
+    optimizer, variables, context = _small_z3_context()
+    apply_constraints(optimizer, variables, [constraint], context, _rule_handlers())
+    optimizer.add(variables[0, 0, "NCC1"])
+    optimizer.add(Not(variables[0, 1, "NCC1"]))
+    optimizer.add(Not(variables[0, 1, "NCC2"]))
+    optimizer.add(variables[0, 2, "Swing"])
 
     assert optimizer.check() == unsat
 

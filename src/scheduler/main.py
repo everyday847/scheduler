@@ -22,11 +22,7 @@ except ImportError:  # pragma: no cover - supports running from src/scheduler
     from semantic_constraints import ConstraintStrength
     from standing_rules import constraints_from_config as standing_constraints_from_config
 
-z3.set_option(verbose=0)
-# Enable parallel solving globally
-set_param('tactic.default_tactic', 'smt')
-set_param('parallel.enable', True)
-set_param('verbose', 10)
+set_option(verbose=0)
 
 # Not too dangerous to make global
 W = 52
@@ -35,58 +31,33 @@ STANDING_RULE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "standin
 def stroke_shifts_covered(o, x, total_fellows, fellow_mapping):
     # Every week has exactly one person on Stroke and on Telestroke/Clinic
     for w in range(W):
-        stroke_coverage = Sum([If(x[f, w, "Stroke"], 1, 0) for f in range(total_fellows)]) == 1
-        o.add(stroke_coverage)
-        o.add(Sum([If(x[f, w, "Telestroke/Clinic"], 1, 0) for f in range(total_fellows)]) == 1)
+        o.add(_count_relation([x[f, w, "Stroke"] for f in range(total_fellows)], "exactly", 1))
+        o.add(_count_relation([x[f, w, "Telestroke/Clinic"] for f in range(total_fellows)], "exactly", 1))
 
 def maximum_consecutive_icu_shifts(o, x, fellow_indices, shifts, MAX_CONSEC):
     for f in fellow_indices:
         for w in range(W - MAX_CONSEC):
-            o.add(Sum([If(
-                Or(*[x[f, w + i, r] for r in shifts]),
-                1,
-                0) for i in range(MAX_CONSEC + 1)]) <= MAX_CONSEC)
+            o.add(_count_relation([
+                Or(*[x[f, w + i, r] for r in shifts])
+                for i in range(MAX_CONSEC + 1)
+            ], "at_most", MAX_CONSEC))
 
 def maximum_consecutive_icu_shifts_soft(o, x, fellow_indices, shifts, MAX_CONSEC):
     for f in fellow_indices:
         for w in range(W - MAX_CONSEC):
-            o.add_soft(Sum([If(
-                Or(*[x[f, w + i, r] for r in shifts]),
-                1,
-                0) for i in range(MAX_CONSEC + 1)]) <= MAX_CONSEC)
+            o.add_soft(_count_relation([
+                Or(*[x[f, w + i, r] for r in shifts])
+                for i in range(MAX_CONSEC + 1)
+            ], "at_most", MAX_CONSEC))
 
-def jr_fellows_n_ncc_before_swing(o, x, fellow_indices, n):
-    # jr fellows have 4x NCC before their first swing
+def jr_fellows_n_ncc_before_swing(o, x, fellow_indices, n, week_count=W):
     for f in fellow_indices:
-        o.add(
-            Sum([
-                Product([
-                    # Number of NCC shifts before week w.
-                    Sum([
-                        If(
-                            Or(x[f, w_, "NCC1"], x[f, w_, "NCC2"]),
-                            1,
-                            0
-                        )
-                    for w_ in range(w)]),
-                    # Zero if there is a swing shift before week w, or if week w itself is not a swing shift.
-                    If(
-                        And(
-                            Sum([
-                                If(
-                                    x[f, w_, "Swing"],
-                                    1,
-                                    0
-                                ) for w_ in range(w)
-                            ]) == 0,
-                            x[f,w,"Swing"],
-                        ),
-                        1,
-                        0
-                    )
-                ])
-            for w in range(W)]) >= n
-        )
+        for w in range(week_count):
+            previous_ncc = [
+                Or(x[f, prior_week, "NCC1"], x[f, prior_week, "NCC2"])
+                for prior_week in range(w)
+            ]
+            o.add(Implies(x[f, w, "Swing"], _count_relation(previous_ncc, "at_least", n)))
 
 def shift_blocked(o, x, shift, fellow_indices, GRANULARITY):
     # junior fellows have 4 sicu, and it should follow a block.
@@ -94,14 +65,11 @@ def shift_blocked(o, x, shift, fellow_indices, GRANULARITY):
         # Consecutivity
         for w in range(0, W, GRANULARITY):
             # Either all or none of the block is SICU.
+            shift_terms = _shift_terms(x, f, range(w, w + GRANULARITY), [shift])
             o.add(
                 Or(
-                    Sum([
-                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
-                    ]) == GRANULARITY,
-                    Sum([
-                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
-                    ]) == 0,
+                    _count_relation(shift_terms, "exactly", GRANULARITY),
+                    _count_relation(shift_terms, "exactly", 0),
                 )
             )
 
@@ -110,14 +78,11 @@ def shift_blocked_soft(o, x, shift, fellow_indices, GRANULARITY):
         # Consecutivity
         for w in range(0, W, GRANULARITY):
             # Either all or none of the block is SICU.
+            shift_terms = _shift_terms(x, f, range(w, w + GRANULARITY), [shift])
             o.add_soft(
                 Or(
-                    Sum([
-                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
-                    ]) == GRANULARITY,
-                    Sum([
-                        If(x[f, w_, shift], 1, 0) for w_ in range(w, w + GRANULARITY)
-                    ]) == 0,
+                    _count_relation(shift_terms, "exactly", GRANULARITY),
+                    _count_relation(shift_terms, "exactly", 0),
                 )
             )
 
@@ -125,28 +90,22 @@ def fourth_block_two_micu_fellows(o, x, fellow_indices):
     # from the fellows between start and end, ensure MICU is double-staffed for every week from 12-15
     for w in range(12,16):
         o.add(
-            Sum([If(x[f, w, "MICU"], 1, 0) for f in fellow_indices]) == 2,
+            _count_relation([x[f, w, "MICU"] for f in fellow_indices], "exactly", 2),
         )
 
 def nir_one_week_per_half(o, x, fellow_indices):
     for f in fellow_indices:
         o.add(
-            Sum([
-                If(x[f, w, "NIR"], 1, 0) for w in range(0, W // 2)
-            ]) == 1
+            _count_relation([x[f, w, "NIR"] for w in range(0, W // 2)], "exactly", 1)
         )
         o.add(
-            Sum([
-                If(x[f, w, "NIR"], 1, 0) for w in range(W // 2, W)
-            ]) == 1
+            _count_relation([x[f, w, "NIR"] for w in range(W // 2, W)], "exactly", 1)
         )
 
 def scvmc_second_half(o, x, fellow_indices):
     for f in fellow_indices:
         o.add(
-            Sum([
-                If(x[f, w, "SCVMC Rehab"], 1, 0) for w in range(W // 2, W)
-            ]) == 2
+            _count_relation([x[f, w, "SCVMC Rehab"] for w in range(W // 2, W)], "exactly", 2)
         )
 
 def comparable_amounts_each_half_year(o, x, fellow_indices):
@@ -184,8 +143,9 @@ def specific_assignment_soft(o, x, shift, fellow_indices, week):
 def stroke_no_block_one_ncc(o, x, fellow_indices):
     for f in fellow_indices:
         for w in range(4):
-            o.add_soft(Not(x[f, w, "NCC1"]))
-            o.add_soft(Not(x[f, w, "NCC2"]))
+            if hasattr(o, "add_soft"):
+                o.add_soft(Not(x[f, w, "NCC1"]))
+                o.add_soft(Not(x[f, w, "NCC2"]))
             o.add(Not(x[f, w, "Swing"]))
 
 def isc(o, x, fellow_indices):
@@ -221,6 +181,8 @@ def _rule_handlers():
 
 
 def _add_by_strength(o, constraint, expression):
+    if is_true(simplify(expression)):
+        return
     if constraint.strength is ConstraintStrength.HARD:
         o.add(expression)
     elif constraint.strength is ConstraintStrength.SOFT:
@@ -245,13 +207,22 @@ def _apply_ncc_coverage(o, x, context, constraint, fellow_indices):
     max_ncc_fellows = constraint.params.get("max_ncc_fellows", 3)
     max_ncc_plus_swing_fellows = constraint.params.get("max_ncc_plus_swing_fellows", 4)
     for w in range(context.week_count):
-        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) >= 1)
-        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) >= 1)
-        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC1"], 1, 0) for f in range(total_fellows)]) <= 2)
-        _add_by_strength(o, constraint, Sum([If(x[f, w, "NCC2"], 1, 0) for f in range(total_fellows)]) <= 2)
-        _add_by_strength(o, constraint, Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_fellows)
-        _add_by_strength(o, constraint, Sum([If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"]), 1, 0) for f in range(total_fellows)]) <= max_ncc_plus_swing_fellows)
-        _add_by_strength(o, constraint, Sum([If(x[f, w, "Swing"], 1, 0) for f in range(total_fellows)]) <= 1)
+        ncc1_assignments = [x[f, w, "NCC1"] for f in range(total_fellows)]
+        ncc2_assignments = [x[f, w, "NCC2"] for f in range(total_fellows)]
+        ncc_assignments = [Or(x[f, w, "NCC1"], x[f, w, "NCC2"]) for f in range(total_fellows)]
+        ncc_plus_swing_assignments = [
+            Or(x[f, w, "NCC1"], x[f, w, "NCC2"], x[f, w, "Swing"])
+            for f in range(total_fellows)
+        ]
+        swing_assignments = [x[f, w, "Swing"] for f in range(total_fellows)]
+
+        _add_by_strength(o, constraint, _count_relation(ncc1_assignments, "at_least", 1))
+        _add_by_strength(o, constraint, _count_relation(ncc2_assignments, "at_least", 1))
+        _add_by_strength(o, constraint, _count_relation(ncc1_assignments, "at_most", 2))
+        _add_by_strength(o, constraint, _count_relation(ncc2_assignments, "at_most", 2))
+        _add_by_strength(o, constraint, _count_relation(ncc_assignments, "at_most", max_ncc_fellows))
+        _add_by_strength(o, constraint, _count_relation(ncc_plus_swing_assignments, "at_most", max_ncc_plus_swing_fellows))
+        _add_by_strength(o, constraint, _count_relation(swing_assignments, "at_most", 1))
 
     if "swing_deficit" in constraint.params:
         _add_by_strength(o, constraint, Sum([
@@ -303,6 +274,7 @@ def _apply_jr_ncc_before_swing(o, x, context, constraint, fellow_indices):
         x,
         fellow_indices=fellow_indices,
         n=constraint.params.get("ncc_weeks", 4),
+        week_count=context.week_count,
     )
 
 
@@ -322,8 +294,11 @@ def _apply_block_shift_count(o, x, context, constraint, fellow_indices):
     for f in fellow_indices:
         for block_start in range(0, context.week_count, block_size):
             block_weeks = range(block_start, min(block_start + block_size, context.week_count))
-            count = _shift_count(x, f, block_weeks, shifts)
-            _add_by_strength(o, constraint, Or(*[count == allowed for allowed in allowed_counts]))
+            shift_terms = _shift_terms(x, f, block_weeks, shifts)
+            _add_by_strength(o, constraint, Or(*[
+                _count_relation(shift_terms, "exactly", allowed)
+                for allowed in allowed_counts
+            ]))
 
 
 def _apply_block_shift_set_choice(o, x, context, constraint, fellow_indices):
@@ -335,11 +310,13 @@ def _apply_block_shift_set_choice(o, x, context, constraint, fellow_indices):
             block_weeks = range(block_start, min(block_start + block_size, context.week_count))
             block_length = len(list(block_weeks))
             choice_expressions = [
-                _shift_count(x, f, block_weeks, choice) == block_length
+                _count_relation(_shift_terms(x, f, block_weeks, choice), "exactly", block_length)
                 for choice in choices
             ]
             if constraint.params.get("allow_none", False):
-                choice_expressions.append(_shift_count(x, f, block_weeks, trigger_shifts) == 0)
+                choice_expressions.append(
+                    _count_relation(_shift_terms(x, f, block_weeks, trigger_shifts), "exactly", 0)
+                )
             _add_by_strength(o, constraint, Or(*choice_expressions))
 
 
@@ -354,7 +331,7 @@ def _apply_service_profile(o, x, context, constraint, fellow_indices):
                 o,
                 constraint,
                 _count_relation(
-                    _shift_count(x, f, range(context.week_count), total["shifts"]),
+                    _shift_terms(x, f, range(context.week_count), total["shifts"]),
                     total["relation"],
                     total["weeks"],
                 ),
@@ -366,7 +343,7 @@ def _apply_service_profile(o, x, context, constraint, fellow_indices):
                 o,
                 constraint,
                 _count_relation(
-                    _shift_count(x, f, range(window_start, window_end), total["shifts"]),
+                    _shift_terms(x, f, range(window_start, window_end), total["shifts"]),
                     total["relation"],
                     total["weeks"],
                 ),
@@ -376,16 +353,16 @@ def _apply_service_profile(o, x, context, constraint, fellow_indices):
             block_size = active_block["block_size"]
             for block_start in range(0, context.week_count, block_size):
                 block_weeks = range(block_start, min(block_start + block_size, context.week_count))
-                trigger_count = _shift_count(x, f, block_weeks, active_block["trigger_shifts"])
+                trigger_terms = _shift_terms(x, f, block_weeks, active_block["trigger_shifts"])
                 block_conditions = [
                     _count_relation(
-                        _shift_count(x, f, block_weeks, count_rule["shifts"]),
+                        _shift_terms(x, f, block_weeks, count_rule["shifts"]),
                         count_rule["relation"],
                         count_rule["weeks"],
                     )
                     for count_rule in active_block["counts"]
                 ]
-                _add_by_strength(o, constraint, Implies(trigger_count > 0, And(*block_conditions)))
+                _add_by_strength(o, constraint, Implies(Or(*trigger_terms), And(*block_conditions)))
 
 
 def _apply_ncc_stroke_oversight(o, x, context, constraint, fellow_indices):
@@ -393,10 +370,10 @@ def _apply_ncc_stroke_oversight(o, x, context, constraint, fellow_indices):
         _add_by_strength(
             o,
             constraint,
-            Sum([
-                If(Or(x[f, w, "NCC1"], x[f, w, "NCC2"]), 1, 0)
+            _count_relation([
+                Or(x[f, w, "NCC1"], x[f, w, "NCC2"])
                 for f in fellow_indices
-            ]) >= 1,
+            ], "at_least", 1),
         )
 
 
@@ -457,7 +434,19 @@ def _shift_count(x, fellow_index, weeks, shifts):
     ])
 
 
-def _count_relation(count, relation, expected):
+def _shift_terms(x, fellow_index, weeks, shifts):
+    return [
+        x[fellow_index, week, shift]
+        for week in weeks
+        for shift in shifts
+    ]
+
+
+def _count_relation(count_or_terms, relation, expected):
+    if isinstance(count_or_terms, (list, tuple)):
+        return _pseudo_boolean_relation(count_or_terms, relation, expected)
+
+    count = count_or_terms
     if relation == "exactly":
         return count == expected
     if relation == "at_least":
@@ -465,6 +454,104 @@ def _count_relation(count, relation, expected):
     if relation == "at_most":
         return count <= expected
     raise ValueError(f"Unknown service count relation: {relation}")
+
+
+def _pseudo_boolean_relation(terms, relation, expected):
+    weighted_terms = [(term, 1) for term in terms]
+    if not weighted_terms:
+        return _empty_count_relation(relation, expected)
+    if relation == "exactly":
+        return PbEq(weighted_terms, expected)
+    if relation == "at_least":
+        return PbGe(weighted_terms, expected)
+    if relation == "at_most":
+        return PbLe(weighted_terms, expected)
+    raise ValueError(f"Unknown service count relation: {relation}")
+
+
+def _empty_count_relation(relation, expected):
+    if relation == "exactly":
+        return BoolVal(expected == 0)
+    if relation == "at_least":
+        return BoolVal(0 >= expected)
+    if relation == "at_most":
+        return BoolVal(0 <= expected)
+    raise ValueError(f"Unknown service count relation: {relation}")
+
+
+def _forbidden_assignments_from_constraints(fellow_mapping, shifts, week_count, constraints):
+    known_shifts = set(shifts)
+    forbidden_assignments = set()
+
+    for constraint in constraints:
+        if constraint.strength is not ConstraintStrength.HARD:
+            continue
+        fellow_indices = _fellow_indices_for_constraint(fellow_mapping, constraint)
+        if constraint.kind == "service_profile":
+            for shift in constraint.params.get("zero_shifts", []):
+                if shift not in known_shifts:
+                    continue
+                for fellow_index in fellow_indices:
+                    for week in range(week_count):
+                        forbidden_assignments.add((fellow_index, week, shift))
+        elif constraint.kind == "isc" and "ISC" in known_shifts:
+            target_date = tuple(constraint.params.get("date", (2026, 2, 5)))
+            target_week = date_to_week_index(target_date)
+            for fellow_index in fellow_indices:
+                for week in range(week_count):
+                    if week != target_week:
+                        forbidden_assignments.add((fellow_index, week, "ISC"))
+
+    for fellow in fellow_mapping.get_fellows_by_group("CCM"):
+        assigned_weeks = _ccm_assigned_weeks(fellow_mapping, fellow.index, week_count)
+        for week in range(week_count):
+            if week in assigned_weeks:
+                continue
+            for shift in ("NCC1", "NCC2", "Swing"):
+                if shift in known_shifts:
+                    forbidden_assignments.add((fellow.index, week, shift))
+
+    return forbidden_assignments
+
+
+def _ccm_assigned_weeks(fellow_mapping, fellow_index, week_count):
+    ccm_indices = [fellow.index for fellow in fellow_mapping.get_fellows_by_group("CCM")]
+    try:
+        block_start = ccm_indices.index(fellow_index) * 4
+    except ValueError:
+        return set()
+    return set(range(block_start, min(block_start + 4, week_count)))
+
+
+def _fellow_indices_for_constraint(fellow_mapping, constraint):
+    selector = constraint.fellows
+    if selector is None:
+        return list(fellow_mapping.all_fellow_indices)
+    if selector.groups:
+        return fellow_mapping.get_fellow_indices_by_groups(*selector.groups)
+    return [
+        fellow_mapping.get_fellow_index(name)
+        for name in selector.names
+        if fellow_mapping.get_fellow(name) is not None
+    ]
+
+
+def _hard_constraints(constraints):
+    return [
+        constraint
+        for constraint in constraints
+        if constraint.strength is ConstraintStrength.HARD
+    ]
+
+
+def _check_hard_constraints(schedule, active_constraints, rule_context):
+    solver = Solver()
+    solver.set(timeout=1800000)
+    schedule.add_fundamental_constraints(solver)
+    apply_constraints(solver, schedule.x, _hard_constraints(active_constraints), rule_context, _rule_handlers())
+    status = solver.check()
+    if status != sat:
+        raise ValueError(f"Hard schedule constraints returned {status}")
 
 
 def _default_standing_constraints():
@@ -486,16 +573,25 @@ def optimize_schedule(
         for name in fellows:
             fellow_mapping.add_fellow(name, group)
 
+    active_constraints = list(_default_standing_constraints() if constraints is None else constraints)
+    forbidden_assignments = _forbidden_assignments_from_constraints(
+        fellow_mapping,
+        shifts,
+        W,
+        active_constraints,
+    )
+
     # Create the base schedule constraints
-    schedule = ScheduleConstraints(fellow_mapping, W, shifts)
+    schedule = ScheduleConstraints(fellow_mapping, W, shifts, forbidden_assignments=forbidden_assignments)
+    rule_context = RuleApplicationContext(fellow_mapping, shifts=shifts, week_count=W)
+    _check_hard_constraints(schedule, active_constraints, rule_context)
+
     o = Optimize()
     o.set(timeout=1800000)
 
     # Add fundamental constraints
     schedule.add_fundamental_constraints(o)
 
-    rule_context = RuleApplicationContext(fellow_mapping, shifts=shifts, week_count=W)
-    active_constraints = _default_standing_constraints() if constraints is None else constraints
     apply_constraints(o, schedule.x, active_constraints, rule_context, _rule_handlers())
 
     status = o.check()
