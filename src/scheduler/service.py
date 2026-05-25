@@ -348,6 +348,8 @@ def _build_per_fellow_sheet(ws, request: Dict[str, Any], shifts_for_fellows: Dic
         [week] + [shifts_for_fellows.get(fellow, [""] * W)[week] for fellow in fellows]
         for week in range(W)
     ])
+    report_start_column = len(fellows) + 4
+    _write_ncc_service_profile_comparison(ws, report_start_column, request, shifts_for_fellows)
 
 
 def _build_per_shift_sheet(ws, fellows_for_shifts: Dict[str, List[str]]) -> None:
@@ -368,6 +370,125 @@ def _write_table(ws, headers: List[str], rows: List[List[Any]]) -> None:
             if isinstance(value, str) and value in fills:
                 cell.fill = fills[value]
     ws.freeze_panes = "B2"
+
+
+def _write_ncc_service_profile_comparison(
+    ws,
+    start_column: int,
+    request: Dict[str, Any],
+    shifts_for_fellows: Dict[str, List[str]],
+) -> None:
+    headers = ["Fellow", "Group", "Rule", "Scope", "Requirement", "Current", "Gap"]
+    rows = _ncc_service_profile_comparison_rows(request, shifts_for_fellows)
+    if not rows:
+        return
+
+    for offset, header in enumerate(headers):
+        ws.cell(row=1, column=start_column + offset, value=header)
+    for row_index, row in enumerate(rows, start=2):
+        for offset, value in enumerate(row):
+            ws.cell(row=row_index, column=start_column + offset, value=value)
+
+
+def _ncc_service_profile_comparison_rows(
+    request: Dict[str, Any],
+    shifts_for_fellows: Dict[str, List[str]],
+) -> List[List[Any]]:
+    rules_by_group = {
+        "NCC_JR": _standing_rule_by_name("ncc_jr_service_profile"),
+        "NCC_SR": _standing_rule_by_name("ncc_sr_service_profile"),
+    }
+    rows: List[List[Any]] = []
+    for group, rule in rules_by_group.items():
+        if not rule:
+            continue
+        for fellow in request["fellow_groups"].get(group, []):
+            schedule = shifts_for_fellows.get(fellow, [""] * W)
+            rows.extend(_service_profile_rows_for_fellow(fellow, group, rule, schedule))
+    return rows
+
+
+def _standing_rule_by_name(name: str) -> Dict[str, Any] | None:
+    config = _read_yaml_mapping(STANDING_RULE_CONFIG)
+    for rule in config.get("rules", []):
+        if rule.get("name") == name:
+            return rule
+    return None
+
+
+def _service_profile_rows_for_fellow(
+    fellow: str,
+    group: str,
+    rule: Dict[str, Any],
+    schedule: List[str],
+) -> List[List[Any]]:
+    rows: List[List[Any]] = []
+    rule_name = rule["name"]
+
+    for total in rule.get("totals", []):
+        shifts = total["shifts"]
+        current = _count_shifts(schedule, shifts, 0, W)
+        rows.append([
+            fellow,
+            group,
+            rule_name,
+            "Total",
+            _requirement_text(total["relation"], total["weeks"], shifts),
+            current,
+            _requirement_gap(total["relation"], total["weeks"], current),
+        ])
+
+    for shift in rule.get("zero_shifts", []):
+        current = _count_shifts(schedule, [shift], 0, W)
+        rows.append([
+            fellow,
+            group,
+            rule_name,
+            "Zero",
+            f"0 weeks of {shift}",
+            current,
+            current,
+        ])
+
+    for total in rule.get("window_totals", []):
+        window_start, window_end = total["window"]
+        shifts = total["shifts"]
+        current = _count_shifts(schedule, shifts, window_start, window_end)
+        rows.append([
+            fellow,
+            group,
+            rule_name,
+            f"Weeks {window_start}-{window_end - 1}",
+            _requirement_text(total["relation"], total["weeks"], shifts),
+            current,
+            _requirement_gap(total["relation"], total["weeks"], current),
+        ])
+
+    return rows
+
+
+def _count_shifts(schedule: List[str], shifts: List[str], start: int, end: int) -> int:
+    shift_set = set(shifts)
+    return sum(1 for shift in schedule[start:end] if shift in shift_set)
+
+
+def _requirement_text(relation: str, weeks: int, shifts: List[str]) -> str:
+    relation_text = {
+        "at_least": "at least",
+        "at_most": "at most",
+        "exactly": "exactly",
+    }.get(relation, relation)
+    return f"{relation_text} {weeks} weeks of {'/'.join(shifts)}"
+
+
+def _requirement_gap(relation: str, weeks: int, current: int) -> int:
+    if relation == "at_least":
+        return max(0, weeks - current)
+    if relation == "at_most":
+        return max(0, current - weeks)
+    if relation == "exactly":
+        return abs(current - weeks)
+    return current - weeks
 
 
 def _cell_value(value: Any) -> str:

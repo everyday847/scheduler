@@ -56,6 +56,126 @@ def test_build_schedule_workbook_returns_xlsx_bytes():
     assert io.BytesIO(workbook).read(2) == b"PK"
 
 
+def test_per_fellow_workbook_reports_inactive_ncc_service_profile_gaps(monkeypatch, tmp_path):
+    import openpyxl
+
+    from scheduler import service
+    from scheduler.service import build_schedule_workbook
+
+    standing_config = tmp_path / "standing.yaml"
+    standing_config.write_text("""
+rules:
+  - name: ncc_jr_service_profile
+    kind: service_profile
+    active: false
+    strength: hard
+    fellow_groups: [NCC_JR]
+    zero_shifts: [Stroke]
+    totals:
+      - shifts: [NCC1, NCC2]
+        relation: exactly
+        weeks: 2
+    window_totals:
+      - shifts: [MICU]
+        relation: exactly
+        weeks: 2
+        window: [0, 4]
+  - name: ncc_sr_service_profile
+    kind: service_profile
+    active: false
+    strength: hard
+    fellow_groups: [NCC_SR]
+    zero_shifts: [SICU]
+    totals:
+      - shifts: [Swing, NCC1, NCC2]
+        relation: at_least
+        weeks: 3
+""")
+    monkeypatch.setattr(service, "STANDING_RULE_CONFIG", standing_config)
+
+    junior_schedule = ["Elec"] * 52
+    junior_schedule[0] = "MICU"
+    junior_schedule[1] = "MICU"
+    junior_schedule[4] = "NCC1"
+    junior_schedule[5] = "NCC2"
+    junior_schedule[6] = "Stroke"
+    senior_schedule = ["Elec"] * 52
+    senior_schedule[0] = "Swing"
+    senior_schedule[1] = "NCC1"
+
+    workbook = build_schedule_workbook({
+        "request": {
+            "fellow_groups": {
+                "NCC_JR": ["NCC Junior"],
+                "NCC_SR": ["NCC Senior"],
+                "STROKE": ["Stroke Fellow"],
+            },
+        },
+        "shifts_for_fellows": {
+            "NCC Junior": junior_schedule,
+            "NCC Senior": senior_schedule,
+            "Stroke Fellow": ["Stroke"] * 52,
+        },
+        "fellows_for_shifts": {},
+    })
+
+    wb = openpyxl.load_workbook(io.BytesIO(workbook))
+    ws = wb["Per-Fellow Schedule"]
+    header_row = [cell.value for cell in ws[1]]
+    report_start = header_row.index("Fellow") + 1
+    headers = [
+        ws.cell(row=1, column=report_start + offset).value
+        for offset in range(7)
+    ]
+    report_rows = [
+        tuple(
+            ws.cell(row=row, column=report_start + offset).value
+            for offset in range(7)
+        )
+        for row in range(2, ws.max_row + 1)
+        if ws.cell(row=row, column=report_start).value
+    ]
+
+    assert headers == ["Fellow", "Group", "Rule", "Scope", "Requirement", "Current", "Gap"]
+    assert (
+        "NCC Junior",
+        "NCC_JR",
+        "ncc_jr_service_profile",
+        "Total",
+        "exactly 2 weeks of NCC1/NCC2",
+        2,
+        0,
+    ) in report_rows
+    assert (
+        "NCC Junior",
+        "NCC_JR",
+        "ncc_jr_service_profile",
+        "Zero",
+        "0 weeks of Stroke",
+        1,
+        1,
+    ) in report_rows
+    assert (
+        "NCC Junior",
+        "NCC_JR",
+        "ncc_jr_service_profile",
+        "Weeks 0-3",
+        "exactly 2 weeks of MICU",
+        2,
+        0,
+    ) in report_rows
+    assert (
+        "NCC Senior",
+        "NCC_SR",
+        "ncc_sr_service_profile",
+        "Total",
+        "at least 3 weeks of Swing/NCC1/NCC2",
+        2,
+        1,
+    ) in report_rows
+    assert all(row[0] != "Stroke Fellow" for row in report_rows)
+
+
 def test_flask_default_schedule_endpoint_returns_seed_data():
     from scheduler import app
 
