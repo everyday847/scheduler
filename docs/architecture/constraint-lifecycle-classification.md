@@ -14,7 +14,6 @@ This document classifies the current constraint logic in `src/scheduler/main.py`
 | --- | --- | --- |
 | `ScheduleConstraints._create_variables` in `constraints.py` | Creates a Boolean variable for each Fellow/week/Shift tuple. | Solver representation, not fellowship policy. |
 | `ScheduleConstraints._add_one_rotation_per_week` | A Fellow can do at most one Shift in a week. | This is the cleanest current Solver Invariant. |
-| `ScheduleConstraints._add_symmetry_breaking` | Restricts CCM placeholder fellows to specific blocks in order. | Solver optimization over an **External Coverage Pool**. CCM identities are interchangeable for this Schedule, so avoiding permutations preserves relevant feasible schedules while reducing search space. |
 
 ## Standing Rules
 

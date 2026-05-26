@@ -7,22 +7,14 @@ import yaml
 
 import tqdm
 
-try:
-    from .date_to_week_index import date_to_week_index
-    from .constraints import ScheduleConstraints
-    from .fellow_mapping import FellowMapping
-    from .rule_application import RuleApplicationContext, apply_constraints
-    from .semantic_constraints import ConstraintStrength
-    from .standing_rules import constraints_from_config as standing_constraints_from_config
-except ImportError:  # pragma: no cover - supports running from src/scheduler
-    from date_to_week_index import date_to_week_index
-    from constraints import ScheduleConstraints
-    from fellow_mapping import FellowMapping
-    from rule_application import RuleApplicationContext, apply_constraints
-    from semantic_constraints import ConstraintStrength
-    from standing_rules import constraints_from_config as standing_constraints_from_config
+from .date_to_week_index import date_to_week_index
+from .constraints import ScheduleConstraints
+from .fellow_mapping import FellowMapping
+from .rule_application import RuleApplicationContext, apply_constraints
+from .semantic_constraints import ConstraintStrength
+from .standing_rules import constraints_from_config as standing_constraints_from_config
 
-set_option(verbose=0)
+set_option(verbose=10)
 
 # Not too dangerous to make global
 W = 52
@@ -501,15 +493,6 @@ def _forbidden_assignments_from_constraints(fellow_mapping, shifts, week_count, 
                 for week in range(week_count):
                     if week != target_week:
                         forbidden_assignments.add((fellow_index, week, "ISC"))
-
-    for fellow in fellow_mapping.get_fellows_by_group("CCM"):
-        assigned_weeks = _ccm_assigned_weeks(fellow_mapping, fellow.index, week_count)
-        for week in range(week_count):
-            if week in assigned_weeks:
-                continue
-            for shift in ("NCC1", "NCC2", "Swing"):
-                if shift in known_shifts:
-                    forbidden_assignments.add((fellow.index, week, shift))
 
     return forbidden_assignments
 

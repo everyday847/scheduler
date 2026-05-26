@@ -35,26 +35,12 @@ class ScheduleConstraints:
     def add_fundamental_constraints(self, o: Optimize):
         """Add all fundamental constraints that must hold for any valid schedule."""
         self._add_one_rotation_per_week(o)
-        self._add_symmetry_breaking(o)
         
     def _add_one_rotation_per_week(self, o: Optimize):
         """Each person can only do one thing at a time."""
         for f in self.fellow_mapping.all_fellow_indices:
             for w in range(self.num_weeks):
                 o.add(AtMost(*[self.x[f, w, r] for r in self.shifts], 1))
-            
-    def _add_symmetry_breaking(self, o: Optimize):
-        """Add symmetry-breaking constraints to help the solver."""
-        # For CCM fellows, break symmetry by assigning them to blocks in alphabetical order
-        # This is a fundamental constraint because it's about the representation, not the schedule
-        ccm_fellows = self.fellow_mapping.get_fellows_by_group("CCM")
-        for fellow, w in zip(ccm_fellows, range(0, self.num_weeks, 4)):
-            # Each CCM fellow works only in their assigned block
-            for w_ in range(self.num_weeks):
-                if w_ < w or w_ > w + 3:
-                    for s in ["NCC1", "NCC2", "Swing"]:
-                        if not is_false(self.x[fellow.index, w_, s]):
-                            o.add(Not(self.x[fellow.index, w_, s]))
                         
     def get_variable(self, fellow_name: str, week: int, shift: str) -> BoolRef:
         """Get the Z3 variable for a specific assignment."""
