@@ -56,7 +56,7 @@ def test_build_schedule_workbook_returns_xlsx_bytes():
     assert io.BytesIO(workbook).read(2) == b"PK"
 
 
-def test_per_fellow_workbook_reports_inactive_ncc_service_profile_gaps(monkeypatch, tmp_path):
+def test_per_fellow_workbook_reports_active_soft_constraint_violations_only(monkeypatch, tmp_path):
     import openpyxl
 
     from scheduler import service
@@ -65,31 +65,58 @@ def test_per_fellow_workbook_reports_inactive_ncc_service_profile_gaps(monkeypat
     standing_config = tmp_path / "standing.yaml"
     standing_config.write_text("""
 rules:
-  - name: ncc_jr_service_profile
+  - name: hard_service_profile_is_omitted
+    kind: service_profile
+    active: true
+    strength: hard
+    fellow_groups: [NCC_JR]
+    totals:
+      - shifts: [MICU]
+        relation: exactly
+        weeks: 50
+  - name: inactive_soft_rule_is_omitted
     kind: service_profile
     active: false
-    strength: hard
+    strength: soft
+    fellow_groups: [NCC_SR]
+    totals:
+      - shifts: [MICU]
+        relation: exactly
+        weeks: 10
+  - name: minimize_swing_deficit
+    kind: minimize_uncovered_shift_weeks
+    active: true
+    strength: minimize
+    fellow_groups: [NCC_JR, NCC_SR]
+    shifts: [Swing]
+  - name: ncc_four_week_block_preference
+    kind: block_shift_set_choice
+    active: true
+    strength: soft
+    fellow_groups: [NCC_JR]
+    block_size: 4
+    choices:
+      - [NCC1, Swing]
+      - [NCC2, Swing]
+    allow_none: true
+  - name: ncc_jr_service_profile
+    kind: service_profile
+    active: true
+    strength: soft
     fellow_groups: [NCC_JR]
     zero_shifts: [Stroke]
     totals:
       - shifts: [NCC1, NCC2]
         relation: exactly
         weeks: 2
+      - shifts: [Elec]
+        relation: at_least
+        weeks: 2
     window_totals:
       - shifts: [MICU]
         relation: exactly
         weeks: 2
         window: [0, 4]
-  - name: ncc_sr_service_profile
-    kind: service_profile
-    active: false
-    strength: hard
-    fellow_groups: [NCC_SR]
-    zero_shifts: [SICU]
-    totals:
-      - shifts: [Swing, NCC1, NCC2]
-        relation: at_least
-        weeks: 3
 """)
     monkeypatch.setattr(service, "STANDING_RULE_CONFIG", standing_config)
 
@@ -101,7 +128,6 @@ rules:
     junior_schedule[6] = "Stroke"
     senior_schedule = ["Elec"] * 52
     senior_schedule[0] = "Swing"
-    senior_schedule[1] = "NCC1"
 
     workbook = build_schedule_workbook({
         "request": {
@@ -109,6 +135,29 @@ rules:
                 "NCC_JR": ["NCC Junior"],
                 "NCC_SR": ["NCC Senior"],
                 "STROKE": ["Stroke Fellow"],
+            },
+            "fellow_week_pairs": {},
+            "annual_rules": {
+                "rules": [
+                    {
+                        "name": "preferred_stroke",
+                        "kind": "specific_assignment",
+                        "active": True,
+                        "fellow": "NCC Senior",
+                        "week": 2,
+                        "shift": "Stroke",
+                        "strength": "soft",
+                    },
+                    {
+                        "name": "backup_group_fulfilled",
+                        "kind": "specific_assignment",
+                        "active": True,
+                        "fellows": ["NCC Junior", "NCC Senior"],
+                        "week": 0,
+                        "shift": "Swing",
+                        "strength": "soft",
+                    },
+                ],
             },
         },
         "shifts_for_fellows": {
@@ -133,19 +182,13 @@ rules:
             for offset in range(7)
         )
         for row in range(2, ws.max_row + 1)
-        if ws.cell(row=row, column=report_start).value
+        if any(
+            ws.cell(row=row, column=report_start + offset).value is not None
+            for offset in range(7)
+        )
     ]
 
-    assert headers == ["Fellow", "Group", "Rule", "Scope", "Requirement", "Current", "Gap"]
-    assert (
-        "NCC Junior",
-        "NCC_JR",
-        "ncc_jr_service_profile",
-        "Total",
-        "exactly 2 weeks of NCC1/NCC2",
-        2,
-        0,
-    ) in report_rows
+    assert headers == ["Fellow", "Group", "Rule", "Scope", "Requirement", "Current", "Violation"]
     assert (
         "NCC Junior",
         "NCC_JR",
@@ -158,21 +201,36 @@ rules:
     assert (
         "NCC Junior",
         "NCC_JR",
-        "ncc_jr_service_profile",
-        "Weeks 0-3",
-        "exactly 2 weeks of MICU",
-        2,
-        0,
+        "ncc_four_week_block_preference",
+        "Weeks 4-7",
+        "4-week block must match NCC1/Swing or NCC2/Swing or no NCC1/NCC2/Swing",
+        "NCC1, NCC2, Stroke, Elec",
+        1,
+    ) in report_rows
+    assert (
+        None,
+        None,
+        "minimize_swing_deficit",
+        "All weeks",
+        "minimize uncovered weeks of Swing",
+        51,
+        51,
     ) in report_rows
     assert (
         "NCC Senior",
         "NCC_SR",
-        "ncc_sr_service_profile",
-        "Total",
-        "at least 3 weeks of Swing/NCC1/NCC2",
-        2,
+        "preferred_stroke",
+        "Week 2",
+        "NCC Senior assigned to Stroke",
+        "Elec",
         1,
     ) in report_rows
+    assert all(row[6] > 0 for row in report_rows)
+    assert all(row[2] != "hard_service_profile_is_omitted" for row in report_rows)
+    assert all(row[2] != "inactive_soft_rule_is_omitted" for row in report_rows)
+    assert all(row[2] != "backup_group_fulfilled" for row in report_rows)
+    assert all(row[4] != "exactly 2 weeks of NCC1/NCC2" for row in report_rows)
+    assert all(row[4] != "exactly 2 weeks of MICU" for row in report_rows)
     assert all(row[0] != "Stroke Fellow" for row in report_rows)
 
 

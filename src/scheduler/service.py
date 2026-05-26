@@ -11,11 +11,13 @@ try:
     from . import annual_rules, standing_rules
     from .date_to_week_index import date_to_week_index
     from .main import W, optimize_schedule
+    from .semantic_constraints import ConstraintStrength
 except ImportError:  # pragma: no cover - supports running from src/scheduler
     import annual_rules
     import standing_rules
     from date_to_week_index import date_to_week_index
     from main import W, optimize_schedule
+    from semantic_constraints import ConstraintStrength
 
 STANDING_RULE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "standing" / "stanford-fellowship.yaml"
 
@@ -223,7 +225,7 @@ def _configured_constraints(request: Dict[str, Any]):
         *standing_rules.constraints_from_config(standing_config),
         *annual_rules.constraints_from_config(
             request.get("annual_rules"),
-            fellow_week_pairs=request["fellow_week_pairs"],
+            fellow_week_pairs=request.get("fellow_week_pairs", {}),
         ),
     ]
 
@@ -349,7 +351,7 @@ def _build_per_fellow_sheet(ws, request: Dict[str, Any], shifts_for_fellows: Dic
         for week in range(W)
     ])
     report_start_column = len(fellows) + 4
-    _write_ncc_service_profile_comparison(ws, report_start_column, request, shifts_for_fellows)
+    _write_soft_constraint_violations(ws, report_start_column, request, shifts_for_fellows)
 
 
 def _build_per_shift_sheet(ws, fellows_for_shifts: Dict[str, List[str]]) -> None:
@@ -372,14 +374,14 @@ def _write_table(ws, headers: List[str], rows: List[List[Any]]) -> None:
     ws.freeze_panes = "B2"
 
 
-def _write_ncc_service_profile_comparison(
+def _write_soft_constraint_violations(
     ws,
     start_column: int,
     request: Dict[str, Any],
     shifts_for_fellows: Dict[str, List[str]],
 ) -> None:
-    headers = ["Fellow", "Group", "Rule", "Scope", "Requirement", "Current", "Gap"]
-    rows = _ncc_service_profile_comparison_rows(request, shifts_for_fellows)
+    headers = ["Fellow", "Group", "Rule", "Scope", "Requirement", "Current", "Violation"]
+    rows = _soft_constraint_violation_rows(request, shifts_for_fellows)
     if not rows:
         return
 
@@ -390,81 +392,252 @@ def _write_ncc_service_profile_comparison(
             ws.cell(row=row_index, column=start_column + offset, value=value)
 
 
-def _ncc_service_profile_comparison_rows(
+def _soft_constraint_violation_rows(
     request: Dict[str, Any],
     shifts_for_fellows: Dict[str, List[str]],
 ) -> List[List[Any]]:
-    rules_by_group = {
-        "NCC_JR": _standing_rule_by_name("ncc_jr_service_profile"),
-        "NCC_SR": _standing_rule_by_name("ncc_sr_service_profile"),
-    }
     rows: List[List[Any]] = []
-    for group, rule in rules_by_group.items():
-        if not rule:
+    for constraint in _configured_constraints(request):
+        if constraint.strength not in {ConstraintStrength.SOFT, ConstraintStrength.MINIMIZE}:
             continue
-        for fellow in request["fellow_groups"].get(group, []):
-            schedule = shifts_for_fellows.get(fellow, [""] * W)
-            rows.extend(_service_profile_rows_for_fellow(fellow, group, rule, schedule))
-    return rows
+        if constraint.kind == "service_profile":
+            rows.extend(_service_profile_violation_rows(request, shifts_for_fellows, constraint))
+        elif constraint.kind == "block_shift_set_choice":
+            rows.extend(_block_shift_set_choice_violation_rows(request, shifts_for_fellows, constraint))
+        elif constraint.kind == "minimize_uncovered_shift_weeks":
+            rows.extend(_minimize_uncovered_shift_weeks_violation_rows(request, shifts_for_fellows, constraint))
+        elif constraint.kind == "specific_assignment":
+            rows.extend(_specific_assignment_violation_rows(request, shifts_for_fellows, constraint))
+    return [row for row in rows if row[-1] > 0]
 
 
-def _standing_rule_by_name(name: str) -> Dict[str, Any] | None:
-    config = _read_yaml_mapping(STANDING_RULE_CONFIG)
-    for rule in config.get("rules", []):
-        if rule.get("name") == name:
-            return rule
-    return None
-
-
-def _service_profile_rows_for_fellow(
-    fellow: str,
-    group: str,
-    rule: Dict[str, Any],
-    schedule: List[str],
+def _service_profile_violation_rows(
+    request: Dict[str, Any],
+    shifts_for_fellows: Dict[str, List[str]],
+    constraint,
 ) -> List[List[Any]]:
     rows: List[List[Any]] = []
-    rule_name = rule["name"]
+    rule_name = _constraint_name(constraint)
 
-    for total in rule.get("totals", []):
-        shifts = total["shifts"]
-        current = _count_shifts(schedule, shifts, 0, W)
-        rows.append([
-            fellow,
-            group,
-            rule_name,
-            "Total",
-            _requirement_text(total["relation"], total["weeks"], shifts),
-            current,
-            _requirement_gap(total["relation"], total["weeks"], current),
-        ])
+    for fellow, group in _selected_fellows(request, constraint):
+        schedule = shifts_for_fellows.get(fellow, [""] * W)
+        for total in constraint.params.get("totals", []):
+            shifts = total["shifts"]
+            current = _count_shifts(schedule, shifts, 0, W)
+            rows.append([
+                fellow,
+                group,
+                rule_name,
+                "Total",
+                _requirement_text(total["relation"], total["weeks"], shifts),
+                current,
+                _requirement_gap(total["relation"], total["weeks"], current),
+            ])
 
-    for shift in rule.get("zero_shifts", []):
-        current = _count_shifts(schedule, [shift], 0, W)
-        rows.append([
-            fellow,
-            group,
-            rule_name,
-            "Zero",
-            f"0 weeks of {shift}",
-            current,
-            current,
-        ])
+        for shift in constraint.params.get("zero_shifts", []):
+            current = _count_shifts(schedule, [shift], 0, W)
+            rows.append([
+                fellow,
+                group,
+                rule_name,
+                "Zero",
+                f"0 weeks of {shift}",
+                current,
+                current,
+            ])
 
-    for total in rule.get("window_totals", []):
-        window_start, window_end = total["window"]
-        shifts = total["shifts"]
-        current = _count_shifts(schedule, shifts, window_start, window_end)
-        rows.append([
-            fellow,
-            group,
-            rule_name,
-            f"Weeks {window_start}-{window_end - 1}",
-            _requirement_text(total["relation"], total["weeks"], shifts),
-            current,
-            _requirement_gap(total["relation"], total["weeks"], current),
-        ])
+        for total in constraint.params.get("window_totals", []):
+            window_start, window_end = total["window"]
+            shifts = total["shifts"]
+            current = _count_shifts(schedule, shifts, window_start, window_end)
+            rows.append([
+                fellow,
+                group,
+                rule_name,
+                f"Weeks {window_start}-{window_end - 1}",
+                _requirement_text(total["relation"], total["weeks"], shifts),
+                current,
+                _requirement_gap(total["relation"], total["weeks"], current),
+            ])
+
+        for active_block in constraint.params.get("active_blocks", []):
+            rows.extend(_active_block_violation_rows(
+                fellow,
+                group,
+                rule_name,
+                schedule,
+                active_block,
+            ))
 
     return rows
+
+
+def _active_block_violation_rows(
+    fellow: str,
+    group: str,
+    rule_name: str,
+    schedule: List[str],
+    active_block: Dict[str, Any],
+) -> List[List[Any]]:
+    rows: List[List[Any]] = []
+    block_size = active_block["block_size"]
+    trigger_shifts = active_block["trigger_shifts"]
+    for block_start in range(0, W, block_size):
+        block_end = min(block_start + block_size, W)
+        if _count_shifts(schedule, trigger_shifts, block_start, block_end) == 0:
+            continue
+        for count_rule in active_block["counts"]:
+            shifts = count_rule["shifts"]
+            current = _count_shifts(schedule, shifts, block_start, block_end)
+            rows.append([
+                fellow,
+                group,
+                rule_name,
+                f"Weeks {block_start}-{block_end - 1}",
+                _requirement_text(count_rule["relation"], count_rule["weeks"], shifts),
+                current,
+                _requirement_gap(count_rule["relation"], count_rule["weeks"], current),
+            ])
+    return rows
+
+
+def _block_shift_set_choice_violation_rows(
+    request: Dict[str, Any],
+    shifts_for_fellows: Dict[str, List[str]],
+    constraint,
+) -> List[List[Any]]:
+    rows: List[List[Any]] = []
+    block_size = constraint.params["block_size"]
+    choices = constraint.params["choices"]
+    trigger_shifts = sorted({shift for choice in choices for shift in choice})
+    requirement = _block_shift_set_choice_requirement(block_size, choices, trigger_shifts, constraint)
+    for fellow, group in _selected_fellows(request, constraint):
+        schedule = shifts_for_fellows.get(fellow, [""] * W)
+        for block_start in range(0, W, block_size):
+            block_end = min(block_start + block_size, W)
+            block_length = block_end - block_start
+            choice_matches = [
+                _count_shifts(schedule, choice, block_start, block_end) == block_length
+                for choice in choices
+            ]
+            none_matches = (
+                constraint.params.get("allow_none", False)
+                and _count_shifts(schedule, trigger_shifts, block_start, block_end) == 0
+            )
+            if any(choice_matches) or none_matches:
+                continue
+            rows.append([
+                fellow,
+                group,
+                _constraint_name(constraint),
+                f"Weeks {block_start}-{block_end - 1}",
+                requirement,
+                ", ".join(schedule[block_start:block_end]),
+                1,
+            ])
+    return rows
+
+
+def _block_shift_set_choice_requirement(
+    block_size: int,
+    choices: List[List[str]],
+    trigger_shifts: List[str],
+    constraint,
+) -> str:
+    allowed = [" / ".join(choice).replace(" / ", "/") for choice in choices]
+    if constraint.params.get("allow_none", False):
+        allowed.append(f"no {'/'.join(trigger_shifts)}")
+    return f"{block_size}-week block must match {' or '.join(allowed)}"
+
+
+def _minimize_uncovered_shift_weeks_violation_rows(
+    request: Dict[str, Any],
+    shifts_for_fellows: Dict[str, List[str]],
+    constraint,
+) -> List[List[Any]]:
+    selected_fellows = [fellow for fellow, _group in _selected_fellows(request, constraint)]
+    shifts = list(constraint.shifts.shifts)
+    uncovered = 0
+    for week in range(W):
+        if not any(
+            shifts_for_fellows.get(fellow, [""] * W)[week] in shifts
+            for fellow in selected_fellows
+        ):
+            uncovered += 1
+    return [[
+        None,
+        None,
+        _constraint_name(constraint),
+        "All weeks",
+        f"minimize uncovered weeks of {'/'.join(shifts)}",
+        uncovered,
+        uncovered,
+    ]]
+
+
+def _specific_assignment_violation_rows(
+    request: Dict[str, Any],
+    shifts_for_fellows: Dict[str, List[str]],
+    constraint,
+) -> List[List[Any]]:
+    week = constraint.weeks.start
+    shift = constraint.shifts.shifts[0]
+    selected = _selected_fellows(request, constraint)
+    current_by_fellow = [
+        (fellow, group, shifts_for_fellows.get(fellow, [""] * W)[week])
+        for fellow, group in selected
+    ]
+    if any(current == shift for _fellow, _group, current in current_by_fellow):
+        return []
+    if len(current_by_fellow) == 1:
+        fellow, group, current = current_by_fellow[0]
+        return [[
+            fellow,
+            group,
+            _constraint_name(constraint),
+            f"Week {week}",
+            f"{fellow} assigned to {shift}",
+            current,
+            1,
+        ]]
+    return [[
+        None,
+        ", ".join(dict.fromkeys(group for _fellow, group, _current in current_by_fellow)),
+        _constraint_name(constraint),
+        f"Week {week}",
+        f"one of {', '.join(fellow for fellow, _group, _current in current_by_fellow)} assigned to {shift}",
+        "; ".join(f"{fellow}: {current}" for fellow, _group, current in current_by_fellow),
+        1,
+    ]]
+
+
+def _selected_fellows(request: Dict[str, Any], constraint) -> List[tuple[str, str]]:
+    group_lookup = _fellow_group_lookup(request)
+    if constraint.fellows is None:
+        return list(group_lookup.items())
+    if constraint.fellows.groups:
+        return [
+            (fellow, group)
+            for group in constraint.fellows.groups
+            for fellow in request["fellow_groups"].get(group, [])
+        ]
+    return [
+        (fellow, group_lookup[fellow])
+        for fellow in constraint.fellows.names
+        if fellow in group_lookup
+    ]
+
+
+def _fellow_group_lookup(request: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        fellow: group
+        for group, fellows in request["fellow_groups"].items()
+        for fellow in fellows
+    }
+
+
+def _constraint_name(constraint) -> str:
+    return constraint.params.get("name", constraint.kind)
 
 
 def _count_shifts(schedule: List[str], shifts: List[str], start: int, end: int) -> int:
