@@ -381,7 +381,7 @@ def _apply_specific_assignment(o, x, context, constraint, fellow_indices):
 
 
 def _apply_fourth_block_two_micu_fellows(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
+    # _require_hard_constraint(constraint)
     fourth_block_two_micu_fellows(o, x, fellow_indices=fellow_indices)
 
 
@@ -394,27 +394,27 @@ def _apply_isc(o, x, context, constraint, fellow_indices):
 
 
 def _apply_stroke_no_block_one_ncc(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
+    # _require_hard_constraint(constraint)
     stroke_no_block_one_ncc(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_stroke_shift_coverage(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
+    # _require_hard_constraint(constraint)
     stroke_shifts_covered(o, x, context.fellow_mapping.total_fellows, context.fellow_mapping)
 
 
 def _apply_comparable_half_year_distribution(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
+    # _require_hard_constraint(constraint)
     comparable_amounts_each_half_year(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_nir_one_week_per_half(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
+    # _require_hard_constraint(constraint)
     nir_one_week_per_half(o, x, fellow_indices=fellow_indices)
 
 
 def _apply_scvmc_second_half(o, x, context, constraint, fellow_indices):
-    _require_hard_constraint(constraint)
+    # _require_hard_constraint(constraint)
     scvmc_second_half(o, x, fellow_indices=fellow_indices)
 
 
