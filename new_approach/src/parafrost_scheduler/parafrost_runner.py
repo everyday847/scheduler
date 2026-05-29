@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 from parafrost_scheduler.cnf_builder import CnfBuilder
 
@@ -48,7 +51,7 @@ class ParaFrostRunner:
         assignment: dict[int, bool] | None = None
 
         for line in stdout.splitlines():
-            line = line.strip()
+            line = _ANSI_ESCAPE.sub("", line).strip()
             if line.startswith("s "):
                 if "UNSATISFIABLE" in line:
                     satisfiable = False
