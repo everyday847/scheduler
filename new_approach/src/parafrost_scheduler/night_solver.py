@@ -124,20 +124,28 @@ def _add_multiset_cnf(
     multiset: CountMultiset,
     *,
     friday_only: bool,
+    blocked_days: list[set[int]],
 ) -> None:
-    """Encode a multiset cardinality constraint in CNF."""
+    """Encode a multiset cardinality constraint in CNF.
+
+    Literals for days where the fellow is definitively blocked are excluded
+    from the cardinality encoding to keep the sequential counter small.
+    """
     unique_perms = {tuple(p) for p in permutations(multiset.values)}
     fellow_names = parsed.fellow_names
+
+    def _eligible_lits(fellow_name: str) -> list[int]:
+        fi = fellow_names.index(fellow_name)
+        bd = blocked_days[fi]
+        if friday_only:
+            return [var_map.x[d][fi] for d in range(var_map.num_days) if d % 7 == 4 and d not in bd]
+        return [var_map.x[d][fi] for d in range(var_map.num_days) if d not in bd]
 
     if len(unique_perms) == 1:
         # Only one possible assignment — encode unconditionally
         ordering = next(iter(unique_perms))
         for fellow_name, count in zip(multiset.names, ordering, strict=True):
-            fi = fellow_names.index(fellow_name)
-            if friday_only:
-                lits = [var_map.x[d][fi] for d in range(var_map.num_days) if d % 7 == 4]
-            else:
-                lits = [var_map.x[d][fi] for d in range(var_map.num_days)]
+            lits = _eligible_lits(fellow_name)
             cnf.exactly_k(lits, count)
     else:
         # Multiple permutations: introduce selector variables
@@ -146,11 +154,7 @@ def _add_multiset_cnf(
         cnf.exactly_one(selectors)
         for selector, ordering in zip(selectors, unique_perms):
             for fellow_name, count in zip(multiset.names, ordering, strict=True):
-                fi = fellow_names.index(fellow_name)
-                if friday_only:
-                    lits = [var_map.x[d][fi] for d in range(var_map.num_days) if d % 7 == 4]
-                else:
-                    lits = [var_map.x[d][fi] for d in range(var_map.num_days)]
+                lits = _eligible_lits(fellow_name)
                 _conditional_exactly_k(cnf, lits, count, selector)
 
 
@@ -188,7 +192,9 @@ def build_night_cnf(
     for d in range(num_days):
         cnf.exactly_one(x[d])
 
-    # 3. Blocking constraints
+    # 3. Blocking constraints — also record which days are blocked per fellow
+    #    so that cardinality constraints can be filtered to eligible days only.
+    blocked_days: list[set[int]] = [set() for _ in range(num_fellows)]
     for d in range(num_days):
         week_index, day_of_week = divmod(d, 7)
         week_row = parsed.week_rows[week_index]
@@ -196,31 +202,35 @@ def build_night_cnf(
             weekday_service = week_row.weekday_assignments[fellow_name]
             if fellow_name in config.ccm_fellows or is_night_blocked(weekday_service):
                 cnf.add_clause([-x[d][fi]])
+                blocked_days[fi].add(d)
             elif d in holiday_indices and not is_night_holiday_eligible(weekday_service):
                 cnf.add_clause([-x[d][fi]])
+                blocked_days[fi].add(d)
 
     # 4. No-3-consecutive constraint: for each fellow, no 3 consecutive nights
     for fi in range(num_fellows):
         for s in range(num_days - 2):
             cnf.at_most_k([x[s][fi], x[s + 1][fi], x[s + 2][fi]], 1)
 
-    # 5. Total night counts
+    # 5. Total night counts — filter out days where the fellow is definitely
+    #    blocked; those literals are unit-forced false so including them would
+    #    inflate the sequential counter with dead weight.
     for fellow_name, total in config.total_nights.items():
         fi = parsed.fellow_names.index(fellow_name)
-        lits = [x[d][fi] for d in range(num_days)]
+        lits = [x[d][fi] for d in range(num_days) if d not in blocked_days[fi]]
         cnf.exactly_k(lits, total)
 
-    # 6. Friday night counts (day_of_week == 4, i.e., d % 7 == 4)
+    # 6. Friday night counts (day_of_week == 4, i.e., d % 7 == 4) — same filter
     for fellow_name, total in config.friday_nights.items():
         fi = parsed.fellow_names.index(fellow_name)
-        lits = [x[d][fi] for d in range(num_days) if d % 7 == 4]
+        lits = [x[d][fi] for d in range(num_days) if d % 7 == 4 and d not in blocked_days[fi]]
         cnf.exactly_k(lits, total)
 
-    # 7. Multiset constraints
+    # 7. Multiset constraints — pass blocked_days so they can filter too
     for multiset in config.total_night_multisets:
-        _add_multiset_cnf(cnf, parsed, var_map, multiset, friday_only=False)
+        _add_multiset_cnf(cnf, parsed, var_map, multiset, friday_only=False, blocked_days=blocked_days)
     for multiset in config.friday_night_multisets:
-        _add_multiset_cnf(cnf, parsed, var_map, multiset, friday_only=True)
+        _add_multiset_cnf(cnf, parsed, var_map, multiset, friday_only=True, blocked_days=blocked_days)
 
     # 8 & 9. Policy criteria: hard blocking + soft violation collection
     weighted_soft_pairs: list[tuple[int, int]] = []  # (literal, weight)
