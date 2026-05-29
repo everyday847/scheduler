@@ -1,12 +1,24 @@
-"""CNF builder with Sinz sequential counter cardinality encodings.
+"""CNF builder with cardinality encodings.
 
 Provides CnfBuilder, a helper for constructing CNF formulae programmatically
 and emitting them in DIMACS format for consumption by a SAT solver.
+
+When PySAT is available, uses its totalizer encoding for cardinality
+constraints and adder encoding for weighted pseudo-boolean sums, which
+dramatically reduces auxiliary variable count.  Falls back to the hand-written
+Sinz sequential counter when PySAT is not installed.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+try:
+    from pysat.card import CardEnc, EncType
+    from pysat.pb import PBEnc
+    _HAS_PYSAT = True
+except ImportError:
+    _HAS_PYSAT = False
 
 
 class CnfBuilder:
@@ -84,8 +96,9 @@ class CnfBuilder:
         Strategy:
         - k >= n: trivially satisfied, no-op
         - k == 0: unit clause forbidding each literal
-        - k == 1 and n <= 20: pairwise binary clauses
-        - otherwise: Sinz sequential counter encoding
+        - k == 1 and n <= 20: pairwise binary clauses (no auxiliary vars)
+        - PySAT available: totalizer encoding
+        - otherwise: Sinz sequential counter encoding (fallback)
         """
         lits = list(literals)
         n = len(lits)
@@ -105,7 +118,17 @@ class CnfBuilder:
                     self.add_clause([-lits[i], -lits[j]])
             return
 
-        # --- Sinz sequential counter -----------------------------------
+        if _HAS_PYSAT:
+            result = CardEnc.atmost(
+                lits=lits, bound=k, top_id=self.num_vars,
+                encoding=EncType.totalizer,
+            )
+            self._next_var = max(self._next_var, result.nv + 1)
+            for clause in result.clauses:
+                self._clauses.append(clause)
+            return
+
+        # --- Sinz sequential counter (fallback) -----------------------
         # register[i][j] means "at least j+1 of lits[0..i+1] are true"
         # i ranges 0..n-2, j ranges 0..k-1
         register = [self.new_vars(k) for _ in range(n - 1)]
@@ -137,6 +160,7 @@ class CnfBuilder:
 
         If k <= 0: no-op.
         If k == n: each literal is forced true via a unit clause.
+        PySAT available: uses totalizer encoding directly.
         Otherwise: encode via complement — at_most(n-k) of the negations.
         """
         lits = list(literals)
@@ -150,11 +174,31 @@ class CnfBuilder:
                 self.add_clause([lit])
             return
 
-        # Complement encoding: ¬x1,...,¬xn satisfy at_most(n-k)
+        if _HAS_PYSAT:
+            result = CardEnc.atleast(
+                lits=lits, bound=k, top_id=self.num_vars,
+                encoding=EncType.totalizer,
+            )
+            self._next_var = max(self._next_var, result.nv + 1)
+            for clause in result.clauses:
+                self._clauses.append(clause)
+            return
+
+        # Complement encoding (fallback): ¬x1,...,¬xn satisfy at_most(n-k)
         self.at_most_k([-lit for lit in lits], n - k)
 
     def exactly_k(self, literals: list[int], k: int) -> None:
         """Encode exactly *k* of *literals* are true."""
+        if _HAS_PYSAT:
+            lits = list(literals)
+            result = CardEnc.equals(
+                lits=lits, bound=k, top_id=self.num_vars,
+                encoding=EncType.totalizer,
+            )
+            self._next_var = max(self._next_var, result.nv + 1)
+            for clause in result.clauses:
+                self._clauses.append(clause)
+            return
         self.at_most_k(literals, k)
         self.at_least_k(literals, k)
 
@@ -163,15 +207,27 @@ class CnfBuilder:
     ) -> None:
         """Encode  sum_i (weight_i * lit_i) <= bound.
 
-        For each (literal, weight) pair, *weight* auxiliary variables are
-        created.  Each auxiliary is implied by the literal:
-
-            [-lit, aux_j]   for j in 0..weight-1
-
-        This forces all *weight* auxiliaries true when the literal is true.
-        The solver is free to set them false when the literal is false.
-        Then  at_most_k(all_auxiliaries, bound)  completes the encoding.
+        PySAT available: uses adder (BDD-based) encoding via PBEnc.leq.
+        Fallback: for each (literal, weight) pair, *weight* auxiliary
+        variables are created implied by the literal, then at_most_k on all
+        auxiliaries completes the encoding.
         """
+        if not weighted_lits:
+            return
+
+        if _HAS_PYSAT:
+            lits = [lit for lit, _ in weighted_lits]
+            weights = [w for _, w in weighted_lits]
+            result = PBEnc.leq(
+                lits=lits, weights=weights, bound=bound,
+                top_id=self.num_vars, encoding=4,  # 4 = adder encoding
+            )
+            self._next_var = max(self._next_var, result.nv + 1)
+            for clause in result.clauses:
+                self._clauses.append(clause)
+            return
+
+        # Fallback: unary expansion + Sinz sequential counter
         auxiliaries: list[int] = []
         for lit, weight in weighted_lits:
             aux_vars = self.new_vars(weight)
