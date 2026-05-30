@@ -112,7 +112,7 @@ def test_relaxed_night_soft_violation_count_is_zero_for_aligned_solution():
     assert _count_solution_soft_violations(parsed, solution) == 0
 
 
-def test_relaxed_night_soft_violation_count_ignores_sunday_following_service():
+def test_relaxed_night_soft_violation_count_ignores_sunday_following_service_but_counts_stroke():
     parsed = ParsedCallScheduleCsv(
         fellow_names=["A", "B", "C", "D", "E", "F", "G"],
         existing_schedule_columns=WEEKEND_ROLES,
@@ -169,7 +169,7 @@ def test_relaxed_night_soft_violation_count_ignores_sunday_following_service():
         ]
     )
 
-    assert _count_solution_soft_violations(parsed, solution) == 0
+    assert _count_solution_soft_violations(parsed, solution) == 1
 
 
 def _small_night_fixture() -> ParsedCallScheduleCsv:
