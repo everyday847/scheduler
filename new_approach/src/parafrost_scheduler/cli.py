@@ -84,6 +84,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=_DEFAULT_PARAFROST_PATH,
         help=f"Path to the ParaFROST binary (default: {_DEFAULT_PARAFROST_PATH}).",
     )
+    parser.add_argument(
+        "--parafrost-args",
+        nargs="*",
+        default=[],
+        help="Extra arguments to pass to the ParaFROST binary (e.g. -no-sigma).",
+    )
     return parser
 
 
@@ -113,7 +119,7 @@ def _staged_output_path(output_prefix: Path, spec_name: str, optimize: bool) -> 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
-    runner = ParaFrostRunner(args.parafrost_path)
+    runner = ParaFrostRunner(args.parafrost_path, extra_args=args.parafrost_args)
     parsed = parse_night_call_csv(args.input_csv)
     print(f"Parsed {len(parsed.week_rows)} schedule weeks from {args.input_csv}.", flush=True)
 

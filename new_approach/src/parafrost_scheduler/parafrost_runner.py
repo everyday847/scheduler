@@ -22,10 +22,11 @@ class SolveResult:
 
 
 class ParaFrostRunner:
-    def __init__(self, binary_path: str | Path) -> None:
+    def __init__(self, binary_path: str | Path, *, extra_args: list[str] | None = None) -> None:
         self._binary = Path(binary_path)
         if not self._binary.exists():
             raise FileNotFoundError(f"ParaFROST binary not found: {self._binary}")
+        self._extra_args = extra_args or []
 
     def solve(self, cnf: CnfBuilder, *, timeout: float | None = None) -> SolveResult:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".cnf", delete=False) as f:
@@ -35,7 +36,7 @@ class ParaFrostRunner:
         try:
             start = time.perf_counter()
             proc = subprocess.run(
-                [str(self._binary), str(cnf_path), "-model", "-modelprint"],
+                [str(self._binary), str(cnf_path), "-model", "-modelprint", *self._extra_args],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -69,7 +70,7 @@ class ParaFrostRunner:
                     assignment[abs(val)] = val > 0
 
         if satisfiable is None:
-            raise RuntimeError(f"Could not parse ParaFROST output:\n{stdout}\n{stderr}")
+            raise RuntimeError(f"Could not determine SAT result from ParaFROST output:\n{stdout}\n{stderr}")
 
         if not satisfiable:
             assignment = None
