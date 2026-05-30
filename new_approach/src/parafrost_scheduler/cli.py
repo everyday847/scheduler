@@ -96,13 +96,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     # Solver selection
     parser.add_argument(
         "--solver",
-        choices=["parafrost", "roundingsat", "joint"],
+        choices=["parafrost", "roundingsat", "joint", "schedule"],
         default="parafrost",
         help=(
             "Solver backend to use. 'parafrost' uses CNF/DIMACS with the ParaFROST SAT "
             "solver (default). 'roundingsat' uses OPB pseudo-Boolean format with the "
             "RoundingSat PB solver. 'joint' solves weekend+night simultaneously via "
-            "RoundingSat (requires --weekend-csv)."
+            "RoundingSat (requires --weekend-csv). 'schedule' jointly solves weekly shifts "
+            "+ weekends + nights from YAML config (requires --annual-config and "
+            "--standing-config)."
         ),
     )
     parser.add_argument(
@@ -113,6 +115,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Path to input CSV with weekday service assignments but NO weekend columns. "
             "Required when --solver joint is used."
         ),
+    )
+    parser.add_argument(
+        "--annual-config",
+        type=Path,
+        default=None,
+        help="Path to annual YAML config (fellow groups, shifts). Required for --solver schedule.",
+    )
+    parser.add_argument(
+        "--standing-config",
+        type=Path,
+        default=None,
+        help="Path to standing rules YAML config. Required for --solver schedule.",
     )
     parser.add_argument(
         "--parafrost-path",
@@ -160,6 +174,12 @@ def _staged_output_path(output_prefix: Path, spec_name: str, optimize: bool) -> 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(sys.argv[1:] if argv is None else argv)
+
+    # -----------------------------------------------------------------------
+    # Full schedule solver: jointly solves weekly + weekend + night
+    # -----------------------------------------------------------------------
+    if args.solver == "schedule":
+        return _run_schedule_solver(args)
 
     # -----------------------------------------------------------------------
     # Joint solver: dedicated path that solves weekend+night simultaneously
@@ -259,6 +279,128 @@ def main(argv: list[str] | None = None) -> int:
     write_night_schedule_csv(parsed, result.solution, args.output)
     print(f"Wrote {args.output}.", flush=True)
     return 0
+
+
+def _run_schedule_solver(args) -> int:
+    """Run the full joint schedule solver (weekly + weekend + night)."""
+    from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+    from parafrost_scheduler.schedule_solver import (
+        load_schedule_config,
+        solve_full_schedule,
+    )
+    from parafrost_scheduler.workbook import generate_workbook
+
+    if args.annual_config is None or args.standing_config is None:
+        print(
+            "Error: --solver schedule requires --annual-config and --standing-config",
+            file=sys.stderr,
+        )
+        return 2
+
+    runner = RoundingSatRunner(args.roundingsat_path)
+    print(f"Using RoundingSat PB solver (schedule mode): {args.roundingsat_path}", flush=True)
+
+    weights = NightPolicyWeights(
+        anaesthesia=args.anaesthesia_weight,
+        clinic=args.clinic_weight,
+        stroke=args.stroke_weight,
+        friday_weekend_ncc1=args.friday_weekend_ncc1_weight,
+        sunday_following=args.sunday_following_weight,
+    )
+    hard_criteria = _parse_hard_criteria(args.hard)
+
+    config = load_schedule_config(
+        args.annual_config,
+        args.standing_config,
+        night_weights=weights,
+        night_hard_criteria=hard_criteria,
+    )
+
+    print(
+        f"Loaded config: {sum(len(v) for v in config.fellow_groups.values())} fellows, "
+        f"{len(config.shifts)} shifts, {len(config.constraints)} rules, "
+        f"{config.num_weeks} weeks.",
+        flush=True,
+    )
+
+    solution = solve_full_schedule(
+        config,
+        runner,
+        max_soft=args.max_soft,
+        emit_progress=True,
+    )
+
+    if solution is None:
+        print("No feasible solution found.", file=sys.stderr)
+        return 1
+
+    # Write output CSV: weekly assignments
+    output_path = Path(args.output)
+    import csv
+    with output_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        fellow_names = list(solution.weekly_assignments.keys())
+        writer.writerow(
+            fellow_names
+            + list(solution.weekend_solution.assignments_by_week[0].keys())
+            + list(solution.night_solution.assignments_by_week[0].keys())
+        )
+        for w in range(config.num_weeks):
+            row = [solution.weekly_assignments[name][w] for name in fellow_names]
+            row += [solution.weekend_solution.assignments_by_week[w].get(r, "") for r in
+                    solution.weekend_solution.assignments_by_week[0].keys()]
+            row += [solution.night_solution.assignments_by_week[w].get(r, "") for r in
+                    solution.night_solution.assignments_by_week[0].keys()]
+            writer.writerow(row)
+
+    print(f"Wrote schedule to {output_path}", flush=True)
+    print(f"Soft penalty: {solution.soft_penalty}", flush=True)
+
+    # Print summary
+    _print_schedule_summary(solution, config)
+    return 0
+
+
+def _print_schedule_summary(solution, config):
+    """Print a summary of the schedule solution."""
+    fellow_names = list(solution.weekly_assignments.keys())
+
+    # Weekly shift counts
+    print("\nWeekly shift counts per fellow:")
+    for name in fellow_names:
+        assignments = solution.weekly_assignments[name]
+        counts = {}
+        for shift in assignments:
+            if shift:
+                counts[shift] = counts.get(shift, 0) + 1
+        if counts:
+            parts = ", ".join(f"{s}={c}" for s, c in sorted(counts.items()))
+            print(f"  {name}: {parts}")
+
+    # Night counts
+    print("\nNight counts per fellow:")
+    night_counts = {}
+    friday_counts = {}
+    for w, week_nights in enumerate(solution.night_solution.assignments_by_week):
+        for day_of_week, (role, fellow) in enumerate(week_nights.items()):
+            if fellow:
+                night_counts[fellow] = night_counts.get(fellow, 0) + 1
+                if day_of_week == 4:
+                    friday_counts[fellow] = friday_counts.get(fellow, 0) + 1
+    for name in sorted(night_counts.keys()):
+        print(f"  {name}: total={night_counts[name]} friday={friday_counts.get(name, 0)}")
+
+    # Weekend counts
+    print("\nWeekend counts per fellow:")
+    wknd_counts: dict[str, dict[str, int]] = {}
+    for week_assignments in solution.weekend_solution.assignments_by_week:
+        for role, fellow in week_assignments.items():
+            if fellow:
+                wknd_counts.setdefault(fellow, {})
+                wknd_counts[fellow][role] = wknd_counts[fellow].get(role, 0) + 1
+    for name in sorted(wknd_counts.keys()):
+        parts = ", ".join(f"{r}={c}" for r, c in sorted(wknd_counts[name].items()))
+        print(f"  {name}: {parts}")
 
 
 def _run_joint_solver(args) -> int:
