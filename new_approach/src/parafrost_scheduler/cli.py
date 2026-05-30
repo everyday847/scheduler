@@ -1,7 +1,11 @@
-"""CLI entry point for the ParaFROST-based night call scheduler.
+"""CLI entry point for the night call scheduler.
 
-Mirrors the interface of scheduler.night_call_solver_policy but uses the
-SAT-based ParaFROST solver instead of Z3.
+Supports two solver backends:
+- ``--solver parafrost`` (default): CNF/DIMACS encoding solved with ParaFROST.
+- ``--solver roundingsat``: OPB/pseudo-Boolean encoding solved with RoundingSat.
+
+The OPB path uses native pseudo-Boolean constraints — cardinality and weighted
+sum constraints are single lines instead of thousands of CNF clauses.
 """
 
 from __future__ import annotations
@@ -36,12 +40,20 @@ _DEFAULT_PARAFROST_PATH = (
     / "parafrost"
 )
 
+_DEFAULT_ROUNDINGSAT_PATH = (
+    Path(__file__).resolve().parent.parent.parent
+    / "vendor"
+    / "roundingsat"
+    / "build"
+    / "roundingsat"
+)
+
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Solve night call schedules using ParaFROST (SAT-based), "
-            "with configurable hard/soft policy criteria."
+            "Solve night call schedules with configurable hard/soft policy criteria.\n"
+            "Supports two solver backends: ParaFROST (SAT/CNF) and RoundingSat (PB/OPB)."
         )
     )
     parser.add_argument("input_csv", help="Path to the input schedule CSV.")
@@ -78,6 +90,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--anaesthesia-weight", type=int, default=1)
     parser.add_argument("--friday-weekend-ncc1-weight", type=int, default=1)
     parser.add_argument("--sunday-following-weight", type=int, default=1)
+    # Solver selection
+    parser.add_argument(
+        "--solver",
+        choices=["parafrost", "roundingsat"],
+        default="parafrost",
+        help=(
+            "Solver backend to use. 'parafrost' uses CNF/DIMACS with the ParaFROST SAT "
+            "solver (default). 'roundingsat' uses OPB pseudo-Boolean format with the "
+            "RoundingSat PB solver — cardinality constraints are native (no aux vars)."
+        ),
+    )
     parser.add_argument(
         "--parafrost-path",
         type=Path,
@@ -86,9 +109,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--parafrost-args",
-        nargs="*",
-        default=[],
-        help="Extra arguments to pass to the ParaFROST binary (e.g. -no-sigma).",
+        type=str,
+        default="",
+        help="Comma-separated extra arguments for ParaFROST (e.g. '-no-sigma,-quiet').",
+    )
+    parser.add_argument(
+        "--roundingsat-path",
+        type=Path,
+        default=_DEFAULT_ROUNDINGSAT_PATH,
+        help=f"Path to the RoundingSat binary (default: {_DEFAULT_ROUNDINGSAT_PATH}).",
     )
     return parser
 
@@ -119,7 +148,30 @@ def _staged_output_path(output_prefix: Path, spec_name: str, optimize: bool) -> 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
-    runner = ParaFrostRunner(args.parafrost_path, extra_args=args.parafrost_args)
+    # Build the appropriate runner and solver functions
+    if args.solver == "roundingsat":
+        from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+        from parafrost_scheduler.night_solver_pb import (
+            solve_night_schedule_roundingsat_at_limit,
+            solve_night_schedule_roundingsat_incremental,
+        )
+        runner = RoundingSatRunner(args.roundingsat_path)
+        solve = (
+            solve_night_schedule_roundingsat_at_limit
+            if args.no_optimize
+            else solve_night_schedule_roundingsat_incremental
+        )
+        print(f"Using RoundingSat PB solver: {args.roundingsat_path}", flush=True)
+    else:
+        extra_args = [a for a in args.parafrost_args.split(",") if a] if args.parafrost_args else []
+        runner = ParaFrostRunner(args.parafrost_path, extra_args=extra_args)
+        solve = (
+            solve_night_schedule_parafrost_at_limit
+            if args.no_optimize
+            else solve_night_schedule_parafrost_incremental
+        )
+        print(f"Using ParaFROST SAT solver: {args.parafrost_path}", flush=True)
+
     parsed = parse_night_call_csv(args.input_csv)
     print(f"Parsed {len(parsed.week_rows)} schedule weeks from {args.input_csv}.", flush=True)
 
@@ -140,11 +192,6 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     config = NightSolverConfig()
-    solve = (
-        solve_night_schedule_parafrost_at_limit
-        if args.no_optimize
-        else solve_night_schedule_parafrost_incremental
-    )
     mode = "unoptimized bounded solve" if args.no_optimize else "optimized binary search"
 
     if args.staged:
