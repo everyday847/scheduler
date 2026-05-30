@@ -69,24 +69,57 @@ class NightOpbVarMap:
 # Internal helpers (mirroring night_solver.py)
 # ---------------------------------------------------------------------------
 
+def _weeks_with_dual_stroke(parsed: ParsedCallScheduleCsv) -> frozenset[int]:
+    """Return week indices where 2+ fellows are on Stroke service (not Telestroke)."""
+    dual = set()
+    for week_index, row in enumerate(parsed.week_rows):
+        stroke_count = sum(
+            1 for svc in row.weekday_assignments.values()
+            if "Stroke" in svc and "Telestroke" not in svc
+        )
+        if stroke_count >= 2:
+            dual.add(week_index)
+    return frozenset(dual)
+
+
 def _criteria_for_assignment(
     parsed: ParsedCallScheduleCsv,
     week_index: int,
     day_of_week: int,
     fellow_name: str,
+    *,
+    dual_stroke_weeks: frozenset[int] = frozenset(),
+    weekend_ncc1_fellow: str | None = None,
 ) -> tuple[str, ...]:
-    """Return the policy criteria that apply to assigning fellow to this slot."""
+    """Return the policy criteria that apply to assigning fellow to this slot.
+
+    Anaesthesia and clinic criteria apply only to weekday nights (Mon-Fri,
+    day_of_week 0-4). Stroke criterion applies to weekday nights only when the
+    fellow is on weekday Stroke service, and to weekend nights only when the
+    fellow is on Weekend Stroke (handled via weekend_ncc1_fellow parameter for
+    friday_weekend_ncc1; weekend stroke is handled in the joint solver).
+    """
     week_row = parsed.week_rows[week_index]
     weekday_service = week_row.weekday_assignments[fellow_name]
     criteria: list[str] = []
-    if is_anaesthesia_service(weekday_service):
+    is_weekday_night = day_of_week <= 4  # Mon-Fri
+    # Anaesthesia: weekday nights only
+    if is_weekday_night and is_anaesthesia_service(weekday_service):
         criteria.append(CRITERION_ANAESTHESIA)
-    if is_clinic_service(weekday_service):
+    # Clinic: weekday nights only
+    if is_weekday_night and is_clinic_service(weekday_service):
         criteria.append(CRITERION_CLINIC)
-    if "Stroke" in weekday_service:
-        criteria.append(CRITERION_STROKE)
-    if day_of_week == 4 and week_row.schedule_assignments.get("Weekend NCC1") == fellow_name:
-        criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
+    # Stroke: weekday stroke → weekday nights; weekend stroke → weekend nights
+    if "Stroke" in weekday_service and "Telestroke" not in weekday_service:
+        if week_index not in dual_stroke_weeks:
+            if is_weekday_night:
+                criteria.append(CRITERION_STROKE)
+    # Weekend stroke → weekend nights is handled in joint_solver via weekend variables
+    if day_of_week == 4:
+        # Use provided weekend_ncc1_fellow if available, else fall back to schedule_assignments
+        ncc1 = weekend_ncc1_fellow if weekend_ncc1_fellow is not None else week_row.schedule_assignments.get("Weekend NCC1")
+        if ncc1 == fellow_name:
+            criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
     if day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
         following_service = parsed.week_rows[week_index + 1].weekday_assignments[fellow_name]
         if not is_preferred_sunday_following_service(following_service):
@@ -182,6 +215,7 @@ def build_night_opb(
     opb = OpbBuilder()
     num_days = len(parsed.week_rows) * 7
     num_fellows = len(parsed.fellow_names)
+    dual_stroke_weeks = _weeks_with_dual_stroke(parsed)
 
     # 1. Decision variables: x[day][fellow]
     x: list[list[int]] = [
@@ -205,10 +239,19 @@ def build_night_opb(
         week_row = parsed.week_rows[week_index]
         for fi, fellow_name in enumerate(parsed.fellow_names):
             weekday_service = week_row.weekday_assignments[fellow_name]
+            blocked = False
             if fellow_name in config.ccm_fellows or is_night_blocked(weekday_service):
-                opb.add_unit(-x[d][fi])  # force x[d][fi] = 0
-                blocked_days[fi].add(d)
+                blocked = True
             elif d in holiday_indices and not is_night_holiday_eligible(weekday_service):
+                blocked = True
+            # Conference/exam blocking: NHS blocks all nights; ISC blocks Tue-Fri; APBN blocks Mon-Fri
+            elif weekday_service == "NHS":
+                blocked = True
+            elif day_of_week >= 1 and day_of_week <= 4 and "ISC" in weekday_service:
+                blocked = True
+            elif day_of_week <= 4 and "APBN" in weekday_service:
+                blocked = True
+            if blocked:
                 opb.add_unit(-x[d][fi])
                 blocked_days[fi].add(d)
 
@@ -246,7 +289,10 @@ def build_night_opb(
     for d in range(num_days):
         week_index, day_of_week = divmod(d, 7)
         for fi, fellow_name in enumerate(parsed.fellow_names):
-            criteria = _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name)
+            criteria = _criteria_for_assignment(
+                parsed, week_index, day_of_week, fellow_name,
+                dual_stroke_weeks=dual_stroke_weeks,
+            )
             for criterion in criteria:
                 if criterion in hard_criteria:
                     opb.add_unit(-x[d][fi])
@@ -297,10 +343,14 @@ def weighted_upper_bound_pb(
 ) -> int:
     """Maximum possible weighted soft violations (sum of all non-hard criteria weights)."""
     total = 0
+    dual_stroke_weeks = _weeks_with_dual_stroke(parsed)
     for week_index in range(len(parsed.week_rows)):
         for day_of_week in range(7):
             for fellow_name in parsed.fellow_names:
-                for criterion in _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name):
+                for criterion in _criteria_for_assignment(
+                    parsed, week_index, day_of_week, fellow_name,
+                    dual_stroke_weeks=dual_stroke_weeks,
+                ):
                     if criterion not in hard_criteria:
                         total += weights.for_criterion(criterion)
     return total

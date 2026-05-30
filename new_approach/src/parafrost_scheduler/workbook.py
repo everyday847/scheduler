@@ -33,6 +33,7 @@ from scheduler.night_call_solver_policy import (
     CRITERION_SUNDAY_FOLLOWING,
     NightPolicyWeights,
 )
+from parafrost_scheduler.night_solver_pb import _weeks_with_dual_stroke
 
 
 # ---------------------------------------------------------------------------
@@ -148,27 +149,41 @@ def _has_soft_violation(
     week_index: int,
     fellow_name: str,
     hard_criteria: frozenset[str],
+    dual_stroke_weeks: frozenset[int] | None = None,
 ) -> bool:
     """Return True if the fellow has any un-hard-enforced soft violation that week."""
     week_row = parsed.week_rows[week_index]
     weekday_service = week_row.weekday_assignments.get(fellow_name, "")
     night_assignments = night_solution.assignments_by_week[week_index]
+    if dual_stroke_weeks is None:
+        dual_stroke_weeks = _weeks_with_dual_stroke(parsed)
 
     for day_of_week, role in enumerate(NIGHT_ROLES):
         if night_assignments.get(role) != fellow_name:
             continue
 
-        # Anaesthesia criterion
-        if CRITERION_ANAESTHESIA not in hard_criteria and is_anaesthesia_service(weekday_service):
+        is_weekday_night = day_of_week <= 4
+
+        # Anaesthesia criterion: weekday nights only
+        if is_weekday_night and CRITERION_ANAESTHESIA not in hard_criteria and is_anaesthesia_service(weekday_service):
             return True
 
-        # Clinic criterion
-        if CRITERION_CLINIC not in hard_criteria and is_clinic_service(weekday_service):
+        # Clinic criterion: weekday nights only
+        if is_weekday_night and CRITERION_CLINIC not in hard_criteria and is_clinic_service(weekday_service):
             return True
 
-        # Stroke criterion
-        if CRITERION_STROKE not in hard_criteria and "Stroke" in weekday_service:
-            return True
+        # Stroke criterion: weekday stroke → weekday nights only (exempt dual-stroke weeks)
+        if is_weekday_night and CRITERION_STROKE not in hard_criteria:
+            if "Stroke" in weekday_service and "Telestroke" not in weekday_service:
+                if week_index not in dual_stroke_weeks:
+                    return True
+
+        # Stroke criterion: weekend stroke → weekend nights only (exempt dual-stroke weeks)
+        if not is_weekday_night and CRITERION_STROKE not in hard_criteria:
+            if weekend_solution is not None:
+                wknd_stroke = weekend_solution.assignments_by_week[week_index].get("Weekend Stroke")
+                if wknd_stroke == fellow_name and week_index not in dual_stroke_weeks:
+                    return True
 
         # Friday / weekend NCC1 criterion
         if day_of_week == 4 and CRITERION_FRIDAY_WEEKEND_NCC1 not in hard_criteria:
