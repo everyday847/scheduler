@@ -762,7 +762,7 @@ def _encode_service_profile(opb, xs, constraint, fellow_indices, **kw):
     weight = kw["config"].weekly_soft_weight
     soft_violations = kw["soft_violations"]
 
-    # zero_shifts: block certain shifts entirely
+    # zero_shifts: ALWAYS hard — a fellow literally cannot do these shifts
     for shift_name in constraint.params.get("zero_shifts", []):
         si = shift_idx.get(shift_name)
         if si is None:
@@ -770,11 +770,7 @@ def _encode_service_profile(opb, xs, constraint, fellow_indices, **kw):
         for f in fellow_indices:
             for w in range(num_weeks):
                 if xs[f][w][si] != 0:
-                    if is_soft:
-                        # Penalty for being on a zero_shift
-                        soft_violations.append((xs[f][w][si], weight))
-                    else:
-                        opb.add_unit(-xs[f][w][si])
+                    opb.add_unit(-xs[f][w][si])
 
     # totals: count constraints over all weeks
     for total in constraint.params.get("totals", []):
@@ -1752,15 +1748,16 @@ def _is_weekend_eligible_static(
     fellow_name: str, role_idx: int, config: WeekendSolverConfig
 ) -> bool:
     """Static eligibility check (ignoring weekday shift, which is dynamic)."""
-    if fellow_name in config.ccm_fellows:
-        return True  # CCM can do NCC weekends
     if role_idx == _ROLE_STROKE:
-        return (
-            fellow_name in config.always_stroke_eligible
-            or fellow_name in config.telestroke_stroke_eligible
-            or fellow_name in config.stroke_only_eligible
+        all_eligible = (
+            config.always_stroke_eligible
+            | config.telestroke_stroke_eligible
+            | config.stroke_only_eligible
         )
-    return True  # NCC1/NCC2 are available to everyone (dynamic blocking handles shifts)
+        if not all_eligible:
+            return True  # No eligibility sets configured — everyone can do stroke
+        return fellow_name in all_eligible
+    return True
 
 
 def _add_cardinality_constraint(
