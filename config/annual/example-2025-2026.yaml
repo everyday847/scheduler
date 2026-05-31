@@ -35,27 +35,10 @@ fellow_groups:
     - Stroke Parshva
 
   CCM:
-    - CCM Ariana
-    - CCM Bert
-    - CCM Chloe
-    - CCM Dennis
-    - CCM Edwina
-    - CCM Frank
-    - CCM George
-    - CCM Helen
-    - CCM Iago
-    - CCM Jake
-    - CCM Kyle
-    - CCM Liana
-    - CCM Mary
-    - CCM Ning
-    - CCM Oyo
+    - CCM Generic
 
   NH:
     - NH Adam
-
-  LIA:
-    - NCC Lia
 
 fellow_week_pairs:
   NCC Prash: [1, 7, 25, 39, 40, 41, 42]
