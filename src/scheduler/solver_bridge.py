@@ -39,15 +39,20 @@ def build_solver_config_from_request(
     if raw_request is None:
         raise ValueError("Request body must be JSON.")
 
-    standing_path = standing_path or STANDING_RULE_CONFIG
-    standing_config = yaml.safe_load(standing_path.read_text())
-
     fellow_groups = _require_dict(raw_request, "fellow_groups")
     shifts = raw_request.get("shifts", [])
     if not shifts:
         raise ValueError("shifts must be a non-empty list.")
     fellow_week_pairs = raw_request.get("fellow_week_pairs", {})
     annual_rules = raw_request.get("annual_rules")
+
+    # Standing rules: use overrides from request if provided, else load from disk
+    standing_rules_override = raw_request.get("standing_rules")
+    if standing_rules_override is not None:
+        standing_config = {"rules": standing_rules_override}
+    else:
+        standing_path = standing_path or STANDING_RULE_CONFIG
+        standing_config = yaml.safe_load(standing_path.read_text())
 
     constraints = [
         *standing_constraints_from_config(standing_config),

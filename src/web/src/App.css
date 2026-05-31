@@ -431,6 +431,128 @@ tbody th {
   margin-bottom: 0.5rem;
 }
 
+/* Inline fields in top bar */
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.inline-field select, .inline-field input {
+  font-weight: 400;
+}
+
+/* Fellow groups grid */
+.groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.groups-grid textarea {
+  min-height: 3rem;
+}
+
+.count {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* Budget validation bars */
+.budget-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+
+.budget-ok {
+  background: #eef9ee;
+  color: #2e6b2e;
+}
+
+.budget-under {
+  background: #fff3e0;
+  color: #8b5e00;
+}
+
+.budget-over {
+  background: #fff1f1;
+  color: #8b1e1e;
+}
+
+.budget-label {
+  font-weight: 600;
+}
+
+.budget-sep {
+  color: var(--muted);
+}
+
+.budget-status {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+/* Rules table */
+.rules-table {
+  font-size: 0.82rem;
+}
+
+.rules-table th, .rules-table td {
+  padding: 0.3rem 0.5rem;
+}
+
+.rules-table input[type="checkbox"] {
+  transform: scale(1.1);
+}
+
+.rule-inactive td {
+  opacity: 0.5;
+}
+
+.rule-kind {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 0.78rem;
+}
+
+.rule-groups {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.strength-toggle {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.strength-toggle.hard {
+  background: #ffe0e0;
+  border-color: #f5a0a0;
+  color: #8b2020;
+}
+
+.strength-toggle.soft {
+  background: #e0f0ff;
+  border-color: #a0c8f0;
+  color: #204080;
+}
+
+.strength-toggle.minimize {
+  background: #f0f0e0;
+  border-color: #c8c8a0;
+  color: #606020;
+}
+
 /* Config tables (night/weekend) */
 .config-table {
   width: 100%;

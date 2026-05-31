@@ -25,6 +25,7 @@ shifts:
 - Vac
 - Stroke
 
+num_weeks: 52
 horizon_start: 2026-06-29
 
 night_call:
