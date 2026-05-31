@@ -105,6 +105,7 @@ function App() {
         }
       })
       .catch((err) => { setError(err.message); setLoading(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadConfig = useCallback((filename: string) => {
@@ -239,6 +240,7 @@ function App() {
       setError(err instanceof Error ? err.message : 'Connection lost.');
       setSolverStatus('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildRequest, cancelSolve]);
 
   const handleEvent = useCallback((type: string, data: any) => {
