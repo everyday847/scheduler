@@ -187,7 +187,7 @@ rules:
 
   - name: stroke_service_profile
     kind: service_profile
-    active: false
+    active: true
     strength: soft
     fellow_groups: [STROKE]
     zero_shifts:
@@ -211,21 +211,21 @@ rules:
       - shifts: [Vac]
         relation: at_least
         weeks: 3
-      # - shifts: [Telestroke/Clinic]
-      #   relation: at_least
-      #   weeks: 11
-      # - shifts: [Clinic/Elective]
-      #   relation: at_least
-      #   weeks: 11
-      # - shifts: [SCVMC Rehab]
-      #   relation: exactly
-      #   weeks: 2
-      # - shifts: [NIR]
-      #   relation: exactly
-      #   weeks: 2
-      # - shifts: [ISC]
-      #   relation: exactly
-      #   weeks: 1
+      - shifts: [Telestroke/Clinic]
+        relation: at_least
+        weeks: 11
+      - shifts: [Clinic/Elective]
+        relation: at_least
+        weeks: 11
+      - shifts: [SCVMC Rehab]
+        relation: exactly
+        weeks: 2
+      - shifts: [NIR]
+        relation: exactly
+        weeks: 2
+      - shifts: [ISC]
+        relation: exactly
+        weeks: 1
 
   - name: ncc_jr_service_profile
     kind: service_profile
@@ -235,11 +235,11 @@ rules:
     zero_shifts:
       - NS
       - Stroke
-      # - Telestroke/Clinic
-      # - SCVMC Rehab
-      # - NIR
-      # - Clinic/Elective
-      # - ISC
+      - Telestroke/Clinic
+      - SCVMC Rehab
+      - NIR
+      - Clinic/Elective
+      - ISC
     totals:
       - shifts: [MICU]
         relation: exactly
@@ -277,18 +277,18 @@ rules:
     zero_shifts:
       - Anaesthesia
       - SICU
-      # - SCVMC Rehab
-      # - NIR
-      # - Clinic/Elective
-      # - ISC
-      # - Telestroke/Clinic
+      - SCVMC Rehab
+      - NIR
+      - Clinic/Elective
+      - ISC
+      - Telestroke/Clinic
     totals:
       - shifts: [MICU]
         relation: exactly
         weeks: 8
       - shifts: [Elec]
         relation: at_least
-        weeks: 12
+        weeks: 10
       - shifts: [Vac]
         relation: at_least
         weeks: 4
@@ -313,13 +313,13 @@ rules:
       - SICU
       - Anaesthesia
       - Stroke
-      # - Clinic/Elective
-      # - Telestroke/Clinic
+      - Clinic/Elective
+      - Telestroke/Clinic
       - Elec
-      # - SCVMC Rehab
-      # - NIR
+      - SCVMC Rehab
+      - NIR
       - Vac
-      # - ISC
+      - ISC
     totals:
       - shifts: [NCC1, NCC2]
         relation: exactly
@@ -350,13 +350,13 @@ rules:
       - SICU
       - Anaesthesia
       - Stroke
-      # - Clinic/Elective
-      # - Telestroke/Clinic
+      - Clinic/Elective
+      - Telestroke/Clinic
       - Elec
-      # - SCVMC Rehab
-      # - NIR
+      - SCVMC Rehab
+      - NIR
       - Vac
-      # - ISC
+      - ISC
     totals:
       - shifts: [NCC1, NCC2]
         relation: at_least
