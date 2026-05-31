@@ -41,14 +41,14 @@ fellow_groups:
     - NH Adam
 
 fellow_week_pairs:
-  NCC Prash: [1, 7, 25, 39, 40, 41, 42]
-  NCC David: [5, 6, 26]
-  NCC Raya: [21, 37]
-  NCC Joseph: [25, 36, 16, 46, 11]
-  Stroke Gabi: [17, 38, 45, 11]
-  Stroke Jeff: [26, 39, 14]
-  Stroke Victoria: [14, 44, 13, 11]
-  Stroke Parshva: [44, 15, 26, 11]
+  NCC Prash: []
+  NCC David: []
+  NCC Raya: []
+  NCC Joseph: []
+  Stroke Gabi: []
+  Stroke Jeff: []
+  Stroke Victoria: []
+  Stroke Parshva: []
 
 annual_rules:
   rules:
@@ -59,7 +59,7 @@ annual_rules:
 
     - name: jeff_abpn_stroke
       kind: specific_assignment
-      active: true
+      active: false
       fellow: Stroke Jeff
       week: 11
       shift: Stroke
@@ -68,7 +68,7 @@ annual_rules:
 
     - name: abpn_backup_telestroke
       kind: specific_assignment
-      active: true
+      active: false
       fellows: [NCC Prash, NCC David]
       week: 11
       shift: Telestroke/Clinic
@@ -110,32 +110,3 @@ annual_rules:
       fellow_groups: [NH]
       strength: hard
 
-    - name: nh_service_profile
-      kind: service_profile
-      active: true
-      fellow_groups: [NH]
-      strength: hard
-      zero_shifts:
-        - MICU
-        - Anaesthesia
-        - Elec
-        - Vac
-        - NS
-        - SICU
-        - SCVMC Rehab
-        - NIR
-        - Clinic/Elective
-        - ISC
-      totals:
-        - shifts: [NCC1, NCC2]
-          relation: exactly
-          weeks: 4
-        - shifts: [Swing]
-          relation: exactly
-          weeks: 1
-        - shifts: [Telestroke/Clinic]
-          relation: exactly
-          weeks: 3
-        - shifts: [Stroke]
-          relation: exactly
-          weeks: 4

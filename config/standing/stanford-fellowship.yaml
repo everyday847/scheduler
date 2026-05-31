@@ -25,7 +25,7 @@ rules:
   # We want as few uncovered swing shifts as possible.
   - name: minimize_swing_deficit
     kind: minimize_uncovered_shift_weeks
-    active: true
+    active: false
     strength: minimize
     fellow_groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [Swing]
@@ -75,7 +75,7 @@ rules:
 
   - name: ncc_four_week_block_preference
     kind: block_shift_set_choice
-    active: true
+    active: false
     strength: soft
     fellow_groups: [NCC_JR, NCC_SR]
     block_size: 4
@@ -121,41 +121,41 @@ rules:
     active: false
     strength: hard
     fellow_groups: [STROKE]
-    shifts: [Stroke] #, Telestroke/Clinic]
+    shifts: [Stroke, Telestroke/Clinic]
     block_size: 2
 
   - name: ncc_stroke_shift_two_week_blocks
     kind: all_or_none_block
-    active: true
+    active: false
     strength: hard
     fellow_groups: [NCC_JR, NCC_SR]
-    shifts: [Stroke] #, Telestroke/Clinic]
+    shifts: [Stroke, Telestroke/Clinic]
     block_size: 2
 
-  # - name: scvmc_two_week_blocks
-  #   kind: all_or_none_block
-  #   active: false
-  #   strength: hard
-  #   fellow_groups: [STROKE]
-  #   shifts: [SCVMC Rehab]
-  #   block_size: 2
+  - name: scvmc_two_week_blocks
+    kind: all_or_none_block
+    active: false
+    strength: hard
+    fellow_groups: [STROKE]
+    shifts: [SCVMC Rehab]
+    block_size: 2
 
   - name: ncc_stroke_oversight
     kind: ncc_stroke_oversight
     active: true
-    strength: soft
+    strength: hard
     fellow_groups: [NCC_JR, NCC_SR, STROKE]
 
   # We can only have this active for configs where we are controlling stroke
   - name: stroke_shift_coverage
     kind: stroke_shift_coverage
-    active: false
+    active: hard
     strength: soft
     fellow_groups: [NCC_JR, NCC_SR, STROKE, NH]
 
   - name: comparable_half_year_distribution
     kind: comparable_half_year_distribution
-    active: true
+    active: false
     strength: soft
     fellow_groups: [NCC_JR, NCC_SR]
 
@@ -169,26 +169,26 @@ rules:
 
   - name: stroke_nir_one_week_per_half
     kind: nir_one_week_per_half
-    active: false
-    strength: soft
+    active: true
+    strength: hard
     fellow_groups: [STROKE]
 
   - name: stroke_scvmc_second_half
     kind: scvmc_second_half
-    active: false
+    active: true
     strength: hard
     fellow_groups: [STROKE]
 
   - name: stroke_no_first_block_ncc
     kind: stroke_no_block_one_ncc
-    active: false
-    strength: soft
+    active: true
+    strength: hard
     fellow_groups: [STROKE]
 
   - name: stroke_service_profile
     kind: service_profile
     active: true
-    strength: soft
+    strength: hard
     fellow_groups: [STROKE]
     zero_shifts:
       - NS
@@ -230,7 +230,7 @@ rules:
   - name: ncc_jr_service_profile
     kind: service_profile
     active: true
-    strength: soft
+    strength: hard
     fellow_groups: [NCC_JR]
     zero_shifts:
       - NS
@@ -272,7 +272,7 @@ rules:
   - name: ncc_sr_service_profile
     kind: service_profile
     active: true
-    strength: soft
+    strength: hard
     fellow_groups: [NCC_SR]
     zero_shifts:
       - Anaesthesia
@@ -304,8 +304,8 @@ rules:
 
   - name: nh_service_profile
     kind: service_profile
-    active: true
-    strength: soft
+    active: false
+    strength: hard
     fellow_groups: [NH]
     zero_shifts:
       - NS
@@ -342,7 +342,7 @@ rules:
   - name: ccm_service_profile
     kind: service_profile
     active: true
-    strength: soft
+    strength: hard
     fellow_groups: [CCM]
     zero_shifts:
       - NS
