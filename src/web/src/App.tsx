@@ -139,34 +139,22 @@ function App() {
     [config.fellow_groups],
   );
 
-  // Budget calculations
+  // Budget calculations (values are group totals, sum directly)
   const nightBudget = useMemo(() => {
     const required = W * 7;
-    const configured = config.night_call.reduce((s, e) => {
-      const groupSize = (config.fellow_groups[e.group] || []).length;
-      return s + e.total_nights * groupSize;
-    }, 0);
+    const configured = config.night_call.reduce((s, e) => s + (e.total_nights || 0), 0);
     const fridayRequired = W;
-    const fridayConfigured = config.night_call.reduce((s, e) => {
-      const groupSize = (config.fellow_groups[e.group] || []).length;
-      return s + e.friday_nights * groupSize;
-    }, 0);
+    const fridayConfigured = config.night_call.reduce((s, e) => s + (e.friday_nights || 0), 0);
     return { required, configured, fridayRequired, fridayConfigured };
-  }, [config.night_call, config.fellow_groups, W]);
+  }, [config.night_call, W]);
 
   const weekendBudget = useMemo(() => {
     const nccRequired = W * 2;
-    const nccConfigured = config.weekend_call.reduce((s, e) => {
-      const groupSize = (config.fellow_groups[e.group] || []).length;
-      return s + e.ncc_total * groupSize;
-    }, 0);
+    const nccConfigured = config.weekend_call.reduce((s, e) => s + (e.ncc_total || 0), 0);
     const strokeRequired = W;
-    const strokeConfigured = config.weekend_call.reduce((s, e) => {
-      const groupSize = (config.fellow_groups[e.group] || []).length;
-      return s + e.stroke_total * groupSize;
-    }, 0);
+    const strokeConfigured = config.weekend_call.reduce((s, e) => s + (e.stroke_total || 0), 0);
     return { nccRequired, nccConfigured, strokeRequired, strokeConfigured };
-  }, [config.weekend_call, config.fellow_groups, W]);
+  }, [config.weekend_call, W]);
 
   // Config mutators
   const updateGroup = (g: string, v: string) => {
@@ -351,19 +339,24 @@ function App() {
             <section className="config-card">
               <h2>Night Call Distribution</h2>
               <table className="config-table">
-                <thead><tr><th>Group</th><th>Total Nights (per fellow)</th><th>Friday Nights (per fellow)</th></tr></thead>
+                <thead><tr><th>Group</th><th>Total Nights</th><th>Per Fellow</th><th>Friday Nights</th><th>Per Fellow</th></tr></thead>
                 <tbody>
-                  {config.night_call.map((entry, i) => (
-                    <tr key={i}>
-                      <td>
-                        <select value={entry.group} onChange={(e) => updateNight(i, 'group', e.target.value)}>
-                          {groupNames.map((g) => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      </td>
-                      <td><input type="number" value={entry.total_nights} onChange={(e) => updateNight(i, 'total_nights', e.target.value)} /></td>
-                      <td><input type="number" value={entry.friday_nights} onChange={(e) => updateNight(i, 'friday_nights', e.target.value)} /></td>
-                    </tr>
-                  ))}
+                  {config.night_call.map((entry, i) => {
+                    const gs = (config.fellow_groups[entry.group] || []).length;
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <select value={entry.group} onChange={(e) => updateNight(i, 'group', e.target.value)}>
+                            {groupNames.map((g) => <option key={g} value={g}>{g} ({(config.fellow_groups[g] || []).length})</option>)}
+                          </select>
+                        </td>
+                        <td><input type="number" value={entry.total_nights} onChange={(e) => updateNight(i, 'total_nights', e.target.value)} /></td>
+                        <td className="breakdown">{gs > 0 ? perFellowText(entry.total_nights, gs) : '—'}</td>
+                        <td><input type="number" value={entry.friday_nights} onChange={(e) => updateNight(i, 'friday_nights', e.target.value)} /></td>
+                        <td className="breakdown">{gs > 0 ? perFellowText(entry.friday_nights, gs) : '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <BudgetBar label="Total nights" configured={nightBudget.configured} required={nightBudget.required} unit={`${W} wks × 7`} />
@@ -374,19 +367,24 @@ function App() {
             <section className="config-card">
               <h2>Weekend Call Distribution</h2>
               <table className="config-table">
-                <thead><tr><th>Group</th><th>NCC Total (per fellow)</th><th>Stroke Total (per fellow)</th></tr></thead>
+                <thead><tr><th>Group</th><th>NCC Total</th><th>Per Fellow</th><th>Stroke Total</th><th>Per Fellow</th></tr></thead>
                 <tbody>
-                  {config.weekend_call.map((entry, i) => (
-                    <tr key={i}>
-                      <td>
-                        <select value={entry.group} onChange={(e) => updateWeekend(i, 'group', e.target.value)}>
-                          {groupNames.map((g) => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      </td>
-                      <td><input type="number" value={entry.ncc_total} onChange={(e) => updateWeekend(i, 'ncc_total', e.target.value)} /></td>
-                      <td><input type="number" value={entry.stroke_total} onChange={(e) => updateWeekend(i, 'stroke_total', e.target.value)} /></td>
-                    </tr>
-                  ))}
+                  {config.weekend_call.map((entry, i) => {
+                    const gs = (config.fellow_groups[entry.group] || []).length;
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <select value={entry.group} onChange={(e) => updateWeekend(i, 'group', e.target.value)}>
+                            {groupNames.map((g) => <option key={g} value={g}>{g} ({(config.fellow_groups[g] || []).length})</option>)}
+                          </select>
+                        </td>
+                        <td><input type="number" value={entry.ncc_total} onChange={(e) => updateWeekend(i, 'ncc_total', e.target.value)} /></td>
+                        <td className="breakdown">{gs > 0 ? perFellowText(entry.ncc_total, gs) : '—'}</td>
+                        <td><input type="number" value={entry.stroke_total} onChange={(e) => updateWeekend(i, 'stroke_total', e.target.value)} /></td>
+                        <td className="breakdown">{gs > 0 ? perFellowText(entry.stroke_total, gs) : '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <BudgetBar label="Weekend NCC" configured={weekendBudget.nccConfigured} required={weekendBudget.nccRequired} unit={`${W} wks × 2`} />
@@ -587,6 +585,14 @@ function ScheduleTable({ columns, rows }: { columns: string[]; rows: Record<stri
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
+
+function perFellowText(total: number, groupSize: number): string {
+  if (groupSize === 0) return '—';
+  const base = Math.floor(total / groupSize);
+  const remainder = total % groupSize;
+  if (remainder === 0) return `${base} each`;
+  return `${base}–${base + 1} each`;
+}
 
 function pivotWeeklyList(list: Record<string, string>[]): Record<string, string[]> {
   if (!list.length) return {};

@@ -32,27 +32,27 @@ night_call:
   # Must sum to 364 (52 weeks × 7 nights/week)
   # 8 eligible fellows (CCM excluded): 3 JR + 3 SR + 2 NH
   - group: NCC_SR
-    total_nights: 120       # 40 each
-    friday_nights: 15       # 5 each
+    total_nights: 120
+    friday_nights: 15
   - group: NCC_JR
-    total_nights: 120       # 40 each
-    friday_nights: 15       # 5 each
+    total_nights: 120
+    friday_nights: 15
   - group: NH
-    total_nights: 124       # 62 each
-    friday_nights: 22       # 11 each
+    total_nights: 124
+    friday_nights: 22
 
 weekend_call:
   # NCC totals must sum to 104 (52 weeks × 2 NCC roles)
   # Stroke totals must sum to 52 (52 weeks × 1 stroke role)
   - group: NCC_SR
-    ncc_total: 30        # 10 each
-    stroke_total: 6      # 2 each
+    ncc_total: 30
+    stroke_total: 6
   - group: NCC_JR
-    ncc_total: 24        # 8 each
+    ncc_total: 24
     stroke_total: 0
   - group: NH
-    ncc_total: 28        # 14 each
-    stroke_total: 46     # 23 each
+    ncc_total: 28
+    stroke_total: 46
   - group: CCM
     ncc_total: 22
     stroke_total: 0

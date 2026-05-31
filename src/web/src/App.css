@@ -577,6 +577,12 @@ tbody th {
   width: 5rem;
 }
 
+.config-table .breakdown {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .config-table select {
   border: 1px solid var(--line);
   border-radius: 4px;
