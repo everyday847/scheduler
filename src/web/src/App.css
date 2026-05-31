@@ -289,6 +289,67 @@ tbody th {
   background: #ececec;
 }
 
+.progress-panel {
+  align-items: center;
+  background: #eef6ff;
+  border: 1px solid #bbd4f0;
+  border-radius: 8px;
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+}
+
+.progress-panel.done {
+  background: #eef9ee;
+  border-color: #b3ddb3;
+}
+
+.progress-indicator {
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+
+.progress-panel.done .progress-indicator {
+  color: #2e8b2e;
+}
+
+.progress-status {
+  font-weight: 600;
+}
+
+.progress-penalty strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-elapsed,
+.progress-formula {
+  color: var(--muted);
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+}
+
+.tab.active {
+  background: var(--panel);
+  border-bottom-color: var(--panel);
+  color: var(--ink);
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;

@@ -5,10 +5,11 @@ import csv
 from pathlib import Path
 import sys
 
-from z3 import BoolVal, Distinct, If, Int, Optimize, Or, Solver, Sum, sat, set_option
-
-
-set_option(verbose=10)
+try:
+    from z3 import BoolVal, Distinct, If, Int, Optimize, Or, Solver, Sum, sat, set_option
+    set_option(verbose=10)
+except ImportError:
+    pass
 
 
 from .call_schedule_common import (

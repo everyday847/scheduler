@@ -7,7 +7,10 @@ from itertools import permutations
 from pathlib import Path
 import sys
 
-from z3 import If, Int, IntVal, Optimize, Or, Sum, sat
+try:
+    from z3 import If, Int, IntVal, Optimize, Or, Sum, sat
+except ImportError:
+    pass
 
 from .call_schedule_common import (
     DEFAULT_CCM_FELLOWS,

@@ -2106,6 +2106,142 @@ def solve_full_schedule(
 
 
 # ---------------------------------------------------------------------------
+# Progressive solver (yields events for SSE streaming)
+# ---------------------------------------------------------------------------
+
+def solution_to_json(solution: FullScheduleSolution) -> dict:
+    """Convert a FullScheduleSolution to a JSON-serializable dict."""
+    return {
+        "weekly_assignments": solution.weekly_assignments,
+        "weekend_assignments": solution.weekend_solution.assignments_by_week,
+        "night_assignments": solution.night_solution.assignments_by_week,
+        "soft_penalty": solution.soft_penalty,
+    }
+
+
+def solve_full_schedule_progressive(
+    config: ScheduleSolverConfig,
+    runner: RoundingSatRunner,
+    *,
+    max_soft: int | None = None,
+    coarse_step: int = 100,
+    fine_step: int = 5,
+    coarse_timeout: float = 15.0,
+    fine_timeout: float = 60.0,
+):
+    """Generator that yields solver events for progressive optimization.
+
+    Each yield is a dict with a ``type`` key:
+
+    - ``{"type": "status", "phase": ..., "vars": ..., "constraints": ...}``
+    - ``{"type": "solution", ...solution_to_json..., "elapsed": float}``
+    - ``{"type": "done", "optimal_penalty": int, "total_seconds": float}``
+    - ``{"type": "error", "message": str}``
+    """
+    t0 = time.time()
+
+    yield {"type": "status", "phase": "building"}
+
+    opb_check, var_map = build_full_schedule_opb(config, soft_bound=None)
+    upper_bound = sum(w for _, w in var_map.soft_violations)
+    if max_soft is not None:
+        upper_bound = min(upper_bound, max_soft)
+
+    yield {
+        "type": "status",
+        "phase": "built",
+        "vars": opb_check.num_vars,
+        "constraints": opb_check.num_constraints,
+        "soft_indicators": len(var_map.soft_violations),
+        "upper_bound": upper_bound,
+    }
+
+    # Feasibility check
+    yield {"type": "status", "phase": "feasibility"}
+    opb_feasible, _ = build_full_schedule_opb(config, soft_bound=upper_bound)
+    try:
+        result = runner.solve(opb_feasible, timeout=120.0)
+    except Exception as exc:
+        yield {"type": "error", "message": f"Feasibility check timed out: {exc}"}
+        return
+    if not result.satisfiable:
+        yield {"type": "error", "message": f"Infeasible with full soft budget ({upper_bound})"}
+        return
+
+    best_assignment = result.assignment
+    best_bound = upper_bound
+
+    # Yield first feasible solution
+    _, decode_map = build_full_schedule_opb(config, soft_bound=best_bound)
+    first_solution = decode_solution(best_assignment, decode_map)
+    yield {
+        "type": "solution",
+        **solution_to_json(first_solution),
+        "elapsed": time.time() - t0,
+    }
+
+    # Coarse scan — start from the first solution's actual penalty, not the upper bound
+    yield {"type": "status", "phase": "coarse_scan", "step": coarse_step}
+    last_yielded_penalty = first_solution.soft_penalty
+    current = first_solution.soft_penalty - coarse_step
+    while current >= 0:
+        opb_probe, _ = build_full_schedule_opb(config, soft_bound=current)
+        try:
+            result = runner.solve(opb_probe, timeout=coarse_timeout)
+        except Exception:
+            break
+        if result.satisfiable:
+            best_assignment = result.assignment
+            best_bound = current
+            _, decode_map = build_full_schedule_opb(config, soft_bound=best_bound)
+            improved = decode_solution(best_assignment, decode_map)
+            if improved.soft_penalty < last_yielded_penalty:
+                last_yielded_penalty = improved.soft_penalty
+                yield {
+                    "type": "solution",
+                    **solution_to_json(improved),
+                    "elapsed": time.time() - t0,
+                }
+            current -= coarse_step
+        else:
+            break
+
+    # Fine scan
+    if coarse_step > fine_step:
+        yield {"type": "status", "phase": "fine_scan", "step": fine_step}
+        fine_start = best_bound - fine_step
+        fine_end = max(current, 0)
+        current = fine_start
+        while current >= fine_end:
+            opb_probe, _ = build_full_schedule_opb(config, soft_bound=current)
+            try:
+                result = runner.solve(opb_probe, timeout=fine_timeout)
+            except Exception:
+                break
+            if result.satisfiable:
+                best_assignment = result.assignment
+                best_bound = current
+                _, decode_map = build_full_schedule_opb(config, soft_bound=best_bound)
+                improved = decode_solution(best_assignment, decode_map)
+                if improved.soft_penalty < last_yielded_penalty:
+                    last_yielded_penalty = improved.soft_penalty
+                    yield {
+                        "type": "solution",
+                        **solution_to_json(improved),
+                        "elapsed": time.time() - t0,
+                    }
+                current -= fine_step
+            else:
+                break
+
+    yield {
+        "type": "done",
+        "optimal_penalty": best_bound,
+        "total_seconds": time.time() - t0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
 

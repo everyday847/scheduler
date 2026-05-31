@@ -1,5 +1,8 @@
 from typing import List, Dict
-from z3 import *
+try:
+    from z3 import *
+except ImportError:
+    pass
 try:
     from .fellow_mapping import FellowMapping
 except ImportError:  # pragma: no cover - supports running from src/scheduler

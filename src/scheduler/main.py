@@ -1,6 +1,9 @@
 from typing import List, Dict
 
-from z3 import *
+try:
+    from z3 import *
+except ImportError:
+    pass
 import openpyxl
 from pathlib import Path
 import yaml

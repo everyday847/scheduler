@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 const API_BASE = 'http://127.0.0.1:5000';
@@ -10,11 +10,15 @@ type ScheduleRequest = {
   fellow_week_pairs: Record<string, number[]>;
 };
 
-type ScheduleResult = {
-  request: ScheduleRequest;
-  shifts_for_fellows: Record<string, string[]>;
-  fellows_for_shifts: Record<string, string[]>;
+type FullSolution = {
+  weekly_assignments: Record<string, string[]>;
+  weekend_assignments: Record<string, string>[];
+  night_assignments: Record<string, string>[];
+  soft_penalty: number;
+  elapsed: number;
 };
+
+type SolverStatus = 'idle' | 'building' | 'feasibility' | 'optimizing' | 'done' | 'error';
 
 const emptyRequest: ScheduleRequest = {
   fellow_groups: {},
@@ -26,11 +30,19 @@ const shiftOrder = ['NCC1', 'NCC2', 'Extra', 'Swing', 'Stroke', 'Telestroke/Clin
 
 function App() {
   const [request, setRequest] = useState<ScheduleRequest>(emptyRequest);
-  const [result, setResult] = useState<ScheduleResult | null>(null);
   const [loadingDefaults, setLoadingDefaults] = useState(true);
-  const [solving, setSolving] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Progressive solver state
+  const [solverStatus, setSolverStatus] = useState<SolverStatus>('idle');
+  const [solution, setSolution] = useState<FullSolution | null>(null);
+  const [penalty, setPenalty] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState<number>(0);
+  const [formulaInfo, setFormulaInfo] = useState<string>('');
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Active tab for schedule views
+  const [activeTab, setActiveTab] = useState<'weekly' | 'weekend' | 'night'>('weekly');
 
   useEffect(() => {
     let cancelled = false;
@@ -48,9 +60,7 @@ function App() {
       .finally(() => {
         if (!cancelled) setLoadingDefaults(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const groupEntries = useMemo(() => Object.entries(request.fellow_groups), [request.fellow_groups]);
@@ -67,10 +77,7 @@ function App() {
   }, [request.fellow_week_pairs, requestFellows]);
 
   const updateGroup = (groupName: string, value: string) => {
-    const fellows = value
-      .split('\n')
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const fellows = value.split('\n').map((item) => item.trim()).filter(Boolean);
     setRequest((current) => ({
       ...current,
       fellow_groups: { ...current.fellow_groups, [groupName]: fellows },
@@ -82,10 +89,7 @@ function App() {
     setRequest((current) => {
       const weeks = [...(current.fellow_week_pairs[fellow] ?? [])];
       weeks[index] = nextWeek;
-      return {
-        ...current,
-        fellow_week_pairs: { ...current.fellow_week_pairs, [fellow]: weeks },
-      };
+      return { ...current, fellow_week_pairs: { ...current.fellow_week_pairs, [fellow]: weeks } };
     });
   };
 
@@ -103,10 +107,7 @@ function App() {
     setRequest((current) => {
       const weeks = [...(current.fellow_week_pairs[fellow] ?? [])];
       weeks.splice(index, 1);
-      return {
-        ...current,
-        fellow_week_pairs: { ...current.fellow_week_pairs, [fellow]: weeks },
-      };
+      return { ...current, fellow_week_pairs: { ...current.fellow_week_pairs, [fellow]: weeks } };
     });
   };
 
@@ -117,47 +118,111 @@ function App() {
     ),
   });
 
-  const generateSchedule = async () => {
-    setSolving(true);
+  const cancelSolve = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (solverStatus !== 'done') {
+      setSolverStatus('idle');
+    }
+  }, [solverStatus]);
+
+  const generateSchedule = useCallback(async () => {
+    cancelSolve();
+    setSolverStatus('building');
+    setSolution(null);
+    setPenalty(null);
+    setElapsed(0);
     setError(null);
+    setFormulaInfo('');
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const response = await fetch(`${API_BASE}/api/schedule`, {
+      const response = await fetch(`${API_BASE}/api/schedule/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildRequest()),
+        signal: controller.signal,
       });
-      const data = await readJson(response);
-      setResult(data);
+
+      if (!response.ok) {
+        const msg = await errorMessage(response);
+        setError(msg);
+        setSolverStatus('error');
+        return;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+
+        for (const eventBlock of events) {
+          const lines = eventBlock.split('\n');
+          let eventType = '';
+          let eventData = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.slice(7);
+            else if (line.startsWith('data: ')) eventData = line.slice(6);
+          }
+          if (!eventType || !eventData) continue;
+
+          const data = JSON.parse(eventData);
+          handleSolverEvent(eventType, data);
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to generate schedule.');
-    } finally {
-      setSolving(false);
+      if ((err as Error).name === 'AbortError') return;
+      setError(err instanceof Error ? err.message : 'Connection lost.');
+      setSolverStatus('error');
+    }
+  }, [request]);
+
+  const handleSolverEvent = (type: string, data: any) => {
+    switch (type) {
+      case 'status':
+        if (data.phase === 'building' || data.phase === 'built') {
+          setSolverStatus('building');
+          if (data.vars) {
+            setFormulaInfo(`${data.vars.toLocaleString()} vars, ${data.constraints.toLocaleString()} constraints`);
+          }
+        } else if (data.phase === 'feasibility') {
+          setSolverStatus('feasibility');
+        } else if (data.phase === 'coarse_scan' || data.phase === 'fine_scan') {
+          setSolverStatus('optimizing');
+        }
+        break;
+      case 'solution':
+        setSolution(data as FullSolution);
+        setPenalty(data.soft_penalty);
+        setElapsed(data.elapsed);
+        if (solverStatus === 'feasibility' || solverStatus === 'building') {
+          setSolverStatus('optimizing');
+        }
+        break;
+      case 'done':
+        setSolverStatus('done');
+        setPenalty(data.optimal_penalty);
+        setElapsed(data.total_seconds);
+        break;
+      case 'error':
+        setError(data.message);
+        setSolverStatus('error');
+        break;
     }
   };
 
-  const downloadWorkbook = async () => {
-    setDownloading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/api/schedule.xlsx`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildRequest()),
-      });
-      if (!response.ok) throw new Error(await errorMessage(response));
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'optimized_schedule.xlsx';
-      link.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to download workbook.');
-    } finally {
-      setDownloading(false);
-    }
-  };
+  const isRunning = solverStatus === 'building' || solverStatus === 'feasibility' || solverStatus === 'optimizing';
 
   return (
     <main className="app-shell">
@@ -195,12 +260,12 @@ function App() {
             <p>Edit vacation/request weeks for NCC and Stroke fellows.</p>
           </div>
           <div className="actions">
-            <button className="primary" onClick={generateSchedule} disabled={solving || loadingDefaults}>
-              {solving ? 'Generating...' : 'Generate schedule'}
+            <button className="primary" onClick={generateSchedule} disabled={loadingDefaults}>
+              {isRunning ? 'Solving...' : 'Generate schedule'}
             </button>
-            <button onClick={downloadWorkbook} disabled={downloading || loadingDefaults}>
-              {downloading ? 'Preparing...' : 'Download Excel'}
-            </button>
+            {isRunning && (
+              <button onClick={cancelSolve}>Cancel</button>
+            )}
           </div>
         </div>
 
@@ -233,25 +298,93 @@ function App() {
           ))}
         </section>
 
-        {result ? <ScheduleTables result={result} /> : <EmptyState />}
+        {(isRunning || solverStatus === 'done') && (
+          <ProgressPanel
+            status={solverStatus}
+            penalty={penalty}
+            elapsed={elapsed}
+            formulaInfo={formulaInfo}
+          />
+        )}
+
+        {solution ? (
+          <div className="results">
+            <div className="tab-bar">
+              <button className={activeTab === 'weekly' ? 'tab active' : 'tab'} onClick={() => setActiveTab('weekly')}>
+                Weekly Shifts
+              </button>
+              <button className={activeTab === 'weekend' ? 'tab active' : 'tab'} onClick={() => setActiveTab('weekend')}>
+                Weekend Call
+              </button>
+              <button className={activeTab === 'night' ? 'tab active' : 'tab'} onClick={() => setActiveTab('night')}>
+                Night Call
+              </button>
+            </div>
+
+            {activeTab === 'weekly' && (
+              <ScheduleTable
+                title="Per-fellow weekly schedule"
+                columns={Object.keys(solution.weekly_assignments)}
+                rows={solution.weekly_assignments}
+              />
+            )}
+            {activeTab === 'weekend' && (
+              <ScheduleTable
+                title="Weekend call assignments"
+                columns={solution.weekend_assignments.length > 0 ? Object.keys(solution.weekend_assignments[0]) : []}
+                rows={pivotWeeklyList(solution.weekend_assignments)}
+              />
+            )}
+            {activeTab === 'night' && (
+              <ScheduleTable
+                title="Night call assignments"
+                columns={solution.night_assignments.length > 0 ? Object.keys(solution.night_assignments[0]) : []}
+                rows={pivotWeeklyList(solution.night_assignments)}
+              />
+            )}
+          </div>
+        ) : (
+          solverStatus === 'idle' && <EmptyState />
+        )}
       </section>
     </main>
   );
 }
 
-function ScheduleTables({ result }: { result: ScheduleResult }) {
+function ProgressPanel({ status, penalty, elapsed, formulaInfo }: {
+  status: SolverStatus;
+  penalty: number | null;
+  elapsed: number;
+  formulaInfo: string;
+}) {
+  const statusText = {
+    building: 'Building formula...',
+    feasibility: 'Checking feasibility...',
+    optimizing: 'Optimizing...',
+    done: 'Done',
+    idle: '',
+    error: 'Error',
+  }[status];
+
+  const elapsedStr = elapsed < 60
+    ? `${elapsed.toFixed(1)}s`
+    : `${Math.floor(elapsed / 60)}m ${Math.floor(elapsed % 60)}s`;
+
   return (
-    <div className="results">
-      <ScheduleTable
-        title="Per-fellow schedule"
-        columns={Object.keys(result.shifts_for_fellows)}
-        rows={result.shifts_for_fellows}
-      />
-      <ScheduleTable
-        title="Per-shift schedule"
-        columns={shiftOrder.filter((shift) => result.fellows_for_shifts[shift])}
-        rows={result.fellows_for_shifts}
-      />
+    <div className={`progress-panel ${status === 'done' ? 'done' : ''}`}>
+      <span className="progress-indicator">
+        {status === 'done' ? '✓' : '●'}
+      </span>
+      <span className="progress-status">{statusText}</span>
+      {penalty !== null && (
+        <span className="progress-penalty">Penalty: <strong>{penalty}</strong></span>
+      )}
+      {elapsed > 0 && (
+        <span className="progress-elapsed">{elapsedStr}</span>
+      )}
+      {formulaInfo && status === 'building' && (
+        <span className="progress-formula">{formulaInfo}</span>
+      )}
     </div>
   );
 }
@@ -290,9 +423,19 @@ function EmptyState() {
   return (
     <section className="empty-state">
       <h2>Ready to solve</h2>
-      <p>Generate a schedule to review assignments in browser tables or download the Excel workbook.</p>
+      <p>Generate a schedule to see weekly shifts, weekend call, and night call — all optimized jointly.</p>
     </section>
   );
+}
+
+function pivotWeeklyList(weeklyList: Record<string, string>[]): Record<string, string[]> {
+  if (weeklyList.length === 0) return {};
+  const keys = Object.keys(weeklyList[0]);
+  const result: Record<string, string[]> = {};
+  for (const key of keys) {
+    result[key] = weeklyList.map((week) => week[key] ?? '');
+  }
+  return result;
 }
 
 async function readJson(response: Response) {
