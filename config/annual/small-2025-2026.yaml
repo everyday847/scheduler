@@ -1,0 +1,80 @@
+fellow_groups:
+  NCC_JR:
+  - NCC Alaric
+  - NCC Bertram
+  - NCC Carrot
+  NCC_SR:
+  - NCC Durga
+  - NCC Eos
+  - NCC Fi
+  CCM:
+  - CCM Generic
+  NH:
+  - NH Adam
+  - NH Barry
+
+shifts:
+- SICU
+- MICU
+- NS
+- Anaesthesia
+- NCC1
+- NCC2
+- Swing
+- Elec
+- Vac
+- Stroke
+
+horizon_start: 2026-06-29
+
+night_call:
+  - group: NCC_SR
+    total_nights: 30
+    friday_nights: 4
+  - group: NCC_JR
+    total_nights: 20
+    friday_nights: 3
+  - group: NH
+    total_nights: 60
+    friday_nights: 8
+
+weekend_call:
+  - group: NCC_SR
+    ncc_total: 15
+    stroke_total: 2
+  - group: NCC_JR
+    ncc_total: 12
+    stroke_total: 0
+  - group: NH
+    ncc_total: 7
+    stroke_total: 11
+  - group: CCM
+    ncc_total: 22
+    stroke_total: 0
+
+holiday_dates:
+  - 2026-07-03
+  - 2026-09-07
+  - 2026-11-26
+  - 2026-11-27
+  - 2026-12-24
+  - 2026-12-25
+  - 2027-01-01
+  - 2027-01-18
+  - 2027-02-15
+  - 2027-05-31
+
+fellow_week_pairs:
+  NCC Alaric: []
+  NCC Bertram: []
+  NCC Carrot: []
+  NCC Durga: []
+  NCC Eos: []
+  NCC Fi: []
+
+annual_rules:
+  rules:
+    - name: vacation_requests
+      kind: vacation_request_policy
+      active: true
+      hard_request_count: 3
