@@ -17,7 +17,10 @@ from .rule_application import RuleApplicationContext, apply_constraints
 from .semantic_constraints import ConstraintStrength
 from .standing_rules import constraints_from_config as standing_constraints_from_config
 
-set_option(verbose=10)
+try:
+    set_option(verbose=10)
+except NameError:
+    pass
 
 # Not too dangerous to make global
 W = 52

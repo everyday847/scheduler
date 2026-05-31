@@ -23,6 +23,7 @@ def get_config(config_type: str, filename: str):
     """Load and return a config file as JSON."""
     from .solver_bridge import CONFIG_DIR
     import yaml
+    from datetime import date as date_type
 
     if config_type not in ("annual", "standing"):
         return jsonify({"error": "config_type must be 'annual' or 'standing'"}), 400
@@ -32,7 +33,25 @@ def get_config(config_type: str, filename: str):
         return jsonify({"error": f"Config not found: {filename}"}), 404
 
     data = yaml.safe_load(path.read_text())
+    _convert_dates(data)
     return jsonify(data)
+
+
+def _convert_dates(obj):
+    """Recursively convert datetime.date objects to ISO strings."""
+    from datetime import date as date_type
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, date_type):
+                obj[k] = v.isoformat()
+            else:
+                _convert_dates(v)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, date_type):
+                obj[i] = v.isoformat()
+            else:
+                _convert_dates(v)
 
 
 @app.route("/api/default-schedule", methods=["GET"])
