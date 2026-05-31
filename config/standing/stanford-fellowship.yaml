@@ -149,8 +149,8 @@ rules:
   # We can only have this active for configs where we are controlling stroke
   - name: stroke_shift_coverage
     kind: stroke_shift_coverage
-    active: hard
-    strength: soft
+    active: true
+    strength: hard
     fellow_groups: [NCC_JR, NCC_SR, STROKE, NH]
 
   - name: comparable_half_year_distribution
@@ -207,16 +207,16 @@ rules:
         weeks: 11
       - shifts: [Elec]
         relation: at_least
-        weeks: 4
+        weeks: 2
       - shifts: [Vac]
         relation: at_least
         weeks: 3
       - shifts: [Telestroke/Clinic]
         relation: at_least
-        weeks: 11
+        weeks: 13 # No one else does this; we have 4 fellows.
       - shifts: [Clinic/Elective]
         relation: at_least
-        weeks: 11
+        weeks: 9
       - shifts: [SCVMC Rehab]
         relation: exactly
         weeks: 2
@@ -327,17 +327,17 @@ rules:
       - shifts: [Swing]
         relation: exactly
         weeks: 1
-    active_blocks:
-      - name: nh_ncc_block
-        block_size: 4
-        trigger_shifts: [NCC1, NCC2, Swing]
-        counts:
-          - shifts: [NCC1, NCC2, Swing]
-            relation: exactly
-            weeks: 4
-          - shifts: [Swing]
-            relation: exactly
-            weeks: 1
+    # active_blocks:
+    #   - name: nh_ncc_block
+    #     block_size: 4
+    #     trigger_shifts: [NCC1, NCC2, Swing]
+    #     counts:
+    #       - shifts: [NCC1, NCC2, Swing]
+    #         relation: exactly
+    #         weeks: 4
+    #       - shifts: [Swing]
+    #         relation: exactly
+    #         weeks: 1
               
   - name: ccm_service_profile
     kind: service_profile
