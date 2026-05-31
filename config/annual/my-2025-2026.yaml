@@ -40,30 +40,30 @@ horizon_start: 2026-06-29
 
 night_call:
   - group: STROKE
-    total_nights: 240
+    total_nights: 236
     friday_nights: 32
   - group: NCC_SR
-    total_nights: 90
-    friday_nights: 12
+    total_nights: 58
+    friday_nights: 8
   - group: NCC_JR
-    total_nights: 60
-    friday_nights: 9
+    total_nights: 40
+    friday_nights: 6
   - group: NH
     total_nights: 30
-    friday_nights: 4
+    friday_nights: 6
 
 weekend_call:
   - group: STROKE
-    ncc_total: 28
-    stroke_total: 44
+    ncc_total: 22
+    stroke_total: 50
   - group: NCC_SR
-    ncc_total: 45
-    stroke_total: 6
+    ncc_total: 30
+    stroke_total: 2
   - group: NCC_JR
-    ncc_total: 36
+    ncc_total: 24
     stroke_total: 0
   - group: NH
-    ncc_total: 14
+    ncc_total: 6
     stroke_total: 0
   - group: CCM
     ncc_total: 22
