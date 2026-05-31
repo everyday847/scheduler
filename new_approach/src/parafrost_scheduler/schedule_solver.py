@@ -1129,8 +1129,9 @@ def _encode_weekend_constraints(
     opb.add_comment("Weekend: dynamic eligibility based on weekly shift")
     _encode_weekend_eligibility(opb, wr, xs, config, fellow_names, shift_idx)
 
-    # Weekend totals
-    opb.add_comment("Weekend: NCC totals per fellow")
+    # Weekend totals (soft — weekend blocking from weekly shifts may make exact counts infeasible)
+    wknd_weight = config.weekly_soft_weight
+    opb.add_comment("Weekend: NCC totals per fellow (soft)")
     for fellow_name, total in wk_config.ncc_totals.items():
         if fellow_name not in fellow_names:
             continue
@@ -1142,16 +1143,22 @@ def _encode_weekend_constraints(
             if fi in wr[w][_ROLE_NCC2]:
                 ncc_vars.append(wr[w][_ROLE_NCC2][fi])
         if ncc_vars:
-            opb.exactly_k(ncc_vars, total)
+            _add_cardinality_constraint(
+                opb, ncc_vars, "exactly", total,
+                is_soft=True, weight=wknd_weight, soft_violations=soft_violations,
+            )
 
-    opb.add_comment("Weekend: Stroke totals per fellow")
+    opb.add_comment("Weekend: Stroke totals per fellow (soft)")
     for fellow_name, total in wk_config.stroke_totals.items():
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
         stroke_vars = [wr[w][_ROLE_STROKE][fi] for w in range(num_weeks) if fi in wr[w][_ROLE_STROKE]]
         if stroke_vars:
-            opb.exactly_k(stroke_vars, total)
+            _add_cardinality_constraint(
+                opb, stroke_vars, "exactly", total,
+                is_soft=True, weight=wknd_weight, soft_violations=soft_violations,
+            )
 
     # Stroke cohort bounds
     if wk_config.stroke_cohort:
@@ -1389,25 +1396,32 @@ def _encode_night_constraints(
             if len(consec) == 3:
                 opb.at_most_k(consec, 1)
 
-    # Night totals per fellow
-    opb.add_comment("Night: total nights per fellow")
+    # Night totals per fellow (soft — exact counts may be infeasible due to service blocking)
+    night_weight = config.weekly_soft_weight
+    opb.add_comment("Night: total nights per fellow (soft)")
     for fellow_name, total in night_config.total_nights.items():
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
         all_night_vars = [xn[d][fi] for d in range(num_days) if xn[d][fi] != 0]
         if all_night_vars:
-            opb.exactly_k(all_night_vars, total)
+            _add_cardinality_constraint(
+                opb, all_night_vars, "exactly", total,
+                is_soft=True, weight=night_weight, soft_violations=soft_violations,
+            )
 
-    # Friday night totals per fellow
-    opb.add_comment("Night: Friday night totals per fellow")
+    # Friday night totals per fellow (soft)
+    opb.add_comment("Night: Friday night totals per fellow (soft)")
     for fellow_name, total in night_config.friday_nights.items():
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
         friday_vars = [xn[d][fi] for d in range(4, num_days, 7) if xn[d][fi] != 0]
         if friday_vars:
-            opb.exactly_k(friday_vars, total)
+            _add_cardinality_constraint(
+                opb, friday_vars, "exactly", total,
+                is_soft=True, weight=night_weight, soft_violations=soft_violations,
+            )
 
     # Multiset constraints
     opb.add_comment("Night: multiset constraints")
