@@ -1,5 +1,6 @@
 from io import BytesIO
 import json
+from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
@@ -8,6 +9,30 @@ from .service import build_schedule_workbook, get_default_schedule_request, solv
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+
+
+@app.route("/api/configs", methods=["GET"])
+def list_configs():
+    """List available annual and standing config files."""
+    from .solver_bridge import list_configs
+    return jsonify(list_configs())
+
+
+@app.route("/api/config/<config_type>/<filename>", methods=["GET"])
+def get_config(config_type: str, filename: str):
+    """Load and return a config file as JSON."""
+    from .solver_bridge import CONFIG_DIR
+    import yaml
+
+    if config_type not in ("annual", "standing"):
+        return jsonify({"error": "config_type must be 'annual' or 'standing'"}), 400
+
+    path = CONFIG_DIR / config_type / filename
+    if not path.exists() or not path.suffix == ".yaml":
+        return jsonify({"error": f"Config not found: {filename}"}), 404
+
+    data = yaml.safe_load(path.read_text())
+    return jsonify(data)
 
 
 @app.route("/api/default-schedule", methods=["GET"])
