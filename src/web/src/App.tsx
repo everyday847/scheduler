@@ -135,7 +135,7 @@ function App() {
   }, []);
 
   const allFellows = useMemo(() =>
-    Object.entries(config.fellow_groups).flatMap(([, f]) => f),
+    Object.entries(config.fellow_groups).flatMap(([, f]) => f.map((s) => s.trim()).filter(Boolean)),
     [config.fellow_groups],
   );
 
@@ -158,7 +158,7 @@ function App() {
 
   // Config mutators
   const updateGroup = (g: string, v: string) => {
-    setConfig((c) => ({ ...c, fellow_groups: { ...c.fellow_groups, [g]: v.split('\n').map((s) => s.trim()).filter(Boolean) } }));
+    setConfig((c) => ({ ...c, fellow_groups: { ...c.fellow_groups, [g]: v.split('\n') } }));
   };
   const updateVacDate = (f: string, i: number, v: string) => {
     setVacationDates((cur) => { const d = [...(cur[f] || [])]; d[i] = v; return { ...cur, [f]: d }; });
@@ -206,8 +206,14 @@ function App() {
       const dates = vacationDates[f];
       if (dates && dates.length > 0) weekPairs[f] = dates.map(dateToWeekIndex);
     }
+    // Clean fellow_groups: trim and remove empty entries before sending to solver
+    const cleanGroups: Record<string, string[]> = {};
+    for (const [group, fellows] of Object.entries(config.fellow_groups)) {
+      cleanGroups[group] = fellows.map((s) => s.trim()).filter(Boolean);
+    }
     return {
       ...config,
+      fellow_groups: cleanGroups,
       fellow_week_pairs: weekPairs,
       standing_rules: standingRules.filter((r) => r.active),
     };
@@ -321,17 +327,20 @@ function App() {
             <section className="config-card">
               <h2>Fellow Groups</h2>
               <div className="groups-grid">
-                {Object.entries(config.fellow_groups).map(([group, fellows]) => (
-                  <label className="field-group" key={group}>
-                    <span>{group} <em className="count">({fellows.length})</em></span>
-                    <textarea
-                      value={fellows.join('\n')}
-                      onChange={(e) => updateGroup(group, e.target.value)}
-                      rows={Math.min(6, Math.max(2, fellows.length + 1))}
-                      spellCheck={false}
-                    />
-                  </label>
-                ))}
+                {Object.entries(config.fellow_groups).map(([group, fellows]) => {
+                  const count = fellows.filter((s) => s.trim()).length;
+                  return (
+                    <label className="field-group" key={group}>
+                      <span>{group} <em className="count">({count})</em></span>
+                      <textarea
+                        value={fellows.join('\n')}
+                        onChange={(e) => updateGroup(group, e.target.value)}
+                        rows={Math.min(6, Math.max(2, fellows.length + 1))}
+                        spellCheck={false}
+                      />
+                    </label>
+                  );
+                })}
               </div>
             </section>
 
