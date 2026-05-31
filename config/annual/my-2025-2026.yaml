@@ -100,13 +100,13 @@ annual_rules:
 
     - name: isc
       kind: isc
-      active: true
+      active: false
       fellow_groups: [STROKE]
       date: [2026, 2, 5]
       strength: hard
 
     - name: fourth_block_two_micu_fellows
       kind: fourth_block_two_micu_fellows
-      active: true
+      active: false
       fellow_groups: [NCC_JR, NCC_SR]
       strength: hard

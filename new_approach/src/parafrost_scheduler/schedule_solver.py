@@ -76,9 +76,9 @@ _ROLE_NCC2 = 1
 _ROLE_STROKE = 2
 _WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
 
-DEFAULT_WEEKLY_SOFT_WEIGHT = 10
-DEFAULT_WEEKEND_MISMATCH_WEIGHT = 2
-DEFAULT_SWING_UNCOVERED_WEIGHT = 10
+DEFAULT_WEEKLY_SOFT_WEIGHT = 100
+DEFAULT_WEEKEND_MISMATCH_WEIGHT = 20
+DEFAULT_SWING_UNCOVERED_WEIGHT = 100
 
 
 # ---------------------------------------------------------------------------
@@ -1138,7 +1138,7 @@ def _encode_weekend_constraints(
     opb.add_comment("Weekend: dynamic eligibility based on weekly shift")
     _encode_weekend_eligibility(opb, wr, xs, config, fellow_names, shift_idx)
 
-    # Weekend totals (soft — weekend blocking from weekly shifts may make exact counts infeasible)
+    # Weekend totals: soft (hard floor makes feasibility too tight with spacing)
     wknd_weight = config.weekly_soft_weight
     opb.add_comment("Weekend: NCC totals per fellow (soft)")
     for fellow_name, total in wk_config.ncc_totals.items():
@@ -1405,7 +1405,7 @@ def _encode_night_constraints(
             if len(consec) == 3:
                 opb.at_most_k(consec, 1)
 
-    # Night totals per fellow (soft — exact counts may be infeasible due to service blocking)
+    # Night totals per fellow: soft only (service blocking makes hard infeasible)
     night_weight = config.weekly_soft_weight
     opb.add_comment("Night: total nights per fellow (soft)")
     for fellow_name, total in night_config.total_nights.items():
@@ -1781,6 +1781,41 @@ def _is_weekend_eligible_static(
             return True  # No eligibility sets configured — everyone can do stroke
         return fellow_name in all_eligible
     return True
+
+
+def _encode_floor_ceil_total(
+    opb: OpbBuilder,
+    vars: list[int],
+    target: int,
+    weight: int,
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Encode a distribution total: hard at_least floor, soft at_most.
+
+    Hard floor prevents under-assignment (can't steal from this fellow).
+    Soft ceiling discourages over-assignment but doesn't block feasibility
+    when service blocking or spacing makes exact counts impossible.
+    """
+    if not vars or target < 0:
+        return
+    n = len(vars)
+    if target > n:
+        # Can't possibly reach target — soft only
+        _add_cardinality_constraint(
+            opb, vars, "at_least", target,
+            is_soft=True, weight=weight, soft_violations=soft_violations,
+        )
+        return
+
+    # Hard floor: must get at least target
+    if target > 0:
+        opb.at_least_k(vars, target)
+    # Soft ceiling: penalize over-assignment
+    if target < n:
+        _add_cardinality_constraint(
+            opb, vars, "at_most", target,
+            is_soft=True, weight=weight, soft_violations=soft_violations,
+        )
 
 
 def _add_cardinality_constraint(

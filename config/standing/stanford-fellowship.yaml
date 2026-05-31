@@ -188,7 +188,7 @@ rules:
   - name: stroke_service_profile
     kind: service_profile
     active: true
-    strength: hard
+    strength: soft
     fellow_groups: [STROKE]
     zero_shifts:
       - NS
