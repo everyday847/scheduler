@@ -4,3 +4,4 @@
 [submodule "new_approach/vendor/ParaFROST"]
 	path = new_approach/vendor/ParaFROST
 	url = https://github.com/muhos/ParaFROST.git
+	fetchRecurseSubmodules = false
