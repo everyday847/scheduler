@@ -945,6 +945,9 @@ def _encode_stroke_shift_coverage(opb, xs, constraint, fellow_indices, **kw):
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
     num_fellows = kw["num_fellows"]
+    is_soft = constraint.strength == ConstraintStrength.SOFT
+    weight = kw["config"].weekly_soft_weight
+    soft_violations = kw["soft_violations"]
 
     s_stroke = shift_idx.get("Stroke")
     s_tele = shift_idx.get("Telestroke/Clinic")
@@ -953,11 +956,17 @@ def _encode_stroke_shift_coverage(opb, xs, constraint, fellow_indices, **kw):
         if s_stroke is not None:
             stroke_vars = [xs[f][w][s_stroke] for f in range(num_fellows) if xs[f][w][s_stroke] != 0]
             if stroke_vars:
-                opb.exactly_k(stroke_vars, 1)
+                _add_cardinality_constraint(
+                    opb, stroke_vars, "exactly", 1,
+                    is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+                )
         if s_tele is not None:
             tele_vars = [xs[f][w][s_tele] for f in range(num_fellows) if xs[f][w][s_tele] != 0]
             if tele_vars:
-                opb.exactly_k(tele_vars, 1)
+                _add_cardinality_constraint(
+                    opb, tele_vars, "exactly", 1,
+                    is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+                )
 
 
 def _encode_nir_one_week_per_half(opb, xs, constraint, fellow_indices, **kw):
