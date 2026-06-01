@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import csv
 from pathlib import Path
 import sys
 
 try:
-    from z3 import BoolVal, Distinct, If, Int, Optimize, Or, Solver, Sum, sat, set_option
+    from z3 import BoolVal, Distinct, If, Int, IntVal, Optimize, Or, Solver, Sum, sat, set_option
     set_option(verbose=10)
 except ImportError:
     pass
@@ -19,6 +19,9 @@ from .call_schedule_common import (
     DEFAULT_TELESTROKE_STROKE_ELIGIBLE,
     ParsedCallScheduleCsv,
     WEEKEND_ROLES,
+    is_anaesthesia_service,
+    is_clinic_service,
+    is_weekend_blocked as common_is_weekend_blocked,
     parse_call_schedule_csv,
     weekend_roles_for_fellow,
 )
@@ -61,6 +64,20 @@ class WeekendSolverConfig:
     telestroke_stroke_eligible: frozenset[str] = DEFAULT_TELESTROKE_STROKE_ELIGIBLE
     stroke_only_eligible: frozenset[str] = DEFAULT_STROKE_ONLY_ELIGIBLE
 
+    total_weekends: dict[str, int] = None
+    weekend_options: ... = None
+    friday_weekend_options: ... = None
+
+    spacing_max_weekends: int = 1
+    spacing_window_weekends: int = 2
+    blocking_exact_services: tuple[str, ...] = ("Vacation", "NS SCVMC", "AAN", "Elective/NCS 2026", "")
+    blocking_substring_services: tuple[str, ...] = ("SICU", "MSICU")
+    stroke_eligible_services: tuple[str, ...] = ("Stroke",)
+    penalty_weights: dict[str, int] = field(default_factory=lambda: {
+        "anaesthesia": 1, "clinic": 1, "stroke": 5,
+        "friday_weekend_ncc1": 1,
+    })
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "ncc_totals", dict(DEFAULT_EXACT_NCC_TOTALS if self.ncc_totals is None else self.ncc_totals))
         object.__setattr__(self, "stroke_totals", dict(DEFAULT_EXACT_STROKE_TOTALS if self.stroke_totals is None else self.stroke_totals))
@@ -78,6 +95,16 @@ class WeekendSummary:
     ncc1_mismatches: int
     ncc2_mismatches: int
     stroke_mismatches: int
+
+
+def is_weekend_blocked(weekday_assignment: str, *, config: WeekendSolverConfig | None = None) -> bool:
+    if config is not None:
+        return common_is_weekend_blocked(
+            weekday_assignment,
+            blocking_exact_services=config.blocking_exact_services,
+            blocking_substring_services=config.blocking_substring_services,
+        )
+    return common_is_weekend_blocked(weekday_assignment)
 
 
 def parse_weekend_call_csv(path: str | Path) -> ParsedCallScheduleCsv:
@@ -110,6 +137,7 @@ def solve_weekend_schedule(
         for role in WEEKEND_ROLES
     }
     _add_weekend_constraints(solver, parsed, variables, config)
+    _add_weekend_objectives(solver, parsed, variables, config)
     match_expression = _count_exact_matches(parsed, variables)
     solver.add(match_expression >= feasible_match_count)
     for week_index in range(len(parsed.week_rows)):
@@ -204,7 +232,7 @@ def write_weekend_schedule_csv(
     with output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([*parsed.fellow_names, *parsed.existing_schedule_columns, *WEEKEND_ROLES])
-        for week_row, weekend_assignment in zip(parsed.week_rows, solution.assignments_by_week, strict=True):
+        for week_row, weekend_assignment in zip(parsed.week_rows, solution.assignments_by_week):
             writer.writerow([*week_row.raw_row, *(weekend_assignment[role] for role in WEEKEND_ROLES)])
         for trailing_row in parsed.trailing_rows:
             writer.writerow([*trailing_row, "", "", ""])
@@ -237,6 +265,8 @@ def _add_weekend_constraints(solver: Solver | Optimize, parsed: ParsedCallSchedu
                 always_stroke_eligible=config.always_stroke_eligible,
                 telestroke_stroke_eligible=config.telestroke_stroke_eligible,
                 stroke_only_eligible=config.stroke_only_eligible,
+                blocking_exact_services=config.blocking_exact_services,
+                blocking_substring_services=config.blocking_substring_services,
             )
             for role in WEEKEND_ROLES:
                 if role not in eligible_roles:
@@ -247,7 +277,7 @@ def _add_weekend_constraints(solver: Solver | Optimize, parsed: ParsedCallSchedu
             Sum([_eq_indicator(variables[week_index, role], fellow_index) for role in WEEKEND_ROLES])
             for week_index in range(week_count)
         ]
-        _add_spacing_constraints(solver, work_indicators)
+        _add_spacing_constraints(solver, work_indicators, config)
 
     for fellow_name, total in config.ncc_totals.items():
         fellow_index = parsed.fellow_names.index(fellow_name)
@@ -286,6 +316,37 @@ def _add_weekend_constraints(solver: Solver | Optimize, parsed: ParsedCallSchedu
         )
 
 
+def _add_weekend_objectives(solver: Optimize, parsed: ParsedCallScheduleCsv, variables: dict, config: WeekendSolverConfig) -> None:
+    penalties = _weekend_soft_violation_terms(parsed, variables)
+    categories = [
+        (penalties[0], config.penalty_weights["anaesthesia"]),
+        (penalties[1], config.penalty_weights["clinic"]),
+        (penalties[2], config.penalty_weights["stroke"]),
+    ]
+    for terms, weight in categories:
+        if terms:
+            solver.minimize(Sum([weight * t for t in terms]))
+
+
+def _weekend_soft_violation_terms(parsed: ParsedCallScheduleCsv, variables: dict) -> list[list]:
+    anaesthesia_penalties = []
+    clinic_penalties = []
+    stroke_penalties = []
+    for week_index, week_row in enumerate(parsed.week_rows):
+        for role in WEEKEND_ROLES:
+            variable = variables[week_index, role]
+            for fellow_index, fellow_name in enumerate(parsed.fellow_names):
+                weekday_service = week_row.weekday_assignments[fellow_name]
+                eq = _eq_indicator(variable, fellow_index)
+                if is_anaesthesia_service(weekday_service):
+                    anaesthesia_penalties.append(eq)
+                if is_clinic_service(weekday_service):
+                    clinic_penalties.append(eq)
+                if "Stroke" in weekday_service:
+                    stroke_penalties.append(eq)
+    return [anaesthesia_penalties, clinic_penalties, stroke_penalties]
+
+
 def _solve_stroke_stage(
     parsed: ParsedCallScheduleCsv,
     config: WeekendSolverConfig,
@@ -305,12 +366,14 @@ def _solve_stroke_stage(
                 always_stroke_eligible=config.always_stroke_eligible,
                 telestroke_stroke_eligible=config.telestroke_stroke_eligible,
                 stroke_only_eligible=config.stroke_only_eligible,
+                blocking_exact_services=config.blocking_exact_services,
+                blocking_substring_services=config.blocking_substring_services,
             )
             if "Weekend Stroke" not in eligible:
                 solver.add(variables[week_index] != fellow_index)
 
     for fellow_index in range(len(parsed.fellow_names)):
-        _add_spacing_constraints(solver, [_eq_indicator(variables[week_index], fellow_index) for week_index in range(week_count)])
+        _add_spacing_constraints(solver, [_eq_indicator(variables[week_index], fellow_index) for week_index in range(week_count)], config)
 
     for fellow_name, total in config.stroke_totals.items():
         solver.add(_count_assignments(variables, parsed.fellow_names.index(fellow_name)) == total)
@@ -351,6 +414,8 @@ def _solve_ncc_stage(
                 always_stroke_eligible=config.always_stroke_eligible,
                 telestroke_stroke_eligible=config.telestroke_stroke_eligible,
                 stroke_only_eligible=config.stroke_only_eligible,
+                blocking_exact_services=config.blocking_exact_services,
+                blocking_substring_services=config.blocking_substring_services,
             )
             if "Weekend NCC1" not in eligible:
                 solver.add(ncc1_vars[week_index] != fellow_index)
@@ -364,7 +429,7 @@ def _solve_ncc_stage(
             + If(stroke_assignments[week_index] == fellow_index, 1, 0)
             for week_index in range(week_count)
         ]
-        _add_spacing_constraints(solver, work_indicators)
+        _add_spacing_constraints(solver, work_indicators, config)
 
     for fellow_name, total in config.ncc_totals.items():
         fellow_index = parsed.fellow_names.index(fellow_name)
@@ -420,11 +485,10 @@ def _count_role_assignments(variables: dict, role: str, fellow_index: int, week_
     return Sum([_eq_indicator(variables[week_index, role], fellow_index) for week_index in range(week_count)])
 
 
-def _add_spacing_constraints(solver: Solver | Optimize, work_indicators: list) -> None:
-    for week_index in range(len(work_indicators) - 1):
-        solver.add(work_indicators[week_index] + work_indicators[week_index + 1] <= 1)
-    for start in range(len(work_indicators) - 3):
-        solver.add(Sum(work_indicators[start : start + 4]) <= 2)
+def _add_spacing_constraints(solver: Solver | Optimize, work_indicators: list, config: WeekendSolverConfig) -> None:
+    window = config.spacing_window_weekends
+    for start in range(len(work_indicators) - (window - 1)):
+        solver.add(Sum(work_indicators[start : start + window]) <= config.spacing_max_weekends)
 
 
 def _count_assignments(vars_by_week: list[Int], fellow_index: int):

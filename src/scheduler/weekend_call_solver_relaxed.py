@@ -12,6 +12,7 @@ from .weekend_call_solver import (
     WeekendSolverConfig,
     solve_weekend_schedule_staged,
     summarize_weekend_solution,
+    is_weekend_blocked,
     weekend_roles_for_fellow,
     write_weekend_schedule_csv,
 )
@@ -119,6 +120,8 @@ def _add_weekend_constraints(solver: Solver, parsed: ParsedCallScheduleCsv, vari
                 always_stroke_eligible=config.always_stroke_eligible,
                 telestroke_stroke_eligible=config.telestroke_stroke_eligible,
                 stroke_only_eligible=config.stroke_only_eligible,
+                blocking_exact_services=config.blocking_exact_services,
+                blocking_substring_services=config.blocking_substring_services,
             )
             for role in WEEKEND_ROLES:
                 if role not in eligible_roles:
@@ -129,7 +132,7 @@ def _add_weekend_constraints(solver: Solver, parsed: ParsedCallScheduleCsv, vari
             Sum([_eq_indicator(variables[week_index, role], fellow_index) for role in WEEKEND_ROLES])
             for week_index in range(week_count)
         ]
-        _add_spacing_constraints(solver, work_indicators)
+        _add_spacing_constraints(solver, work_indicators, config)
 
     for fellow_name, total in config.ncc_totals.items():
         fellow_index = parsed.fellow_names.index(fellow_name)
@@ -190,11 +193,10 @@ def _eq_indicator(variable, fellow_index: int):
     return If(variable == fellow_index, 1, 0)
 
 
-def _add_spacing_constraints(solver: Solver, work_indicators: list) -> None:
-    for week_index in range(len(work_indicators) - 1):
-        solver.add(work_indicators[week_index] + work_indicators[week_index + 1] <= 1)
-    for start in range(len(work_indicators) - 3):
-        solver.add(Sum(work_indicators[start : start + 4]) <= 2)
+def _add_spacing_constraints(solver: Solver, work_indicators: list, config: WeekendSolverConfig) -> None:
+    window = config.spacing_window_weekends
+    for start in range(len(work_indicators) - (window - 1)):
+        solver.add(Sum(work_indicators[start : start + window]) <= config.spacing_max_weekends)
 
 
 def _print_relaxed_summary(parsed: ParsedCallScheduleCsv, result: RelaxedWeekendSolveResult) -> None:

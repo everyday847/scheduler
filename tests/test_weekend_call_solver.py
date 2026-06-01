@@ -229,3 +229,39 @@ def _small_weekend_fixture() -> ParsedCallScheduleCsv:
         ],
         trailing_rows=[],
     )
+
+
+def test_solver_accepts_custom_spacing_config():
+    parsed = _small_weekend_fixture()
+    config = WeekendSolverConfig(
+        ncc_totals={"A": 1, "B": 1, "D": 1, "E": 1},
+        stroke_totals={"C": 1, "F": 1, "A": 0, "B": 0, "D": 0, "E": 0},
+        always_stroke_eligible=frozenset({"C", "F"}),
+        telestroke_stroke_eligible=frozenset(),
+        stroke_only_eligible=frozenset(),
+        ccm_fellows=frozenset(),
+        stroke_cohort=(),
+        ccm_ncc_total=None,
+        spacing_max_weekends=2,
+        spacing_window_weekends=3,
+    )
+    solution = solve_weekend_schedule(parsed, config=config)
+    assert len(solution.assignments_by_week) == 2
+
+
+def test_solver_accepts_custom_penalty_weights():
+    parsed = _small_weekend_fixture()
+    config = WeekendSolverConfig(
+        ncc_totals={"A": 1, "B": 1, "D": 1, "E": 1},
+        stroke_totals={"C": 1, "F": 1, "A": 0, "B": 0, "D": 0, "E": 0},
+        always_stroke_eligible=frozenset({"C", "F"}),
+        telestroke_stroke_eligible=frozenset(),
+        stroke_only_eligible=frozenset(),
+        ccm_fellows=frozenset(),
+        stroke_cohort=(),
+        ccm_ncc_total=None,
+        penalty_weights={"anaesthesia": 2, "clinic": 3, "stroke": 10, "friday_weekend_ncc1": 0},
+    )
+    solution = solve_weekend_schedule(parsed, config=config)
+    assert len(solution.assignments_by_week) == 2
+    assert count_weekend_role_matches(parsed, solution) == 6
