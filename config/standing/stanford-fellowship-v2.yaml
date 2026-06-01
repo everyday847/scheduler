@@ -191,3 +191,88 @@ rules:
     min_prerequisite_weeks: 4
     strength: hard
     active: true
+
+night_rules:
+  - name: Night spacing
+    type: night_spacing
+    description: "Max 1 night in any 3-consecutive-day window"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    max_nights: 1
+    window_days: 3
+    active: true
+
+  - name: Night blocked services
+    type: night_blocked_services
+    description: "Weekday services that preclude night call"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    exact_services: [Vacation, "NS SCVMC", "AAN", "Elective/NCS 2026"]
+    substring_services: [SICU, MSICU]
+    active: true
+
+  - name: Holiday eligibility
+    type: night_holiday_eligibility
+    description: "Only NCC1/NCC2/Stroke fellows can do night call on holidays"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    allowed_services: [NCC1, NCC2, Stroke]
+    active: true
+
+  - name: Night soft penalties
+    type: night_penalties
+    description: "Weights for undesirable night call patterns"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      stroke: 5
+      friday_weekend_ncc1: 1
+      sunday_following: 1
+    active: true
+
+  - name: Sunday following preference
+    type: night_sunday_following
+    description: "Preferred weekday service after Sunday night call"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    preferred_services:
+      - Elec
+      - Telestroke/Clinic
+      - Clinic/Elective
+      - SCVMC Rehab
+      - NIR
+      - ISC
+      - Vac
+    active: true
+
+weekend_rules:
+  - name: Weekend spacing
+    type: weekend_spacing
+    description: "Max 1 weekend in any 2-consecutive-week window"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    max_weekends: 1
+    window_weeks: 2
+    active: true
+
+  - name: Weekend blocked services
+    type: weekend_blocked_services
+    description: "Weekday services that preclude weekend call"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    exact_services: [Vacation, "Elective/NCS 2026"]
+    substring_services: [SICU, MSICU]
+    active: true
+
+  - name: Weekend Stroke eligibility
+    type: weekend_stroke_eligibility
+    description: "Which services make a fellow eligible for Weekend Stroke"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    eligible_services: [Stroke]
+    active: true
+
+  - name: Weekend soft penalties
+    type: weekend_penalties
+    description: "Weights for undesirable weekend call patterns"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      stroke: 5
+      friday_weekend_ncc1: 1
+    active: true
