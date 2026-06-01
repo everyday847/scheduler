@@ -778,10 +778,19 @@ function App() {
                   <CoverageTotalsTable
                     rules={shiftTotals}
                     feasibility={feasibility}
+                    allShifts={config.shifts}
+                    group={group}
                     onToggleActive={togglePaletteRuleActive}
                     onToggleStrength={togglePaletteRuleStrength}
                     onChangeCount={changePaletteRuleCount}
                     onChangeRelation={changePaletteRuleRelation}
+                    onUpdateRule={(name, updated) => {
+                      setPaletteRules(prev => prev.map(r => r.name === name ? updated as ShiftTotalRule : r));
+                    }}
+                    onAddRule={addPaletteRule}
+                    onRemoveRule={(name) => {
+                      setPaletteRules(prev => prev.filter(r => r.name !== name));
+                    }}
                   />
                   {otherRules.length > 0 && (
                     <div className="rule-cards">

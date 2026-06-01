@@ -731,13 +731,9 @@ tbody th {
 }
 
 /* Coverage totals table */
-.coverage-totals {
-  margin-bottom: 1.5rem;
-}
 
-.coverage-totals h3 {
-  font-size: 0.95rem;
-  margin-bottom: 0.5rem;
+.totals-table thead th {
+  position: static;
 }
 
 .totals-table .relation-select {
@@ -753,6 +749,54 @@ tbody th {
   text-align: center;
   padding: 0.2rem 0.3rem;
   font-size: 0.82rem;
+}
+
+.shifts-cell {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--line);
+}
+
+.shifts-cell:hover {
+  color: var(--accent);
+}
+
+.totals-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.remove-row-btn {
+  font-size: 0.85rem;
+  padding: 0 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.remove-row-btn:hover {
+  color: #c62828;
+}
+
+.totals-table tfoot td {
+  border: none;
+  padding-top: 0.3rem;
+}
+
+.shift-picker {
+  padding: 0.3rem 0;
+}
+
+.shift-picker-actions {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.shift-picker-actions button {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
 }
 
 .window-tag {
