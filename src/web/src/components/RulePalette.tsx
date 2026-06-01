@@ -13,7 +13,8 @@ const PALETTE_TYPES: PaletteRuleType[] = [
 ];
 
 function createDefaultRule(type: PaletteRuleType, group: string): PaletteRule {
-  const base = { name: '', groups: [group], strength: 'hard' as const, active: true };
+  const label = PALETTE_TYPE_LABELS[type];
+  const base = { name: `${group}: New ${label}`, groups: [group], strength: 'hard' as const, active: true };
   switch (type) {
     case 'shift_total':
       return { ...base, type, shifts: [], relation: 'exactly', count: 0 };

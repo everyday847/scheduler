@@ -98,7 +98,7 @@ function App() {
 
   const [activeSection, setActiveSection] = useState<SidebarSection>('fellows');
   const [hasDraft, setHasDraft] = useState(false);
-  const [editingRule, setEditingRule] = useState<string | null>(null);
+  const [editingRuleIdx, setEditingRuleIdx] = useState<number | null>(null);
   const [showPalette, setShowPalette] = useState(false);
   const [feasibility, setFeasibility] = useState<Record<string, RuleFeasibility>>({});
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -251,19 +251,23 @@ function App() {
   };
 
   const savePaletteRule = (updated: PaletteRule) => {
-    setPaletteRules(prev => prev.map(r => r.name === editingRule ? updated : r));
-    setEditingRule(null);
+    if (editingRuleIdx !== null) {
+      setPaletteRules(prev => prev.map((r, i) => i === editingRuleIdx ? updated : r));
+    }
+    setEditingRuleIdx(null);
   };
 
-  const removePaletteRule = (ruleName: string) => {
-    setPaletteRules(prev => prev.filter(r => r.name !== ruleName));
-    setEditingRule(null);
+  const removePaletteRule = (idx: number) => {
+    setPaletteRules(prev => prev.filter((_, i) => i !== idx));
+    setEditingRuleIdx(null);
   };
 
   const addPaletteRule = (rule: PaletteRule) => {
-    setPaletteRules(prev => [...prev, rule]);
+    setPaletteRules(prev => {
+      setEditingRuleIdx(prev.length);
+      return [...prev, rule];
+    });
     setShowPalette(false);
-    setEditingRule(rule.name);
   };
 
   // Feasibility checking
@@ -754,14 +758,14 @@ function App() {
             <section className="config-card">
               <h2>{group}</h2>
 
-              {editingRule && groupRules.find(r => r.name === editingRule) ? (
+              {editingRuleIdx !== null && paletteRules[editingRuleIdx] && groupRules.includes(paletteRules[editingRuleIdx]) ? (
                 <RuleEditor
-                  rule={groupRules.find(r => r.name === editingRule)!}
+                  rule={paletteRules[editingRuleIdx]}
                   allShifts={config.shifts}
                   allGroups={groupNames}
                   onSave={savePaletteRule}
-                  onCancel={() => setEditingRule(null)}
-                  onRemove={() => removePaletteRule(editingRule)}
+                  onCancel={() => setEditingRuleIdx(null)}
+                  onRemove={() => removePaletteRule(editingRuleIdx)}
                 />
               ) : showPalette ? (
                 <RulePalette
@@ -782,16 +786,19 @@ function App() {
                   {otherRules.length > 0 && (
                     <div className="rule-cards">
                       <h3>Constraints</h3>
-                      {otherRules.map(r => (
-                        <RuleCard
-                          key={r.name}
-                          rule={r}
-                          onToggleActive={togglePaletteRuleActive}
-                          onToggleStrength={togglePaletteRuleStrength}
-                          onEdit={() => setEditingRule(r.name)}
-                          feasibility={feasibility[r.name]}
-                        />
-                      ))}
+                      {otherRules.map(r => {
+                        const globalIdx = paletteRules.indexOf(r);
+                        return (
+                          <RuleCard
+                            key={r.name || globalIdx}
+                            rule={r}
+                            onToggleActive={togglePaletteRuleActive}
+                            onToggleStrength={togglePaletteRuleStrength}
+                            onEdit={() => setEditingRuleIdx(globalIdx)}
+                            feasibility={feasibility[r.name]}
+                          />
+                        );
+                      })}
                     </div>
                   )}
                   <button className="add-btn" style={{ marginTop: '1rem' }}
