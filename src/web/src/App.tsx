@@ -82,6 +82,8 @@ function App() {
   const [config, setConfig] = useState<AnnualConfig>(emptyConfig);
   const [standingRules, setStandingRules] = useState<Rule[]>([]);
   const [paletteRules, setPaletteRules] = useState<PaletteRule[]>([]);
+  const [nightRules, setNightRules] = useState<PaletteRule[]>([]);
+  const [weekendRules, setWeekendRules] = useState<PaletteRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -159,6 +161,8 @@ function App() {
         } else {
           setPaletteRules([]);
         }
+        setNightRules(annual.night_rules || []);
+        setWeekendRules(annual.weekend_rules || []);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -539,6 +543,8 @@ function App() {
       ...config,
       fellow_groups: cleanGroups,
       fellow_week_pairs: weekPairs,
+      night_rules: nightRules,
+      weekend_rules: weekendRules,
     };
 
     if (paletteRules.length > 0) {
@@ -807,6 +813,50 @@ function App() {
               ))}
               <button type="button" className="add-btn" onClick={addHoliday}>+ date</button>
             </div>
+          </section>
+        )}
+
+        {activeSection === 'night-rules' && (
+          <section className="config-card">
+            <h2>Night Call Rules</h2>
+            <p className="hint">Configure spacing, blocked services, holiday eligibility, penalties, and Sunday-following preferences for night call.</p>
+            {nightRules.length > 0 ? (
+              <div className="rule-cards">
+                {nightRules.map((r, i) => (
+                  <RuleCard
+                    key={r.name || i}
+                    rule={r}
+                    onToggleActive={(name) => setNightRules(prev => prev.map(rr => rr.name === name ? { ...rr, active: !rr.active } : rr))}
+                    onToggleStrength={(name) => setNightRules(prev => prev.map(rr => rr.name === name ? { ...rr, strength: rr.strength === 'hard' ? 'soft' : 'hard' } : rr))}
+                    onEdit={() => setEditingRuleIdx(-1)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="hint">No night rules configured. Add them in the YAML config file.</p>
+            )}
+          </section>
+        )}
+
+        {activeSection === 'weekend-rules' && (
+          <section className="config-card">
+            <h2>Weekend Call Rules</h2>
+            <p className="hint">Configure spacing, blocked services, stroke eligibility, and penalties for weekend call.</p>
+            {weekendRules.length > 0 ? (
+              <div className="rule-cards">
+                {weekendRules.map((r, i) => (
+                  <RuleCard
+                    key={r.name || i}
+                    rule={r}
+                    onToggleActive={(name) => setWeekendRules(prev => prev.map(rr => rr.name === name ? { ...rr, active: !rr.active } : rr))}
+                    onToggleStrength={(name) => setWeekendRules(prev => prev.map(rr => rr.name === name ? { ...rr, strength: rr.strength === 'hard' ? 'soft' : 'hard' } : rr))}
+                    onEdit={() => setEditingRuleIdx(-1)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="hint">No weekend rules configured. Add them in the YAML config file.</p>
+            )}
           </section>
         )}
 

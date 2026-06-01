@@ -3,7 +3,8 @@ import React from 'react';
 export type SidebarSection =
   | 'fellows' | 'shifts'
   | 'rules-NCC_JR' | 'rules-NCC_SR' | 'rules-STROKE' | 'rules-NH' | 'rules-CCM' | 'rules-program'
-  | 'night' | 'weekend' | 'vacations' | 'holidays';
+  | 'night' | 'weekend' | 'vacations' | 'holidays'
+  | 'night-rules' | 'weekend-rules';
 
 type SidebarProps = {
   active: SidebarSection;
@@ -46,7 +47,9 @@ export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning, loc
       <div className="sidebar-section">
         <div className="sidebar-heading">Annual</div>
         <SidebarItem id="night" label="Night Call" active={active} onNavigate={onNavigate} />
+        <SidebarItem id="night-rules" label="Night Rules" active={active} onNavigate={onNavigate} />
         <SidebarItem id="weekend" label="Weekend Call" active={active} onNavigate={onNavigate} />
+        <SidebarItem id="weekend-rules" label="Weekend Rules" active={active} onNavigate={onNavigate} />
         <SidebarItem id="vacations" label="Vacations" active={active} onNavigate={onNavigate} />
         <SidebarItem id="holidays" label="Holidays" active={active} onNavigate={onNavigate} />
       </div>
