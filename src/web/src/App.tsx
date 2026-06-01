@@ -589,6 +589,23 @@ function App() {
                     {tab === 'weekly' ? 'Weekly Shifts' : tab === 'weekend' ? 'Weekend Call' : 'Night Call'}
                   </button>
                 ))}
+                <button className="export-btn" onClick={async () => {
+                  try {
+                    const resp = await fetch(`${API_BASE}/api/schedule/export`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(solution),
+                    });
+                    if (!resp.ok) return;
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'schedule.xlsx';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch {}
+                }}>Export Excel</button>
               </div>
               {scheduleTab === 'weekly' && <ScheduleTable columns={Object.keys(solution.weekly_assignments)} rows={solution.weekly_assignments} />}
               {scheduleTab === 'weekend' && <ScheduleTable columns={solution.weekend_assignments.length > 0 ? Object.keys(solution.weekend_assignments[0]) : []} rows={pivotWeeklyList(solution.weekend_assignments)} />}

@@ -243,6 +243,62 @@ def feasibility_check():
         return jsonify({"error": str(exc), "satisfiable": False}), 500
 
 
+@app.route("/api/schedule/export", methods=["POST"])
+def schedule_export():
+    """Export current solution as an Excel workbook (3 sheets)."""
+    import openpyxl
+    from io import BytesIO
+
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Request body required"}), 400
+
+    weekly = body.get("weekly_assignments", {})
+    weekend = body.get("weekend_assignments", [])
+    night = body.get("night_assignments", [])
+
+    wb = openpyxl.Workbook()
+
+    # Sheet 1: Weekly Shifts
+    ws = wb.active
+    ws.title = "Weekly Shifts"
+    fellows = list(weekly.keys())
+    num_weeks = max((len(v) for v in weekly.values()), default=0)
+    ws.append(["Week"] + fellows)
+    for w in range(num_weeks):
+        row = [w + 1]
+        for f in fellows:
+            row.append(weekly[f][w] if w < len(weekly[f]) else "")
+        ws.append(row)
+
+    # Sheet 2: Weekend Call
+    ws2 = wb.create_sheet("Weekend Call")
+    if weekend:
+        roles = list(weekend[0].keys())
+        ws2.append(["Week"] + roles)
+        for w, entry in enumerate(weekend):
+            ws2.append([w + 1] + [entry.get(r, "") for r in roles])
+
+    # Sheet 3: Night Call
+    ws3 = wb.create_sheet("Night Call")
+    if night:
+        roles = list(night[0].keys())
+        ws3.append(["Day"] + roles)
+        for d, entry in enumerate(night):
+            ws3.append([d + 1] + [entry.get(r, "") for r in roles])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="schedule.xlsx",
+    )
+
+
 @app.route("/api/schedule/stream", methods=["POST"])
 def schedule_stream():
     """SSE endpoint: progressively solves and streams improving schedules."""

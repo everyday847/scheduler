@@ -387,6 +387,14 @@ input[type="date"] {
   margin-bottom: -1px;
 }
 
+.export-btn {
+  margin-left: auto;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.8rem;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Schedule table */
 .table-panel,
 .empty-state {
