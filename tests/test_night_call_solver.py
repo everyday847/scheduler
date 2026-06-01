@@ -151,6 +151,58 @@ def test_summarize_night_solution_counts_preference_violations():
     assert summary.sunday_following_service_violations == 1
 
 
+def test_night_solver_config_accepts_custom_spacing():
+    parsed = ParsedCallScheduleCsv(
+        fellow_names=["A", "B", "C", "D", "E", "F", "G"],
+        existing_schedule_columns=WEEKEND_ROLES,
+        week_rows=[
+            WeekRow(
+                weekday_assignments={f: "NCC1" for f in ["A", "B", "C", "D", "E", "F", "G"]},
+                schedule_assignments={"Weekend NCC1": "A", "Weekend NCC2": "B", "Weekend Stroke": "C"},
+                raw_row=["NCC1"] * 7 + ["A", "B", "C"],
+            )
+        ],
+        trailing_rows=[],
+    )
+    config = NightSolverConfig(
+        total_nights={f: 1 for f in ["A", "B", "C", "D", "E", "F", "G"]},
+        friday_nights={"A": 1, "B": 0, "C": 0, "D": 0, "E": 0, "F": 0, "G": 0},
+        total_night_multisets=(),
+        friday_night_multisets=(),
+        ccm_fellows=frozenset(),
+        spacing_max_nights=2,
+        spacing_window_days=4,
+    )
+    solution = solve_night_schedule(parsed, config=config)
+    assert len(solution.assignments_by_week) == 1
+    assert set(solution.assignments_by_week[0].values()) == {"A", "B", "C", "D", "E", "F", "G"}
+
+
+def test_night_solver_config_accepts_custom_penalty_weights():
+    parsed = ParsedCallScheduleCsv(
+        fellow_names=["A", "B", "C", "D", "E", "F", "G"],
+        existing_schedule_columns=WEEKEND_ROLES,
+        week_rows=[
+            WeekRow(
+                weekday_assignments={f: "NCC1" for f in ["A", "B", "C", "D", "E", "F", "G"]},
+                schedule_assignments={"Weekend NCC1": "A", "Weekend NCC2": "B", "Weekend Stroke": "C"},
+                raw_row=["NCC1"] * 7 + ["A", "B", "C"],
+            )
+        ],
+        trailing_rows=[],
+    )
+    config = NightSolverConfig(
+        total_nights={f: 1 for f in ["A", "B", "C", "D", "E", "F", "G"]},
+        friday_nights={"A": 1, "B": 0, "C": 0, "D": 0, "E": 0, "F": 0, "G": 0},
+        total_night_multisets=(),
+        friday_night_multisets=(),
+        ccm_fellows=frozenset(),
+        penalty_weights={"anaesthesia": 2, "clinic": 3, "stroke": 10, "friday_weekend_ncc1": 0, "sunday_following": 0},
+    )
+    solution = solve_night_schedule(parsed, config=config)
+    assert len(solution.assignments_by_week) == 1
+
+
 def test_write_night_schedule_csv_appends_all_night_columns(tmp_path):
     parsed = ParsedCallScheduleCsv(
         fellow_names=["A", "B"],

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 import csv
 from itertools import permutations
@@ -61,6 +61,20 @@ class NightSolverConfig:
     holiday_dates: tuple[date, ...] = DEFAULT_HOLIDAY_DATES
     horizon_start_date: date = HORIZON_START_DATE
 
+    spacing_max_nights: int = 1
+    spacing_window_days: int = 3
+    blocking_exact_services: tuple[str, ...] = ("Vacation", "NS SCVMC", "AAN", "Elective/NCS 2026", "")
+    blocking_substring_services: tuple[str, ...] = ("SICU", "MSICU")
+    holiday_allowed_services: tuple[str, ...] = ("NCC1", "NCC2", "Stroke")
+    penalty_weights: dict[str, int] = field(default_factory=lambda: {
+        "anaesthesia": 1, "clinic": 1, "stroke": 5,
+        "friday_weekend_ncc1": 1, "sunday_following": 1,
+    })
+    sunday_preferred_services: tuple[str, ...] = (
+        "Elec", "Telestroke/Clinic", "Clinic/Elective",
+        "SCVMC Rehab", "NIR", "ISC", "Vac",
+    )
+
     def __post_init__(self) -> None:
         default_total_nights = {
             "Cindy Wong": 20,
@@ -114,15 +128,21 @@ def holiday_indices_for_config(config: NightSolverConfig) -> tuple[int, ...]:
     return tuple((holiday_date - config.horizon_start_date).days for holiday_date in config.holiday_dates)
 
 
-def is_night_blocked(weekday_assignment: str) -> bool:
+def is_night_blocked(weekday_assignment: str, *, config: NightSolverConfig | None = None) -> bool:
+    if config is not None:
+        return common_is_night_blocked(weekday_assignment, exact_services=config.blocking_exact_services, substring_services=config.blocking_substring_services)
     return common_is_night_blocked(weekday_assignment)
 
 
-def is_night_holiday_eligible(weekday_assignment: str) -> bool:
+def is_night_holiday_eligible(weekday_assignment: str, *, config: NightSolverConfig | None = None) -> bool:
+    if config is not None:
+        return common_is_night_holiday_eligible(weekday_assignment, allowed_services=config.holiday_allowed_services)
     return common_is_night_holiday_eligible(weekday_assignment)
 
 
-def is_preferred_sunday_following_service(weekday_assignment: str) -> bool:
+def is_preferred_sunday_following_service(weekday_assignment: str, *, config: NightSolverConfig | None = None) -> bool:
+    if config is not None:
+        return common_is_preferred_sunday_following_service(weekday_assignment, preferred=config.sunday_preferred_services)
     return common_is_preferred_sunday_following_service(weekday_assignment)
 
 
@@ -144,17 +164,17 @@ def solve_night_schedule(
     day_count = len(parsed.week_rows) * len(NIGHT_ROLES)
     day_vars = [Int(f"night_day_{day_index}") for day_index in range(day_count)]
     _add_night_constraints(solver, parsed, day_vars, config)
-    _add_night_objectives(solver, parsed, day_vars)
+    _add_night_objectives(solver, parsed, day_vars, config)
     if solver.check() != sat:
         raise ValueError("Night call schedule is unsatisfiable")
     model = solver.model()
     solution = _build_night_solution(parsed, day_vars, model)
     if emit_summary:
-        _print_night_summary(parsed, solution)
+        _print_night_summary(parsed, solution, config=config)
     return solution
 
 
-def summarize_night_solution(parsed: ParsedCallScheduleCsv, solution: NightScheduleSolution) -> NightSummary:
+def summarize_night_solution(parsed: ParsedCallScheduleCsv, solution: NightScheduleSolution, *, config: NightSolverConfig | None = None) -> NightSummary:
     total_nights_by_fellow = {fellow: 0 for fellow in parsed.fellow_names}
     friday_nights_by_fellow = {fellow: 0 for fellow in parsed.fellow_names}
     anaesthesia_nights = 0
@@ -177,7 +197,7 @@ def summarize_night_solution(parsed: ParsedCallScheduleCsv, solution: NightSched
                 clinic_nights += 1
             if day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
                 following_service = parsed.week_rows[week_index + 1].weekday_assignments[fellow]
-                if not is_preferred_sunday_following_service(following_service):
+                if not is_preferred_sunday_following_service(following_service, config=config):
                     sunday_following_service_violations += 1
 
     return NightSummary(
@@ -199,7 +219,7 @@ def write_night_schedule_csv(
     with output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([*parsed.fellow_names, *parsed.existing_schedule_columns, *NIGHT_ROLES])
-        for week_row, night_assignment in zip(parsed.week_rows, solution.assignments_by_week, strict=True):
+        for week_row, night_assignment in zip(parsed.week_rows, solution.assignments_by_week):
             writer.writerow([*week_row.raw_row, *(night_assignment[role] for role in NIGHT_ROLES)])
         for trailing_row in parsed.trailing_rows:
             writer.writerow([*trailing_row, *([""] * len(NIGHT_ROLES))])
@@ -216,14 +236,15 @@ def _add_night_constraints(solver: Optimize, parsed: ParsedCallScheduleCsv, day_
         week_row = parsed.week_rows[week_index]
         for fellow_index, fellow_name in enumerate(parsed.fellow_names):
             weekday_service = week_row.weekday_assignments[fellow_name]
-            if fellow_name in config.ccm_fellows or is_night_blocked(weekday_service):
+            if fellow_name in config.ccm_fellows or is_night_blocked(weekday_service, config=config):
                 solver.add(day_vars[day_index] != fellow_index)
-            if day_index in holiday_indices and not is_night_holiday_eligible(weekday_service):
+            if day_index in holiday_indices and not is_night_holiday_eligible(weekday_service, config=config):
                 solver.add(day_vars[day_index] != fellow_index)
 
+    window = config.spacing_window_days
     for fellow_index in range(fellow_count):
-        for start in range(day_count - 2):
-            solver.add(Sum([_eq_indicator(day_vars[start + offset], fellow_index) for offset in range(3)]) <= 1)
+        for start in range(day_count - (window - 1)):
+            solver.add(Sum([_eq_indicator(day_vars[start + offset], fellow_index) for offset in range(window)]) <= config.spacing_max_nights)
 
     for fellow_name, total in config.total_nights.items():
         solver.add(_count_assignments(day_vars, parsed.fellow_names.index(fellow_name)) == total)
@@ -236,9 +257,17 @@ def _add_night_constraints(solver: Optimize, parsed: ParsedCallScheduleCsv, day_
         _add_multiset_constraint(solver, day_vars, parsed.fellow_names, multiset_constraint, friday_only=True)
 
 
-def _add_night_objectives(solver: Optimize, parsed: ParsedCallScheduleCsv, day_vars: list[Int]) -> None:
-    for penalty_terms in _night_soft_violation_terms(parsed, day_vars):
-        solver.minimize(_sum_or_zero(penalty_terms))
+def _add_night_objectives(solver: Optimize, parsed: ParsedCallScheduleCsv, day_vars: list[Int], config: NightSolverConfig) -> None:
+    penalties = _night_soft_violation_terms(parsed, day_vars, config=config)
+    categories = [
+        (penalties[0], config.penalty_weights["anaesthesia"]),
+        (penalties[1], config.penalty_weights["clinic"]),
+        (penalties[2], config.penalty_weights["friday_weekend_ncc1"]),
+        (penalties[3], config.penalty_weights["sunday_following"]),
+    ]
+    for terms, weight in categories:
+        if terms:
+            solver.minimize(Sum([weight * t for t in terms]))
 
 
 def _add_multiset_constraint(
@@ -253,7 +282,7 @@ def _add_multiset_constraint(
     disjuncts = []
     for ordering in unique_permutations:
         conjuncts = []
-        for fellow_name, total in zip(multiset_constraint.names, ordering, strict=True):
+        for fellow_name, total in zip(multiset_constraint.names, ordering):
             fellow_index = fellow_names.index(fellow_name)
             count = _count_friday_assignments(day_vars, fellow_index) if friday_only else _count_assignments(day_vars, fellow_index)
             conjuncts.append(count == total)
@@ -277,15 +306,18 @@ def _sum_or_zero(terms: list):
     return Sum(terms) if terms else IntVal(0)
 
 
-def count_night_soft_violations(parsed: ParsedCallScheduleCsv, day_vars: list[Int]) -> object:
-    return Sum([_sum_or_zero(terms) for terms in _night_soft_violation_terms(parsed, day_vars)])
+def count_night_soft_violations(parsed: ParsedCallScheduleCsv, day_vars: list[Int], *, config: NightSolverConfig | None = None) -> object:
+    return Sum([_sum_or_zero(terms) for terms in _night_soft_violation_terms(parsed, day_vars, config=config)])
 
 
-def _night_soft_violation_terms(parsed: ParsedCallScheduleCsv, day_vars: list[Int]) -> list[list]:
+def _night_soft_violation_terms(parsed: ParsedCallScheduleCsv, day_vars: list[Int], *, config: NightSolverConfig | None = None) -> list[list]:
     anaesthesia_penalties = []
     clinic_penalties = []
     friday_weekend_penalties = []
     sunday_following_penalties = []
+    include_sunday = True
+    if config is not None:
+        include_sunday = config.penalty_weights.get("sunday_following", 0) > 0
     for day_index, variable in enumerate(day_vars):
         week_index, day_of_week = divmod(day_index, 7)
         week_row = parsed.week_rows[week_index]
@@ -298,9 +330,9 @@ def _night_soft_violation_terms(parsed: ParsedCallScheduleCsv, day_vars: list[In
                 clinic_penalties.append(eq)
             if day_of_week == 4 and week_row.schedule_assignments.get("Weekend NCC1") == fellow_name:
                 friday_weekend_penalties.append(eq)
-            if day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
+            if include_sunday and day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
                 following_service = parsed.week_rows[week_index + 1].weekday_assignments[fellow_name]
-                if not is_preferred_sunday_following_service(following_service):
+                if not is_preferred_sunday_following_service(following_service, config=config):
                     sunday_following_penalties.append(eq)
 
     return [anaesthesia_penalties, clinic_penalties, friday_weekend_penalties, sunday_following_penalties]
@@ -318,8 +350,8 @@ def _build_night_solution(parsed: ParsedCallScheduleCsv, day_vars: list[Int], mo
     return NightScheduleSolution(assignments_by_week=assignments_by_week)
 
 
-def _print_night_summary(parsed: ParsedCallScheduleCsv, solution: NightScheduleSolution) -> None:
-    summary = summarize_night_solution(parsed, solution)
+def _print_night_summary(parsed: ParsedCallScheduleCsv, solution: NightScheduleSolution, *, config: NightSolverConfig | None = None) -> None:
+    summary = summarize_night_solution(parsed, solution, config=config)
     print("Night summary:")
     for fellow in parsed.fellow_names:
         if summary.total_nights_by_fellow[fellow] or summary.friday_nights_by_fellow[fellow]:

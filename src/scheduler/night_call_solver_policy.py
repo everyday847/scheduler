@@ -21,9 +21,6 @@ from .call_schedule_common import (
     WEEKEND_ROLES,
     is_anaesthesia_service,
     is_clinic_service,
-    is_night_blocked,
-    is_night_holiday_eligible,
-    is_preferred_sunday_following_service,
     parse_call_schedule_csv,
 )
 from .night_call_solver import (
@@ -31,6 +28,9 @@ from .night_call_solver import (
     NightSolverConfig,
     absolute_day_index,
     holiday_indices_for_config,
+    is_night_blocked,
+    is_night_holiday_eligible,
+    is_preferred_sunday_following_service,
     summarize_night_solution,
     write_night_schedule_csv,
 )
@@ -59,6 +59,16 @@ class NightPolicyWeights:
     stroke: int = 5
     friday_weekend_ncc1: int = 1
     sunday_following: int = 1
+
+    @classmethod
+    def from_config(cls, penalty_weights: dict[str, int]) -> NightPolicyWeights:
+        return cls(
+            anaesthesia=penalty_weights.get("anaesthesia", 1),
+            clinic=penalty_weights.get("clinic", 1),
+            stroke=penalty_weights.get("stroke", 5),
+            friday_weekend_ncc1=penalty_weights.get("friday_weekend_ncc1", 1),
+            sunday_following=penalty_weights.get("sunday_following", 1),
+        )
 
     def for_criterion(self, criterion: str) -> int:
         return getattr(self, criterion)
@@ -125,7 +135,7 @@ def solve_night_schedule_policy_incremental(
         weights=weights,
     )
 
-    upper_bound = _weighted_upper_bound(parsed, weights, hard_criteria) if max_violation_limit is None else max_violation_limit
+    upper_bound = _weighted_upper_bound(parsed, weights, hard_criteria, config=config) if max_violation_limit is None else max_violation_limit
     best_model = None
     best_limit = None
     low = 0
@@ -153,6 +163,7 @@ def solve_night_schedule_policy_incremental(
         tier=f"policy-incremental-soft<={best_limit}",
         hard_criteria=hard_criteria,
         weights=weights,
+        config=config,
         optimized=True,
     )
     if emit_summary:
@@ -176,7 +187,7 @@ def solve_night_schedule_policy_at_limit(
         hard_criteria=hard_criteria,
         weights=weights,
     )
-    limit = _weighted_upper_bound(parsed, weights, hard_criteria) if max_violation_limit is None else max_violation_limit
+    limit = _weighted_upper_bound(parsed, weights, hard_criteria, config=config) if max_violation_limit is None else max_violation_limit
     solver.add(weighted_soft_count <= limit)
     if solver.check() != sat:
         raise ValueError(f"Night call schedule is unsatisfiable with <= {limit} weighted soft violations")
@@ -188,10 +199,11 @@ def solve_night_schedule_policy_at_limit(
         tier=f"policy-unoptimized-soft<={limit}",
         hard_criteria=hard_criteria,
         weights=weights,
+        config=config,
         optimized=False,
     )
     if emit_summary:
-        print_policy_summary(parsed, result)
+        print_policy_summary(parsed, result, config=config)
     return result
 
 
@@ -245,13 +257,14 @@ def criteria_counts_for_solution(
     parsed: ParsedCallScheduleCsv,
     solution: NightScheduleSolution,
     *,
+    config: NightSolverConfig | None = None,
     weights: NightPolicyWeights = NightPolicyWeights(),
 ) -> NightPolicyCounts:
     counts = {criterion: 0 for criterion in ALL_POLICY_CRITERIA}
     for week_index, week_assignments in enumerate(solution.assignments_by_week):
         for day_of_week, role in enumerate(NIGHT_ROLES):
             fellow_name = week_assignments[role]
-            for criterion in _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name):
+            for criterion in _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name, config=config):
                 counts[criterion] += 1
     return NightPolicyCounts(
         by_criterion=counts,
@@ -259,14 +272,14 @@ def criteria_counts_for_solution(
     )
 
 
-def print_policy_summary(parsed: ParsedCallScheduleCsv, result: NightPolicySolveResult) -> None:
+def print_policy_summary(parsed: ParsedCallScheduleCsv, result: NightPolicySolveResult, *, config: NightSolverConfig | None = None) -> None:
     print(f"Tier: {result.tier}")
     print(f"Hard criteria: {', '.join(sorted(result.hard_criteria)) or 'none'}")
     print(f"Weighted soft violations: {result.counts.weighted_total}")
     print("Policy criteria:")
     for criterion in sorted(ALL_POLICY_CRITERIA):
         print(f"  {criterion}: {result.counts.by_criterion[criterion]}")
-    summary = summarize_night_solution(parsed, result.solution)
+    summary = summarize_night_solution(parsed, result.solution, config=config)
     print("Night summary:")
     for fellow in parsed.fellow_names:
         if summary.total_nights_by_fellow[fellow] or summary.friday_nights_by_fellow[fellow]:
@@ -319,7 +332,7 @@ def _build_policy_solver(
     for day_index, day_assignments in enumerate(assignments):
         week_index, day_of_week = divmod(day_index, len(NIGHT_ROLES))
         for fellow_index, fellow_name in enumerate(parsed.fellow_names):
-            criteria = _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name)
+            criteria = _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name, config=config)
             for criterion in criteria:
                 if criterion in hard_criteria:
                     solver.add(day_assignments[fellow_index] == False)
@@ -344,14 +357,15 @@ def _add_base_bool_constraints(
         week_row = parsed.week_rows[week_index]
         for fellow_index, fellow_name in enumerate(parsed.fellow_names):
             weekday_service = week_row.weekday_assignments[fellow_name]
-            if fellow_name in config.ccm_fellows or is_night_blocked(weekday_service):
+            if fellow_name in config.ccm_fellows or is_night_blocked(weekday_service, config=config):
                 solver.add(day_assignments[fellow_index] == False)
-            if day_index in holiday_indices and not is_night_holiday_eligible(weekday_service):
+            if day_index in holiday_indices and not is_night_holiday_eligible(weekday_service, config=config):
                 solver.add(day_assignments[fellow_index] == False)
 
+    window = config.spacing_window_days
     for fellow_index in range(len(parsed.fellow_names)):
-        for start in range(day_count - 2):
-            solver.add(Sum([_indicator(assignments[start + offset][fellow_index]) for offset in range(3)]) <= 1)
+        for start in range(day_count - (window - 1)):
+            solver.add(Sum([_indicator(assignments[start + offset][fellow_index]) for offset in range(window)]) <= config.spacing_max_nights)
 
     for fellow_name, total in config.total_nights.items():
         solver.add(_count_assignments(assignments, parsed.fellow_names.index(fellow_name)) == total)
@@ -369,6 +383,8 @@ def _criteria_for_assignment(
     week_index: int,
     day_of_week: int,
     fellow_name: str,
+    *,
+    config: NightSolverConfig | None = None,
 ) -> tuple[str, ...]:
     week_row = parsed.week_rows[week_index]
     weekday_service = week_row.weekday_assignments[fellow_name]
@@ -383,7 +399,7 @@ def _criteria_for_assignment(
         criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
     if day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
         following_service = parsed.week_rows[week_index + 1].weekday_assignments[fellow_name]
-        if not is_preferred_sunday_following_service(following_service):
+        if not is_preferred_sunday_following_service(following_service, config=config):
             criteria.append(CRITERION_SUNDAY_FOLLOWING)
     return tuple(criteria)
 
@@ -396,13 +412,14 @@ def _result_from_model(
     tier: str,
     hard_criteria: frozenset[str],
     weights: NightPolicyWeights,
+    config: NightSolverConfig | None = None,
     optimized: bool,
 ) -> NightPolicySolveResult:
     solution = _build_bool_matrix_solution(parsed, assignments, model)
     return NightPolicySolveResult(
         tier=tier,
         solution=solution,
-        counts=criteria_counts_for_solution(parsed, solution, weights=weights),
+        counts=criteria_counts_for_solution(parsed, solution, config=config, weights=weights),
         hard_criteria=hard_criteria,
         optimized=optimized,
     )
@@ -435,7 +452,7 @@ def _add_multiset_constraint(
     disjuncts = []
     for ordering in {tuple(ordering) for ordering in permutations(multiset_constraint.values)}:
         conjuncts = []
-        for fellow_name, total in zip(multiset_constraint.names, ordering, strict=True):
+        for fellow_name, total in zip(multiset_constraint.names, ordering):
             fellow_index = fellow_names.index(fellow_name)
             count = _count_friday_assignments(assignments, fellow_index) if friday_only else _count_assignments(assignments, fellow_index)
             conjuncts.append(count == total)
@@ -455,12 +472,14 @@ def _weighted_upper_bound(
     parsed: ParsedCallScheduleCsv,
     weights: NightPolicyWeights,
     hard_criteria: frozenset[str],
+    *,
+    config: NightSolverConfig | None = None,
 ) -> int:
     total = 0
     for week_index in range(len(parsed.week_rows)):
         for day_of_week in range(len(NIGHT_ROLES)):
             for fellow_name in parsed.fellow_names:
-                for criterion in _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name):
+                for criterion in _criteria_for_assignment(parsed, week_index, day_of_week, fellow_name, config=config):
                     if criterion not in hard_criteria:
                         total += weights.for_criterion(criterion)
     return total
