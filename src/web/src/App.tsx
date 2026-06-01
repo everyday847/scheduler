@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css';
 import { TopBar } from './components/TopBar';
 import { Sidebar, SidebarSection } from './components/Sidebar';
+import { CoverageTotalsTable } from './components/CoverageTotalsTable';
+import { RuleCard } from './components/RuleCard';
+import { PaletteRule, ShiftTotalRule, Relation } from './types';
 
 const API_BASE = 'http://127.0.0.1:5000';
 const HORIZON_START = new Date(2026, 5, 29); // June 29, 2026
@@ -75,6 +78,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState('');
   const [config, setConfig] = useState<AnnualConfig>(emptyConfig);
   const [standingRules, setStandingRules] = useState<Rule[]>([]);
+  const [paletteRules, setPaletteRules] = useState<PaletteRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,6 +138,13 @@ function App() {
         }
         setVacationDates(dates);
         setStandingRules((standing.rules || []) as Rule[]);
+        // Detect palette format: rules at top level with a 'type' field
+        const annualRules = annual.rules || [];
+        if (annualRules.length > 0 && annualRules[0].type) {
+          setPaletteRules(annualRules as PaletteRule[]);
+        } else {
+          setPaletteRules([]);
+        }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -204,6 +215,30 @@ function App() {
     });
   };
 
+  const togglePaletteRuleActive = (ruleName: string) => {
+    setPaletteRules(prev => prev.map(r =>
+      r.name === ruleName ? { ...r, active: !r.active } : r
+    ));
+  };
+
+  const togglePaletteRuleStrength = (ruleName: string) => {
+    setPaletteRules(prev => prev.map(r =>
+      r.name === ruleName ? { ...r, strength: r.strength === 'hard' ? 'soft' : 'hard' } : r
+    ));
+  };
+
+  const changePaletteRuleCount = (ruleName: string, count: number) => {
+    setPaletteRules(prev => prev.map(r =>
+      r.name === ruleName && r.type === 'shift_total' ? { ...r, count } : r
+    ));
+  };
+
+  const changePaletteRuleRelation = (ruleName: string, relation: Relation) => {
+    setPaletteRules(prev => prev.map(r =>
+      r.name === ruleName && r.type === 'shift_total' ? { ...r, relation } : r
+    ));
+  };
+
   // Solver
   const buildRequest = useCallback((): any => {
     const weekPairs: Record<string, number[]> = {};
@@ -216,13 +251,22 @@ function App() {
     for (const [group, fellows] of Object.entries(config.fellow_groups)) {
       cleanGroups[group] = fellows.map((s) => s.trim()).filter(Boolean);
     }
-    return {
+
+    const req: any = {
       ...config,
       fellow_groups: cleanGroups,
       fellow_week_pairs: weekPairs,
-      standing_rules: standingRules.filter((r) => r.active),
     };
-  }, [config, allFellows, vacationDates, standingRules]);
+
+    if (paletteRules.length > 0) {
+      req.rules = paletteRules;
+      req.standing_rules = standingRules.filter((r) => r.active);
+    } else {
+      req.standing_rules = standingRules.filter((r) => r.active);
+    }
+
+    return req;
+  }, [config, allFellows, vacationDates, standingRules, paletteRules]);
 
   const cancelSolve = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
@@ -475,12 +519,41 @@ function App() {
           </>
         )}
 
-        {activeSection.startsWith('rules-') && activeSection !== 'rules-program' && (
-          <section className="config-card">
-            <h2>Rules for {activeSection.replace('rules-', '')}</h2>
-            <p className="hint">Rule editor coming soon.</p>
-          </section>
-        )}
+        {activeSection.startsWith('rules-') && activeSection !== 'rules-program' && (() => {
+          const group = activeSection.replace('rules-', '');
+          const groupRules = paletteRules.filter(r => r.groups?.includes(group));
+          const shiftTotals = groupRules.filter((r): r is ShiftTotalRule => r.type === 'shift_total');
+          const otherRules = groupRules.filter(r => r.type !== 'shift_total');
+
+          return (
+            <section className="config-card">
+              <h2>{group}</h2>
+              <CoverageTotalsTable
+                rules={shiftTotals}
+                onToggleActive={togglePaletteRuleActive}
+                onToggleStrength={togglePaletteRuleStrength}
+                onChangeCount={changePaletteRuleCount}
+                onChangeRelation={changePaletteRuleRelation}
+              />
+              {otherRules.length > 0 && (
+                <div className="rule-cards">
+                  <h3>Constraints</h3>
+                  {otherRules.map(r => (
+                    <RuleCard
+                      key={r.name}
+                      rule={r}
+                      onToggleActive={togglePaletteRuleActive}
+                      onToggleStrength={togglePaletteRuleStrength}
+                    />
+                  ))}
+                </div>
+              )}
+              {groupRules.length === 0 && (
+                <p className="hint">No rules configured for {group}.</p>
+              )}
+            </section>
+          );
+        })()}
       </div>
     );
   }

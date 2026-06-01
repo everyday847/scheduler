@@ -695,6 +695,116 @@ tbody th {
   font: inherit;
 }
 
+/* Coverage totals table */
+.coverage-totals {
+  margin-bottom: 1.5rem;
+}
+
+.coverage-totals h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.totals-table .relation-select {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.82rem;
+  width: 100%;
+}
+
+.totals-table .count-input {
+  width: 100%;
+  text-align: center;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.82rem;
+}
+
+.window-tag {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: 0.4rem;
+  background: var(--page);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+/* Rule cards */
+.rule-cards {
+  margin-top: 1rem;
+}
+
+.rule-cards h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.rule-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.rule-card.rule-inactive {
+  opacity: 0.5;
+}
+
+.rule-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rule-card-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  flex: 1;
+}
+
+.rule-card-summary {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.rule-type-label {
+  background: var(--page);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rule-summary-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Feasibility pips */
+.feasibility-pips {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.pip-unchecked { background: #d0d0d0; }
+.pip-pass { background: #4caf50; }
+.pip-fail { background: #f44336; }
+.pip-checking { background: #ff9800; }
+
 @media (max-width: 900px) {
   .config-top-bar {
     flex-direction: column;
