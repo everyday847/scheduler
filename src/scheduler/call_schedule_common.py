@@ -64,8 +64,8 @@ def parse_call_schedule_csv(path: str | Path) -> ParsedCallScheduleCsv:
         schedule_values = padded_row[len(fellow_names) : expected_columns]
         week_rows.append(
             WeekRow(
-                weekday_assignments=dict(zip(fellow_names, weekday_values, strict=True)),
-                schedule_assignments=dict(zip(existing_schedule_columns, schedule_values, strict=True)),
+                    weekday_assignments=dict(zip(fellow_names, weekday_values)),
+                    schedule_assignments=dict(zip(existing_schedule_columns, schedule_values)),
                 raw_row=padded_row[:expected_columns],
             )
         )
@@ -78,12 +78,14 @@ def parse_call_schedule_csv(path: str | Path) -> ParsedCallScheduleCsv:
     )
 
 
-def is_weekend_blocked(weekday_assignment: str, *, is_ccm_fellow: bool) -> bool:
+def is_weekend_blocked(weekday_assignment: str, *, is_ccm_fellow: bool = False, blocking_exact_services: tuple[str, ...] | None = None, blocking_substring_services: tuple[str, ...] | None = None) -> bool:
+    exact = BLOCKING_EXACT_VALUES if blocking_exact_services is None else set(blocking_exact_services)
+    substrings = WEEKEND_BLOCKING_SUBSTRINGS if blocking_substring_services is None else blocking_substring_services
     if weekday_assignment == "" and is_ccm_fellow:
         return True
-    if weekday_assignment in BLOCKING_EXACT_VALUES - {""}:
+    if weekday_assignment in exact - {""}:
         return True
-    return any(token in weekday_assignment for token in WEEKEND_BLOCKING_SUBSTRINGS)
+    return any(token in weekday_assignment for token in substrings)
 
 
 def weekend_roles_for_fellow(
@@ -94,8 +96,10 @@ def weekend_roles_for_fellow(
     always_stroke_eligible: frozenset[str] = DEFAULT_ALWAYS_STROKE_ELIGIBLE,
     telestroke_stroke_eligible: frozenset[str] = DEFAULT_TELESTROKE_STROKE_ELIGIBLE,
     stroke_only_eligible: frozenset[str] = DEFAULT_STROKE_ONLY_ELIGIBLE,
+    blocking_exact_services: tuple[str, ...] | None = None,
+    blocking_substring_services: tuple[str, ...] | None = None,
 ) -> set[str]:
-    if is_weekend_blocked(weekday_assignment, is_ccm_fellow=fellow_name in ccm_fellows):
+    if is_weekend_blocked(weekday_assignment, is_ccm_fellow=fellow_name in ccm_fellows, blocking_exact_services=blocking_exact_services, blocking_substring_services=blocking_substring_services):
         return set()
 
     roles = {"Weekend NCC1", "Weekend NCC2"}
@@ -108,10 +112,12 @@ def weekend_roles_for_fellow(
     return roles
 
 
-def is_night_blocked(weekday_assignment: str) -> bool:
-    if weekday_assignment in NIGHT_BLOCKING_EXACT_VALUES:
+def is_night_blocked(weekday_assignment: str, *, exact_services: frozenset[str] | None = None, substring_services: tuple[str, ...] | None = None) -> bool:
+    exact = NIGHT_BLOCKING_EXACT_VALUES if exact_services is None else frozenset(exact_services)
+    substrings = NIGHT_BLOCKING_SUBSTRINGS if substring_services is None else substring_services
+    if weekday_assignment in exact:
         return True
-    return any(token in weekday_assignment for token in NIGHT_BLOCKING_SUBSTRINGS)
+    return any(token in weekday_assignment for token in substrings)
 
 
 def is_anaesthesia_service(weekday_assignment: str) -> bool:
@@ -122,11 +128,14 @@ def is_clinic_service(weekday_assignment: str) -> bool:
     return "Clinic" in weekday_assignment
 
 
-def is_night_holiday_eligible(weekday_assignment: str) -> bool:
-    return weekday_assignment in {"NCC1", "NCC2", "Stroke"}
+def is_night_holiday_eligible(weekday_assignment: str, *, allowed_services: tuple[str, ...] | None = None) -> bool:
+    allowed = {"NCC1", "NCC2", "Stroke"} if allowed_services is None else set(allowed_services)
+    return weekday_assignment in allowed
 
 
-def is_preferred_sunday_following_service(weekday_assignment: str) -> bool:
+def is_preferred_sunday_following_service(weekday_assignment: str, *, preferred: tuple[str, ...] | None = None) -> bool:
+    if preferred is not None:
+        return weekday_assignment in preferred
     if is_anaesthesia_service(weekday_assignment) or is_clinic_service(weekday_assignment):
         return False
     if weekday_assignment in {"Vacation", "NS SCVMC", "NIR", "Telestroke/Clinic"}:
