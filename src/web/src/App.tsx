@@ -97,9 +97,10 @@ function App() {
   const [scheduleTab, setScheduleTab] = useState<'weekly' | 'weekend' | 'night'>('weekly');
 
   const [activeSection, setActiveSection] = useState<SidebarSection>('fellows');
-  const [hasDraft] = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [showPalette, setShowPalette] = useState(false);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const W = config.num_weeks || 52;
 
@@ -110,7 +111,8 @@ function App() {
       .then((data) => {
         setConfigFiles(data);
         if (data.annual.length > 0) {
-          const first = data.annual[0];
+          const v2 = data.annual.find((f: string) => f.includes('-v2'));
+          const first = v2 || data.annual[0];
           setSelectedFile(first);
           loadConfig(first);
         } else {
@@ -124,11 +126,16 @@ function App() {
   const loadConfig = useCallback((filename: string) => {
     setLoading(true);
     setError(null);
+    // Determine standing config name based on whether annual config is v2
+    const standingName = filename.includes('-v2')
+      ? 'stanford-fellowship-v2.yaml'
+      : 'stanford-fellowship.yaml';
     Promise.all([
-      fetch(`${API_BASE}/api/config/annual/${filename}`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/config/standing/stanford-fellowship.yaml`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/config/annual/${filename}/draft`).then((r) => r.json()),
+      fetch(`${API_BASE}/api/config/standing/${standingName}`).then((r) => r.json()),
     ])
       .then(([annual, standing]) => {
+        setHasDraft(annual._has_draft || false);
         setConfig({
           ...emptyConfig, ...annual,
           night_call: annual.night_call || [],
@@ -142,7 +149,6 @@ function App() {
         }
         setVacationDates(dates);
         setStandingRules((standing.rules || []) as Rule[]);
-        // Detect palette format: rules at top level with a 'type' field
         const annualRules = annual.rules || [];
         if (annualRules.length > 0 && annualRules[0].type) {
           setPaletteRules(annualRules as PaletteRule[]);
@@ -258,6 +264,51 @@ function App() {
     setShowPalette(false);
     setEditingRule(rule.name);
   };
+
+  // Draft auto-save: debounce 3s after any palette rule change
+  const saveDraft = useCallback(() => {
+    if (!selectedFile || paletteRules.length === 0) return;
+    const body = {
+      ...config,
+      rules: paletteRules,
+      fellow_week_pairs: (() => {
+        const wp: Record<string, number[]> = {};
+        for (const f of Object.values(config.fellow_groups).flat()) {
+          const dates = vacationDates[f];
+          if (dates && dates.length > 0) wp[f] = dates.map(dateToWeekIndex);
+          else wp[f] = [];
+        }
+        return wp;
+      })(),
+    };
+    fetch(`${API_BASE}/api/config/annual/${selectedFile}/draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(() => setHasDraft(true)).catch(() => {});
+  }, [config, paletteRules, vacationDates, selectedFile]);
+
+  // Auto-save on palette rule edits
+  useEffect(() => {
+    if (paletteRules.length === 0) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(saveDraft, 3000);
+    return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
+  }, [paletteRules, saveDraft]);
+
+  const publishDraft = useCallback(() => {
+    if (!selectedFile) return;
+    fetch(`${API_BASE}/api/config/annual/${selectedFile}/publish`, { method: 'POST' })
+      .then((r) => { if (r.ok) setHasDraft(false); })
+      .catch(() => {});
+  }, [selectedFile]);
+
+  const discardDraft = useCallback(() => {
+    if (!selectedFile) return;
+    fetch(`${API_BASE}/api/config/annual/${selectedFile}/draft`, { method: 'DELETE' })
+      .then((r) => { if (r.ok) { setHasDraft(false); loadConfig(selectedFile); } })
+      .catch(() => {});
+  }, [selectedFile, loadConfig]);
 
   // Solver
   const buildRequest = useCallback((): any => {
@@ -614,8 +665,8 @@ function App() {
         hasDraft={hasDraft}
         onFileChange={(f) => { setSelectedFile(f); loadConfig(f); }}
         onWeeksChange={(w) => setConfig((c) => ({ ...c, num_weeks: w }))}
-        onPublish={() => { /* draft publish — future */ }}
-        onDiscard={() => { /* draft discard — future */ }}
+        onPublish={publishDraft}
+        onDiscard={discardDraft}
       />
       <Sidebar
         active={activeSection}
