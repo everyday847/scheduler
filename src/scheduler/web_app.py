@@ -54,6 +54,61 @@ def _convert_dates(obj):
                 _convert_dates(v)
 
 
+@app.route("/api/config/annual/<filename>/draft", methods=["GET"])
+def get_draft(filename: str):
+    """Load draft config (falls back to published)."""
+    from .solver_bridge import CONFIG_DIR
+    from .draft_persistence import load_draft_or_published, has_draft
+    from datetime import date as date_type
+
+    try:
+        data = load_draft_or_published(CONFIG_DIR / "annual", filename)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    _convert_dates(data)
+    data["_has_draft"] = has_draft(CONFIG_DIR / "annual", filename)
+    return jsonify(data)
+
+
+@app.route("/api/config/annual/<filename>/draft", methods=["PUT"])
+def save_draft_endpoint(filename: str):
+    """Save draft config."""
+    from .solver_bridge import CONFIG_DIR
+    from .draft_persistence import save_draft
+
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    save_draft(CONFIG_DIR / "annual", filename, body)
+    return jsonify({"status": "saved"})
+
+
+@app.route("/api/config/annual/<filename>/draft", methods=["DELETE"])
+def discard_draft_endpoint(filename: str):
+    """Discard draft config."""
+    from .solver_bridge import CONFIG_DIR
+    from .draft_persistence import discard_draft
+
+    discard_draft(CONFIG_DIR / "annual", filename)
+    return jsonify({"status": "discarded"})
+
+
+@app.route("/api/config/annual/<filename>/publish", methods=["POST"])
+def publish_draft_endpoint(filename: str):
+    """Publish draft to replace published config."""
+    from .solver_bridge import CONFIG_DIR
+    from .draft_persistence import publish_draft
+
+    try:
+        publish_draft(CONFIG_DIR / "annual", filename)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    return jsonify({"status": "published"})
+
+
 @app.route("/api/default-schedule", methods=["GET"])
 def default_schedule():
     return jsonify(get_default_schedule_request())
