@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
+import { TopBar } from './components/TopBar';
+import { Sidebar, SidebarSection } from './components/Sidebar';
 
 const API_BASE = 'http://127.0.0.1:5000';
 const HORIZON_START = new Date(2026, 5, 29); // June 29, 2026
@@ -87,6 +89,9 @@ function App() {
 
   const [mode, setMode] = useState<AppMode>('config');
   const [scheduleTab, setScheduleTab] = useState<'weekly' | 'weekend' | 'night'>('weekly');
+
+  const [activeSection, setActiveSection] = useState<SidebarSection>('fellows');
+  const [hasDraft] = useState(false);
 
   const W = config.num_weeks || 52;
 
@@ -289,211 +294,223 @@ function App() {
   const groupNames = Object.keys(config.fellow_groups);
 
   // =========================================================================
-  // CONFIG MODE
+  // Main panel content renderer
   // =========================================================================
-  if (mode === 'config') {
-    return (
-      <main className="app-shell single-pane">
-        <div className="config-view">
-          <div className="config-top-bar">
-            <div>
-              <p className="eyebrow">Stanford fellowship scheduling</p>
-              <h1>Schedule Configuration</h1>
-            </div>
-            <div className="config-top-actions">
-              <label className="inline-field">
-                <span>Year</span>
-                <select value={selectedFile} onChange={(e) => { setSelectedFile(e.target.value); loadConfig(e.target.value); }}>
-                  {configFiles.annual.map((f) => <option key={f} value={f}>{f.replace('.yaml', '')}</option>)}
-                </select>
-              </label>
-              <label className="inline-field">
-                <span>Weeks</span>
-                <input type="number" value={W} min={1} max={53}
-                  onChange={(e) => setConfig((c) => ({ ...c, num_weeks: Number(e.target.value) || 52 }))}
-                  style={{ width: '4rem' }} />
-              </label>
-              <button className="primary generate-btn" onClick={generateSchedule} disabled={loading}>
-                Generate Schedule
-              </button>
-            </div>
+  function renderMainContent() {
+    if (mode === 'schedule') {
+      return (
+        <div className="schedule-view">
+          <div className="schedule-header">
+            <button className="back-btn" onClick={() => { cancelSolve(); setMode('config'); }}>← Configuration</button>
+            <ProgressPanel status={solverStatus} penalty={penalty} elapsed={elapsed} formulaInfo={formulaInfo} />
+            {isRunning && <button className="cancel-btn" onClick={cancelSolve}>Cancel</button>}
           </div>
 
           {error && <div className="error-banner" role="alert">{error}</div>}
-          {loading && <p className="status-line">Loading config...</p>}
 
-          <div className="config-sections">
-            {/* Fellow Groups */}
-            <section className="config-card">
-              <h2>Fellow Groups</h2>
-              <div className="groups-grid">
-                {Object.entries(config.fellow_groups).map(([group, fellows]) => {
-                  const count = fellows.filter((s) => s.trim()).length;
-                  return (
-                    <label className="field-group" key={group}>
-                      <span>{group} <em className="count">({count})</em></span>
-                      <textarea
-                        value={fellows.join('\n')}
-                        onChange={(e) => updateGroup(group, e.target.value)}
-                        rows={Math.min(6, Math.max(2, fellows.length + 1))}
-                        spellCheck={false}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Night Call */}
-            <section className="config-card">
-              <h2>Night Call Distribution</h2>
-              <table className="config-table">
-                <thead><tr><th>Group</th><th>Total Nights</th><th>Per Fellow</th><th>Friday Nights</th><th>Per Fellow</th></tr></thead>
-                <tbody>
-                  {config.night_call.map((entry, i) => {
-                    const gs = (config.fellow_groups[entry.group] || []).length;
-                    return (
-                      <tr key={i}>
-                        <td>
-                          <select value={entry.group} onChange={(e) => updateNight(i, 'group', e.target.value)}>
-                            {groupNames.map((g) => <option key={g} value={g}>{g} ({(config.fellow_groups[g] || []).length})</option>)}
-                          </select>
-                        </td>
-                        <td><input type="number" value={entry.total_nights} onChange={(e) => updateNight(i, 'total_nights', e.target.value)} /></td>
-                        <td className="breakdown">{gs > 0 ? perFellowText(entry.total_nights, gs) : '—'}</td>
-                        <td><input type="number" value={entry.friday_nights} onChange={(e) => updateNight(i, 'friday_nights', e.target.value)} /></td>
-                        <td className="breakdown">{gs > 0 ? perFellowText(entry.friday_nights, gs) : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <BudgetBar label="Total nights" configured={nightBudget.configured} required={nightBudget.required} unit={`${W} wks × 7`} />
-              <BudgetBar label="Friday nights" configured={nightBudget.fridayConfigured} required={nightBudget.fridayRequired} unit={`${W} wks × 1`} />
-            </section>
-
-            {/* Weekend Call */}
-            <section className="config-card">
-              <h2>Weekend Call Distribution</h2>
-              <table className="config-table">
-                <thead><tr><th>Group</th><th>NCC Total</th><th>Per Fellow</th><th>Stroke Total</th><th>Per Fellow</th></tr></thead>
-                <tbody>
-                  {config.weekend_call.map((entry, i) => {
-                    const gs = (config.fellow_groups[entry.group] || []).length;
-                    return (
-                      <tr key={i}>
-                        <td>
-                          <select value={entry.group} onChange={(e) => updateWeekend(i, 'group', e.target.value)}>
-                            {groupNames.map((g) => <option key={g} value={g}>{g} ({(config.fellow_groups[g] || []).length})</option>)}
-                          </select>
-                        </td>
-                        <td><input type="number" value={entry.ncc_total} onChange={(e) => updateWeekend(i, 'ncc_total', e.target.value)} /></td>
-                        <td className="breakdown">{gs > 0 ? perFellowText(entry.ncc_total, gs) : '—'}</td>
-                        <td><input type="number" value={entry.stroke_total} onChange={(e) => updateWeekend(i, 'stroke_total', e.target.value)} /></td>
-                        <td className="breakdown">{gs > 0 ? perFellowText(entry.stroke_total, gs) : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <BudgetBar label="Weekend NCC" configured={weekendBudget.nccConfigured} required={weekendBudget.nccRequired} unit={`${W} wks × 2`} />
-              <BudgetBar label="Weekend Stroke" configured={weekendBudget.strokeConfigured} required={weekendBudget.strokeRequired} unit={`${W} wks × 1`} />
-            </section>
-
-            {/* Vacation Requests */}
-            <section className="config-card">
-              <h2>Vacation Requests</h2>
-              <p className="hint">First 3 per fellow are hard; extras are soft.</p>
-              <div className="request-grid">
-                {allFellows.map((fellow) => {
-                  const dates = vacationDates[fellow] || [];
-                  return (
-                    <div className="request-row" key={fellow}>
-                      <strong>{fellow}</strong>
-                      <div className="week-list">
-                        {dates.map((d, i) => (
-                          <span key={`${fellow}-${i}`} className="week-input">
-                            <input type="date" value={d} onChange={(e) => updateVacDate(fellow, i, e.target.value)} />
-                            <button type="button" onClick={() => removeVacDate(fellow, i)}>×</button>
-                          </span>
-                        ))}
-                        <button type="button" className="add-btn" onClick={() => addVacDate(fellow)}>+ date</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Holidays */}
-            <section className="config-card">
-              <h2>Holiday Dates</h2>
-              <div className="week-list">
-                {config.holiday_dates.map((d, i) => (
-                  <span key={i} className="week-input">
-                    <input type="date" value={d} onChange={(e) => updateHoliday(i, e.target.value)} />
-                    <button type="button" onClick={() => removeHoliday(i)}>×</button>
-                  </span>
+          {solution ? (
+            <>
+              <div className="tab-bar">
+                {(['weekly', 'weekend', 'night'] as const).map((tab) => (
+                  <button key={tab} className={scheduleTab === tab ? 'tab active' : 'tab'} onClick={() => setScheduleTab(tab)}>
+                    {tab === 'weekly' ? 'Weekly Shifts' : tab === 'weekend' ? 'Weekend Call' : 'Night Call'}
+                  </button>
                 ))}
-                <button type="button" className="add-btn" onClick={addHoliday}>+ date</button>
               </div>
-            </section>
+              {scheduleTab === 'weekly' && <ScheduleTable columns={Object.keys(solution.weekly_assignments)} rows={solution.weekly_assignments} />}
+              {scheduleTab === 'weekend' && <ScheduleTable columns={solution.weekend_assignments.length > 0 ? Object.keys(solution.weekend_assignments[0]) : []} rows={pivotWeeklyList(solution.weekend_assignments)} />}
+              {scheduleTab === 'night' && <ScheduleTable columns={solution.night_assignments.length > 0 ? Object.keys(solution.night_assignments[0]) : []} rows={pivotWeeklyList(solution.night_assignments)} />}
+            </>
+          ) : (
+            <div className="empty-state">
+              <h2>{isRunning ? 'Building schedule...' : 'No schedule yet'}</h2>
+              <p>{isRunning ? 'The first result will appear within a few seconds.' : 'Go back to configuration and click Generate.'}</p>
+            </div>
+          )}
+        </div>
+      );
+    }
 
-            {/* Standing Rules */}
+    // Config mode: section-based rendering
+    return (
+      <div className="config-view">
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        {loading && <p className="status-line">Loading config...</p>}
+
+        {activeSection === 'fellows' && (
+          <section className="config-card">
+            <h2>Fellow Groups</h2>
+            <div className="groups-grid">
+              {Object.entries(config.fellow_groups).map(([group, fellows]) => {
+                const count = fellows.filter((s) => s.trim()).length;
+                return (
+                  <label className="field-group" key={group}>
+                    <span>{group} <em className="count">({count})</em></span>
+                    <textarea
+                      value={fellows.join('\n')}
+                      onChange={(e) => updateGroup(group, e.target.value)}
+                      rows={Math.min(6, Math.max(2, fellows.length + 1))}
+                      spellCheck={false}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {activeSection === 'night' && (
+          <section className="config-card">
+            <h2>Night Call Distribution</h2>
+            <table className="config-table">
+              <thead><tr><th>Group</th><th>Total Nights</th><th>Per Fellow</th><th>Friday Nights</th><th>Per Fellow</th></tr></thead>
+              <tbody>
+                {config.night_call.map((entry, i) => {
+                  const gs = (config.fellow_groups[entry.group] || []).length;
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <select value={entry.group} onChange={(e) => updateNight(i, 'group', e.target.value)}>
+                          {groupNames.map((g) => <option key={g} value={g}>{g} ({(config.fellow_groups[g] || []).length})</option>)}
+                        </select>
+                      </td>
+                      <td><input type="number" value={entry.total_nights} onChange={(e) => updateNight(i, 'total_nights', e.target.value)} /></td>
+                      <td className="breakdown">{gs > 0 ? perFellowText(entry.total_nights, gs) : '—'}</td>
+                      <td><input type="number" value={entry.friday_nights} onChange={(e) => updateNight(i, 'friday_nights', e.target.value)} /></td>
+                      <td className="breakdown">{gs > 0 ? perFellowText(entry.friday_nights, gs) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <BudgetBar label="Total nights" configured={nightBudget.configured} required={nightBudget.required} unit={`${W} wks × 7`} />
+            <BudgetBar label="Friday nights" configured={nightBudget.fridayConfigured} required={nightBudget.fridayRequired} unit={`${W} wks × 1`} />
+          </section>
+        )}
+
+        {activeSection === 'weekend' && (
+          <section className="config-card">
+            <h2>Weekend Call Distribution</h2>
+            <table className="config-table">
+              <thead><tr><th>Group</th><th>NCC Total</th><th>Per Fellow</th><th>Stroke Total</th><th>Per Fellow</th></tr></thead>
+              <tbody>
+                {config.weekend_call.map((entry, i) => {
+                  const gs = (config.fellow_groups[entry.group] || []).length;
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <select value={entry.group} onChange={(e) => updateWeekend(i, 'group', e.target.value)}>
+                          {groupNames.map((g) => <option key={g} value={g}>{g} ({(config.fellow_groups[g] || []).length})</option>)}
+                        </select>
+                      </td>
+                      <td><input type="number" value={entry.ncc_total} onChange={(e) => updateWeekend(i, 'ncc_total', e.target.value)} /></td>
+                      <td className="breakdown">{gs > 0 ? perFellowText(entry.ncc_total, gs) : '—'}</td>
+                      <td><input type="number" value={entry.stroke_total} onChange={(e) => updateWeekend(i, 'stroke_total', e.target.value)} /></td>
+                      <td className="breakdown">{gs > 0 ? perFellowText(entry.stroke_total, gs) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <BudgetBar label="Weekend NCC" configured={weekendBudget.nccConfigured} required={weekendBudget.nccRequired} unit={`${W} wks × 2`} />
+            <BudgetBar label="Weekend Stroke" configured={weekendBudget.strokeConfigured} required={weekendBudget.strokeRequired} unit={`${W} wks × 1`} />
+          </section>
+        )}
+
+        {activeSection === 'vacations' && (
+          <section className="config-card">
+            <h2>Vacation Requests</h2>
+            <p className="hint">First 3 per fellow are hard; extras are soft.</p>
+            <div className="request-grid">
+              {allFellows.map((fellow) => {
+                const dates = vacationDates[fellow] || [];
+                return (
+                  <div className="request-row" key={fellow}>
+                    <strong>{fellow}</strong>
+                    <div className="week-list">
+                      {dates.map((d, i) => (
+                        <span key={`${fellow}-${i}`} className="week-input">
+                          <input type="date" value={d} onChange={(e) => updateVacDate(fellow, i, e.target.value)} />
+                          <button type="button" onClick={() => removeVacDate(fellow, i)}>×</button>
+                        </span>
+                      ))}
+                      <button type="button" className="add-btn" onClick={() => addVacDate(fellow)}>+ date</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {activeSection === 'holidays' && (
+          <section className="config-card">
+            <h2>Holiday Dates</h2>
+            <div className="week-list">
+              {config.holiday_dates.map((d, i) => (
+                <span key={i} className="week-input">
+                  <input type="date" value={d} onChange={(e) => updateHoliday(i, e.target.value)} />
+                  <button type="button" onClick={() => removeHoliday(i)}>×</button>
+                </span>
+              ))}
+              <button type="button" className="add-btn" onClick={addHoliday}>+ date</button>
+            </div>
+          </section>
+        )}
+
+        {activeSection === 'rules-program' && (
+          <>
             <section className="config-card">
               <h2>Standing Rules</h2>
               <p className="hint">From stanford-fellowship.yaml. Toggle active/strength for this session.</p>
               <RulesTable rules={standingRules} onToggle={toggleStandingRule} />
             </section>
 
-            {/* Annual Rules */}
             {(config.annual_rules?.rules?.length ?? 0) > 0 && (
-              <section className="config-card">
+              <section className="config-card" style={{ marginTop: '1rem' }}>
                 <h2>Annual Rules</h2>
                 <RulesTable rules={config.annual_rules!.rules} onToggle={toggleAnnualRule} />
               </section>
             )}
-          </div>
-        </div>
-      </main>
+          </>
+        )}
+
+        {activeSection.startsWith('rules-') && activeSection !== 'rules-program' && (
+          <section className="config-card">
+            <h2>Rules for {activeSection.replace('rules-', '')}</h2>
+            <p className="hint">Rule editor coming soon.</p>
+          </section>
+        )}
+      </div>
     );
   }
 
   // =========================================================================
-  // SCHEDULE MODE
+  // Render: unified shell
   // =========================================================================
   return (
-    <main className="app-shell single-pane">
-      <div className="schedule-view">
-        <div className="schedule-header">
-          <button className="back-btn" onClick={() => { cancelSolve(); setMode('config'); }}>← Configuration</button>
-          <ProgressPanel status={solverStatus} penalty={penalty} elapsed={elapsed} formulaInfo={formulaInfo} />
-          {isRunning && <button className="cancel-btn" onClick={cancelSolve}>Cancel</button>}
-        </div>
-
-        {error && <div className="error-banner" role="alert">{error}</div>}
-
-        {solution ? (
-          <>
-            <div className="tab-bar">
-              {(['weekly', 'weekend', 'night'] as const).map((tab) => (
-                <button key={tab} className={scheduleTab === tab ? 'tab active' : 'tab'} onClick={() => setScheduleTab(tab)}>
-                  {tab === 'weekly' ? 'Weekly Shifts' : tab === 'weekend' ? 'Weekend Call' : 'Night Call'}
-                </button>
-              ))}
-            </div>
-            {scheduleTab === 'weekly' && <ScheduleTable columns={Object.keys(solution.weekly_assignments)} rows={solution.weekly_assignments} />}
-            {scheduleTab === 'weekend' && <ScheduleTable columns={solution.weekend_assignments.length > 0 ? Object.keys(solution.weekend_assignments[0]) : []} rows={pivotWeeklyList(solution.weekend_assignments)} />}
-            {scheduleTab === 'night' && <ScheduleTable columns={solution.night_assignments.length > 0 ? Object.keys(solution.night_assignments[0]) : []} rows={pivotWeeklyList(solution.night_assignments)} />}
-          </>
-        ) : (
-          <div className="empty-state">
-            <h2>{isRunning ? 'Building schedule...' : 'No schedule yet'}</h2>
-            <p>{isRunning ? 'The first result will appear within a few seconds.' : 'Go back to configuration and click Generate.'}</p>
-          </div>
-        )}
-      </div>
-    </main>
+    <div className="app-shell">
+      <TopBar
+        selectedFile={selectedFile}
+        configFiles={configFiles.annual}
+        numWeeks={W}
+        hasDraft={hasDraft}
+        onFileChange={(f) => { setSelectedFile(f); loadConfig(f); }}
+        onWeeksChange={(w) => setConfig((c) => ({ ...c, num_weeks: w }))}
+        onPublish={() => { /* draft publish — future */ }}
+        onDiscard={() => { /* draft discard — future */ }}
+      />
+      <Sidebar
+        active={activeSection}
+        onNavigate={(s) => { setActiveSection(s); setMode('config'); }}
+        groups={groupNames}
+        onGenerate={generateSchedule}
+        isRunning={isRunning}
+      />
+      <main className="main-panel">
+        {renderMainContent()}
+      </main>
+    </div>
   );
 }
 

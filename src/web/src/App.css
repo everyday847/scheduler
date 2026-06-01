@@ -47,17 +47,122 @@ button.primary:hover:not(:disabled) {
   background: var(--accent-dark);
 }
 
-/* Layout: single-pane full-width */
-.app-shell.single-pane {
-  display: block;
+/* Layout: sidebar + panel */
+.app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 220px 1fr;
+  grid-template-areas:
+    "topbar topbar"
+    "sidebar main";
   min-height: 100vh;
+}
+
+.top-bar {
+  grid-area: topbar;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  z-index: 10;
+}
+
+.top-bar-title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.draft-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.draft-badge {
+  background: #fff3e0;
+  color: #8b5e00;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.sidebar {
+  grid-area: sidebar;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 1rem 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section {
+  padding: 0 0 0.75rem;
+}
+
+.sidebar-heading {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0.5rem 1rem 0.25rem;
+}
+
+.sidebar-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 1rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.85rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.sidebar-item:hover {
+  background: var(--page);
+}
+
+.sidebar-item.active {
+  background: #e8f0fd;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 1rem;
+}
+
+.sidebar-footer .generate-btn {
+  width: 100%;
+  font-size: 0.9rem;
+  padding: 0.6rem;
+}
+
+.main-panel {
+  grid-area: main;
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 48px);
 }
 
 .config-view,
 .schedule-view {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
+  max-width: 960px;
 }
 
 .title-block {
