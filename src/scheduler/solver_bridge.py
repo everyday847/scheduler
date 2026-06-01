@@ -79,12 +79,15 @@ def build_solver_config_from_request(
     night_config = _build_night_config(raw_request, fellow_groups)
     weekend_config = _build_weekend_config(raw_request, fellow_groups)
 
+    locked_assignments = raw_request.get("locked_assignments", {})
+
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
         constraints=constraints,
         night_config=night_config,
         weekend_config=weekend_config,
+        locked_assignments=locked_assignments,
     )
 
 

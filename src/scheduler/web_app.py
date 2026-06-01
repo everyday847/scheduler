@@ -109,6 +109,31 @@ def publish_draft_endpoint(filename: str):
     return jsonify({"status": "published"})
 
 
+@app.route("/api/schedule/import", methods=["POST"])
+def schedule_import():
+    """Import a CSV/XLSX schedule file and return parsed data."""
+    from .schedule_import import parse_schedule_file
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded. Send as multipart with field name 'file'."}), 400
+
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    try:
+        result = parse_schedule_file(f.read(), f.filename)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({
+        "fellow_names": result.fellow_names,
+        "num_weeks": result.num_weeks,
+        "shifts_found": sorted(result.shifts_found),
+        "assignments": result.assignments,
+    })
+
+
 @app.route("/api/default-schedule", methods=["GET"])
 def default_schedule():
     return jsonify(get_default_schedule_request())
