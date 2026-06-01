@@ -10,6 +10,8 @@ import yaml
 
 from .annual_rules import constraints_from_config as annual_constraints_from_config
 from .night_call_solver import NightSolverConfig, CountMultiset
+from .palette_rules import palette_rule_to_constraints
+from .palette_derivations import derive_forbidden_shifts
 from .standing_rules import constraints_from_config as standing_constraints_from_config
 from .weekend_call_solver import WeekendSolverConfig
 
@@ -54,10 +56,23 @@ def build_solver_config_from_request(
         standing_path = standing_path or STANDING_RULE_CONFIG
         standing_config = yaml.safe_load(standing_path.read_text())
 
-    constraints = [
-        *standing_constraints_from_config(standing_config),
-        *annual_constraints_from_config(annual_rules, fellow_week_pairs=fellow_week_pairs),
-    ]
+    # Detect palette v2 format: rules have "type" key instead of "kind"
+    standing_rules_list = standing_config.get("rules", [])
+    is_palette_format = (
+        standing_rules_list
+        and isinstance(standing_rules_list[0], dict)
+        and "type" in standing_rules_list[0]
+    )
+
+    if is_palette_format:
+        constraints = _build_palette_constraints(
+            standing_config, raw_request, fellow_groups, shifts, fellow_week_pairs,
+        )
+    else:
+        constraints = [
+            *standing_constraints_from_config(standing_config),
+            *annual_constraints_from_config(annual_rules, fellow_week_pairs=fellow_week_pairs),
+        ]
 
     all_fellows = {name: group for group, names in fellow_groups.items() for name in names}
 
@@ -95,6 +110,65 @@ def list_configs() -> Dict[str, list[str]]:
 def get_runner() -> RoundingSatRunner:
     """Get a RoundingSatRunner instance."""
     return RoundingSatRunner(ROUNDINGSAT_BINARY)
+
+
+# ---------------------------------------------------------------------------
+# Palette v2 constraint builder
+# ---------------------------------------------------------------------------
+
+def _build_palette_constraints(
+    standing_config: Dict[str, Any],
+    request: Dict[str, Any],
+    fellow_groups: Dict[str, list[str]],
+    shifts: list[str],
+    fellow_week_pairs: Dict[str, list[int]],
+) -> list:
+    """Build constraints from palette-format (v2) configs."""
+    from .semantic_constraints import ConstraintLifecycle, ConstraintStrength, FellowSelector, SemanticConstraint, ShiftSet, WeekSpan
+    from .annual_rules import vacation_request_constraints
+
+    constraints = []
+
+    # Standing rules (palette format)
+    for rule in standing_config.get("rules", []):
+        if not rule.get("active", True):
+            continue
+        if rule.get("type") == "full_assignment":
+            constraints.extend(palette_rule_to_constraints(
+                {**rule, "type": "staffing_per_week", "shifts": shifts,
+                 "relation": "exactly", "count": 1},
+                lifecycle=ConstraintLifecycle.STANDING_RULE,
+            ))
+            continue
+        constraints.extend(palette_rule_to_constraints(
+            rule, lifecycle=ConstraintLifecycle.STANDING_RULE,
+        ))
+
+    # Annual rules (palette format)
+    annual_rules = request.get("rules", [])
+    if not annual_rules:
+        annual_section = request.get("annual_rules")
+        if annual_section and isinstance(annual_section, dict):
+            annual_rules = annual_section.get("rules", [])
+
+    for rule in annual_rules:
+        if not rule.get("active", True):
+            continue
+        if rule.get("type") == "vacation_request_policy":
+            constraints.extend(vacation_request_constraints(
+                fellow_week_pairs,
+                hard_request_count=rule.get("hard_request_count", 3),
+            ))
+            continue
+        constraints.extend(palette_rule_to_constraints(
+            rule, lifecycle=ConstraintLifecycle.ANNUAL_RULE,
+        ))
+
+    # Derive forbidden shifts from shift_total rules
+    all_rules = standing_config.get("rules", []) + annual_rules
+    constraints.extend(derive_forbidden_shifts(all_rules, shifts, fellow_groups))
+
+    return constraints
 
 
 # ---------------------------------------------------------------------------

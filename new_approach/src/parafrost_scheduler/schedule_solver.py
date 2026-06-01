@@ -293,6 +293,13 @@ def _encode_weekly_rules(
         "fourth_block_two_micu_fellows": _encode_fourth_block_two_micu,
         "isc": _encode_isc,
         "specific_assignment": _encode_specific_assignment,
+        # Palette v2 generic types
+        "shift_total": _encode_shift_total,
+        "staffing_per_week": _encode_staffing_per_week,
+        "coverage_target": _encode_coverage_target,
+        "zero_shifts": _encode_zero_shifts,
+        "prerequisite": _encode_prerequisite,
+        "windowed_balance": _encode_windowed_balance,
     }
 
     for constraint in config.constraints:
@@ -1974,6 +1981,211 @@ def _encode_balance_constraint(
             max_diff + n1 + big_m,
         )
         soft_violations.append((v, weight))
+
+
+# ---------------------------------------------------------------------------
+# Palette v2 generic encoders
+# ---------------------------------------------------------------------------
+
+def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
+    """Per-fellow total of specific shifts, optionally windowed."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+    is_soft = constraint.strength == ConstraintStrength.SOFT
+    weight = kw["config"].weekly_soft_weight
+    soft_violations = kw["soft_violations"]
+
+    relation = constraint.params["relation"]
+    count = constraint.params["count"]
+    target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+    s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+
+    if constraint.weeks:
+        w_start, w_end = constraint.weeks.start, constraint.weeks.end
+    else:
+        w_start, w_end = 0, num_weeks
+
+    for f in fellow_indices:
+        all_vars = []
+        for w in range(w_start, min(w_end, num_weeks)):
+            for si in s_indices:
+                if xs[f][w][si] != 0:
+                    all_vars.append(xs[f][w][si])
+
+        if not all_vars:
+            continue
+
+        _add_cardinality_constraint(
+            opb, all_vars, relation, count,
+            is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+        )
+
+
+def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
+    """Per-week staffing requirement: N fellows from groups on shifts."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+    num_fellows = kw["num_fellows"]
+    is_soft = constraint.strength == ConstraintStrength.SOFT
+    weight = kw["config"].weekly_soft_weight
+    soft_violations = kw["soft_violations"]
+
+    relation = constraint.params["relation"]
+    count = constraint.params["count"]
+    target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+    s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+
+    if constraint.weeks:
+        w_start, w_end = constraint.weeks.start, constraint.weeks.end
+    else:
+        w_start, w_end = 0, num_weeks
+
+    for w in range(w_start, min(w_end, num_weeks)):
+        week_vars = []
+        for f in fellow_indices:
+            for si in s_indices:
+                if xs[f][w][si] != 0:
+                    week_vars.append(xs[f][w][si])
+
+        if not week_vars:
+            continue
+
+        _add_cardinality_constraint(
+            opb, week_vars, relation, count,
+            is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+        )
+
+
+def _encode_coverage_target(opb, xs, constraint, fellow_indices, **kw):
+    """At least (W - max_uncovered) weeks have the shift covered."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+    is_soft = constraint.strength == ConstraintStrength.SOFT
+    weight = kw["config"].swing_uncovered_weight
+    soft_violations = kw["soft_violations"]
+
+    max_uncovered = constraint.params["max_uncovered_weeks"]
+    target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+    s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+
+    covered_vars = []
+    for w in range(num_weeks):
+        week_vars = []
+        for f in fellow_indices:
+            for si in s_indices:
+                if xs[f][w][si] != 0:
+                    week_vars.append(xs[f][w][si])
+        if week_vars:
+            covered = opb.new_var()
+            for wv in week_vars:
+                opb.weighted_sum_at_least([(covered, 1), (-wv, 1)], 1)
+            opb.weighted_sum_at_least(
+                [(v, 1) for v in week_vars] + [(-covered, 1)], 0
+            )
+            covered_vars.append(covered)
+
+    if not covered_vars:
+        return
+
+    required = num_weeks - max_uncovered
+    if required <= 0:
+        return
+
+    if is_soft:
+        for cv in covered_vars:
+            uncov = opb.new_var()
+            opb.at_least_k([cv, uncov], 1)
+            opb.at_most_k([cv, uncov], 1)
+            soft_violations.append((uncov, weight))
+    else:
+        opb.at_least_k(covered_vars, min(required, len(covered_vars)))
+
+
+def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
+    """Forbid fellows from being assigned specific shifts."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+
+    for shift_name in constraint.params.get("zero_shifts", []):
+        si = shift_idx.get(shift_name)
+        if si is None:
+            continue
+        for f in fellow_indices:
+            for w in range(num_weeks):
+                if xs[f][w][si] != 0:
+                    opb.add_unit(-xs[f][w][si])
+
+
+def _encode_prerequisite(opb, xs, constraint, fellow_indices, **kw):
+    """N weeks of prerequisite shifts before any target shift."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+
+    prereq_shifts = constraint.params["prerequisite_shifts"]
+    target_shifts = constraint.params["target_shifts"]
+    n_required = constraint.params["min_prerequisite_weeks"]
+
+    prereq_indices = [shift_idx[s] for s in prereq_shifts if s in shift_idx]
+    target_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+
+    if not prereq_indices or not target_indices:
+        return
+
+    for f in fellow_indices:
+        for w in range(min(n_required, num_weeks)):
+            for si in target_indices:
+                if xs[f][w][si] != 0:
+                    opb.add_unit(-xs[f][w][si])
+
+        for w in range(n_required, num_weeks):
+            for si in target_indices:
+                target_var = xs[f][w][si]
+                if target_var == 0:
+                    continue
+                prior_vars = []
+                for pw in range(w):
+                    for pi in prereq_indices:
+                        if xs[f][pw][pi] != 0:
+                            prior_vars.append(xs[f][pw][pi])
+                if len(prior_vars) < n_required:
+                    opb.add_unit(-target_var)
+                else:
+                    opb.weighted_sum_at_least(
+                        [(v, 1) for v in prior_vars] + [(-target_var, n_required)],
+                        n_required,
+                    )
+
+
+def _encode_windowed_balance(opb, xs, constraint, fellow_indices, **kw):
+    """Balance shifts across two arbitrary week windows."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+    is_soft = constraint.strength == ConstraintStrength.SOFT
+    weight = kw["config"].weekly_soft_weight
+    soft_violations = kw["soft_violations"]
+
+    window_a = constraint.params["window_a"]
+    window_b = constraint.params["window_b"]
+    max_diff = constraint.params["max_difference"]
+    target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+    s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+
+    for f in fellow_indices:
+        vars_a = []
+        for w in range(window_a[0], min(window_a[1], num_weeks)):
+            for si in s_indices:
+                if xs[f][w][si] != 0:
+                    vars_a.append(xs[f][w][si])
+        vars_b = []
+        for w in range(window_b[0], min(window_b[1], num_weeks)):
+            for si in s_indices:
+                if xs[f][w][si] != 0:
+                    vars_b.append(xs[f][w][si])
+
+        _encode_balance_constraint(
+            opb, vars_a, vars_b, max_diff,
+            is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+        )
 
 
 # ---------------------------------------------------------------------------
