@@ -8,7 +8,16 @@ export type PaletteRuleType =
   | 'block_rotation'
   | 'rotation_continuity'
   | 'prerequisite'
-  | 'windowed_balance';
+  | 'windowed_balance'
+  | 'night_spacing'
+  | 'night_blocked_services'
+  | 'night_holiday_eligibility'
+  | 'night_penalties'
+  | 'night_sunday_following'
+  | 'weekend_spacing'
+  | 'weekend_blocked_services'
+  | 'weekend_stroke_eligibility'
+  | 'weekend_penalties';
 
 export type Strength = 'hard' | 'soft';
 export type Relation = 'exactly' | 'at_least' | 'at_most';
@@ -77,6 +86,100 @@ export interface WindowedBalanceRule extends PaletteRuleBase {
   max_difference: number;
 }
 
+export interface NightSpacingParams {
+  maxNights: number;
+  windowDays: number;
+}
+
+export interface NightBlockedServicesParams {
+  exactServices: string[];
+  substringServices: string[];
+}
+
+export interface NightHolidayEligibilityParams {
+  allowedServices: string[];
+}
+
+export interface NightPenaltiesParams {
+  weights: Record<string, number>;
+}
+
+export interface NightSundayFollowingParams {
+  preferredServices: string[];
+}
+
+export interface WeekendSpacingParams {
+  maxWeekends: number;
+  windowWeeks: number;
+}
+
+export interface WeekendBlockedServicesParams {
+  exactServices: string[];
+  substringServices: string[];
+}
+
+export interface WeekendStrokeEligibilityParams {
+  eligibleServices: string[];
+}
+
+export interface WeekendPenaltiesParams {
+  weights: Record<string, number>;
+}
+
+export interface NightSpacingRule extends PaletteRuleBase {
+  type: 'night_spacing';
+  description?: string;
+  params: NightSpacingParams;
+}
+
+export interface NightBlockedServicesRule extends PaletteRuleBase {
+  type: 'night_blocked_services';
+  description?: string;
+  params: NightBlockedServicesParams;
+}
+
+export interface NightHolidayEligibilityRule extends PaletteRuleBase {
+  type: 'night_holiday_eligibility';
+  description?: string;
+  params: NightHolidayEligibilityParams;
+}
+
+export interface NightPenaltiesRule extends PaletteRuleBase {
+  type: 'night_penalties';
+  description?: string;
+  params: NightPenaltiesParams;
+}
+
+export interface NightSundayFollowingRule extends PaletteRuleBase {
+  type: 'night_sunday_following';
+  description?: string;
+  params: NightSundayFollowingParams;
+}
+
+export interface WeekendSpacingRule extends PaletteRuleBase {
+  type: 'weekend_spacing';
+  description?: string;
+  params: WeekendSpacingParams;
+}
+
+export interface WeekendBlockedServicesRule extends PaletteRuleBase {
+  type: 'weekend_blocked_services';
+  description?: string;
+  params: WeekendBlockedServicesParams;
+}
+
+export interface WeekendStrokeEligibilityRule extends PaletteRuleBase {
+  type: 'weekend_stroke_eligibility';
+  description?: string;
+  params: WeekendStrokeEligibilityParams;
+}
+
+export interface WeekendPenaltiesRule extends PaletteRuleBase {
+  type: 'weekend_penalties';
+  description?: string;
+  params: WeekendPenaltiesParams;
+}
+
 export type PaletteRule =
   | ShiftTotalRule
   | StaffingPerWeekRule
@@ -85,7 +188,16 @@ export type PaletteRule =
   | BlockRotationRule
   | RotationContinuityRule
   | PrerequisiteRule
-  | WindowedBalanceRule;
+  | WindowedBalanceRule
+  | NightSpacingRule
+  | NightBlockedServicesRule
+  | NightHolidayEligibilityRule
+  | NightPenaltiesRule
+  | NightSundayFollowingRule
+  | WeekendSpacingRule
+  | WeekendBlockedServicesRule
+  | WeekendStrokeEligibilityRule
+  | WeekendPenaltiesRule;
 
 export type FeasibilityStatus = 'unchecked' | 'pass' | 'fail' | 'checking';
 
@@ -127,6 +239,15 @@ export const PALETTE_TYPE_LABELS: Record<PaletteRuleType, string> = {
   rotation_continuity: 'Rotation Continuity',
   prerequisite: 'Prerequisite',
   windowed_balance: 'Windowed Balance',
+  night_spacing: 'Night Spacing',
+  night_blocked_services: 'Night Blocked Services',
+  night_holiday_eligibility: 'Night Holiday Eligibility',
+  night_penalties: 'Night Penalties',
+  night_sunday_following: 'Night Sunday Following',
+  weekend_spacing: 'Weekend Spacing',
+  weekend_blocked_services: 'Weekend Blocked Services',
+  weekend_stroke_eligibility: 'Weekend Stroke Eligibility',
+  weekend_penalties: 'Weekend Penalties',
 };
 
 export const PALETTE_TYPE_DESCRIPTIONS: Record<PaletteRuleType, string> = {
@@ -138,4 +259,13 @@ export const PALETTE_TYPE_DESCRIPTIONS: Record<PaletteRuleType, string> = {
   rotation_continuity: 'Stay on one team within blocks',
   prerequisite: 'Complete rotation A before B',
   windowed_balance: 'Balance shifts across two time periods',
+  night_spacing: 'Limit night call frequency',
+  night_blocked_services: 'Block specified services from night call',
+  night_holiday_eligibility: 'Restrict night call to allowed services',
+  night_penalties: 'Weight penalties for night call assignments',
+  night_sunday_following: 'Preferred services for Sunday following night call',
+  weekend_spacing: 'Limit weekend call frequency',
+  weekend_blocked_services: 'Block specified services from weekend call',
+  weekend_stroke_eligibility: 'Restrict weekend stroke call to eligible services',
+  weekend_penalties: 'Weight penalties for weekend call assignments',
 };
