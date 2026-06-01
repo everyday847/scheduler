@@ -100,6 +100,7 @@ class ScheduleSolverConfig:
     weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
+    locked_assignments: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -183,10 +184,35 @@ def build_full_schedule_opb(
                 opb.at_most_k(active_vars, 1)
 
     # -------------------------------------------------------------------
+    # 2b. Pin locked fellows' assignments
+    # -------------------------------------------------------------------
+    locked_fellow_indices: frozenset[int] = frozenset()
+    if config.locked_assignments:
+        locked_indices = set()
+        opb.add_comment("Locked fellow assignments (pinned)")
+        for fellow_name, weekly_shifts in config.locked_assignments.items():
+            try:
+                f = fellow_mapping.get_fellow_index(fellow_name)
+            except ValueError:
+                continue
+            locked_indices.add(f)
+            for w, shift_name in enumerate(weekly_shifts):
+                if w >= num_weeks or not shift_name:
+                    continue
+                si = shift_idx.get(shift_name)
+                if si is None:
+                    continue
+                var = xs[f][w][si]
+                if var != 0:
+                    opb.add_unit(var)
+        locked_fellow_indices = frozenset(locked_indices)
+
+    # -------------------------------------------------------------------
     # 3. Encode weekly shift rules from YAML config
     # -------------------------------------------------------------------
     _encode_weekly_rules(
         opb, xs, config, fellow_mapping, shift_idx, soft_violations,
+        locked_fellow_indices=locked_fellow_indices,
     )
 
     # -------------------------------------------------------------------
@@ -260,6 +286,16 @@ def build_full_schedule_opb(
 # Weekly rule encoders
 # ---------------------------------------------------------------------------
 
+PER_FELLOW_KINDS = frozenset({
+    "shift_total", "max_consecutive", "all_or_none_block",
+    "block_shift_set_choice", "prerequisite", "windowed_balance",
+    "service_profile", "nir_one_week_per_half", "scvmc_second_half",
+    "stroke_no_block_one_ncc", "jr_ncc_before_swing",
+    "comparable_half_year_distribution", "block_rotation",
+    "rotation_continuity", "block_shift_count", "zero_shifts",
+})
+
+
 def _encode_weekly_rules(
     opb: OpbBuilder,
     xs: list[list[list[int]]],
@@ -267,6 +303,8 @@ def _encode_weekly_rules(
     fellow_mapping: FellowMapping,
     shift_idx: dict[str, int],
     soft_violations: list[tuple[int, int]],
+    *,
+    locked_fellow_indices: frozenset[int] = frozenset(),
 ) -> None:
     """Encode all active weekly shift constraints from the YAML config."""
 
@@ -308,6 +346,10 @@ def _encode_weekly_rules(
             print(f"Warning: skipping unsupported rule kind '{constraint.kind}'", file=sys.stderr)
             continue
         fellow_indices = _resolve_fellow_indices(fellow_mapping, constraint.fellows)
+        if locked_fellow_indices and constraint.kind in PER_FELLOW_KINDS:
+            fellow_indices = [f for f in fellow_indices if f not in locked_fellow_indices]
+            if not fellow_indices:
+                continue
         opb.add_comment(f"Rule: {constraint.params.get('name', constraint.kind)} ({constraint.strength.value})")
         handler(
             opb, xs, constraint, fellow_indices,
