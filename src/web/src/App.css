@@ -604,7 +604,42 @@ tbody th {
   font-weight: 600;
 }
 
-/* Rules table */
+/* Standing rules list */
+.standing-rules-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.standing-rule-item {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.standing-rule-item.rule-inactive {
+  opacity: 0.5;
+}
+
+.standing-rule-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.standing-rule-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.standing-rule-desc {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 0.3rem 0 0 1.5rem;
+  line-height: 1.4;
+}
+
+/* Legacy rules table */
 .rules-table {
   font-size: 0.82rem;
 }

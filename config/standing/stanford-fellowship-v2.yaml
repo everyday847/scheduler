@@ -6,16 +6,15 @@
 
 rules:
 
-  # --- Full Assignment ---
-  # NCC and Stroke fellows must be assigned something every week.
   - name: Full Assignment for NCC/Stroke
+    description: "Every NCC and Stroke fellow must be assigned exactly one service every week. We are responsible for their schedules."
     type: full_assignment
     groups: [NCC_JR, NCC_SR, STROKE]
     strength: hard
     active: true
 
-  # --- NCC Coverage (decomposed from monolithic ncc_coverage rule) ---
   - name: NCC1 Coverage
+    description: "The NCC1 team must be staffed every week. At least one fellow is always on NCC1."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1]
@@ -25,6 +24,7 @@ rules:
     active: true
 
   - name: NCC1 Cap
+    description: "No more than 2 fellows on NCC1 in any week (service can't support more)."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1]
@@ -34,6 +34,7 @@ rules:
     active: true
 
   - name: NCC2 Coverage
+    description: "The NCC2 team must be staffed every week. At least one fellow is always on NCC2."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC2]
@@ -43,6 +44,7 @@ rules:
     active: true
 
   - name: NCC2 Cap
+    description: "No more than 2 fellows on NCC2 in any week."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC2]
@@ -52,6 +54,7 @@ rules:
     active: true
 
   - name: NCC Team Cap
+    description: "Total NCC team (NCC1 + NCC2) can't exceed 3 fellows. The service doesn't have enough patients for more."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2]
@@ -61,6 +64,7 @@ rules:
     active: true
 
   - name: NCC+Swing Cap
+    description: "NCC1 + NCC2 + Swing combined can't exceed 4 fellows in any week."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC1, NCC2, Swing]
@@ -70,6 +74,7 @@ rules:
     active: true
 
   - name: Swing Cap
+    description: "At most 1 fellow on Swing per week (it's a single-person role)."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [Swing]
@@ -78,8 +83,8 @@ rules:
     strength: hard
     active: true
 
-  # --- Block Rotations (inter-program commitments) ---
   - name: MICU 4-Week Blocks
+    description: "MICU rotations come in 4-week blocks. Coordinated with the MICU program — can't split."
     type: block_rotation
     groups: [NCC_JR, NCC_SR]
     shifts: [MICU]
@@ -88,6 +93,7 @@ rules:
     active: true
 
   - name: SICU 4-Week Blocks
+    description: "SICU rotations come in 4-week blocks. Coordinated with the surgical ICU program."
     type: block_rotation
     groups: [NCC_JR]
     shifts: [SICU]
@@ -96,6 +102,7 @@ rules:
     active: true
 
   - name: Anaesthesia 4-Week Blocks
+    description: "Anaesthesia rotations come in 4-week blocks. Coordinated with the anaesthesia fellowship — we would sacrifice a lot before breaking this."
     type: block_rotation
     groups: [NCC_JR]
     shifts: [Anaesthesia]
@@ -104,6 +111,7 @@ rules:
     active: true
 
   - name: NS 2-Week Blocks
+    description: "Neurosurgery rotations come in 2-week blocks. Coordinated with the NS team."
     type: block_rotation
     groups: [NCC_SR]
     shifts: [NS]
@@ -111,9 +119,8 @@ rules:
     strength: hard
     active: true
 
-  # --- NCC/Stroke Oversight ---
-  # At least one NCC fellow (JR/SR/Stroke) on NCC1 or NCC2 each week.
   - name: NCC/Stroke Oversight
+    description: "At least one NCC fellow (junior, senior, or stroke) must be on NCC1 or NCC2 each week. Ensures experienced oversight of the NCC service."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE]
     shifts: [NCC1, NCC2]
@@ -122,8 +129,8 @@ rules:
     strength: hard
     active: true
 
-  # --- Stroke Shift Coverage ---
   - name: Stroke Service Coverage
+    description: "Exactly one fellow covers the inpatient Stroke service each week. Must always be staffed."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, NH]
     shifts: [Stroke]
@@ -133,6 +140,7 @@ rules:
     active: true
 
   - name: Telestroke Coverage
+    description: "Exactly one fellow on Telestroke/Clinic each week. Required for telestroke call coverage."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, NH]
     shifts: [Telestroke/Clinic]
@@ -141,9 +149,8 @@ rules:
     strength: hard
     active: true
 
-  # --- Stroke: No NCC in First Block ---
-  # Stroke fellows don't do NCC1/NCC2/Swing in weeks 0-3.
   - name: "Stroke: No NCC in First Block"
+    description: "Stroke fellows don't start on NCC in their first 4 weeks. They need orientation to the stroke service first."
     type: shift_total
     groups: [STROKE]
     shifts: [NCC1, NCC2, Swing]
@@ -153,8 +160,8 @@ rules:
     strength: hard
     active: true
 
-  # --- NCC Junior Orientation ---
   - name: NCC Junior Orientation MICU
+    description: "NCC juniors spend their first 4 weeks on MICU. This is the orientation block before any NCC service."
     type: shift_total
     groups: [NCC_JR]
     shifts: [MICU]
@@ -165,6 +172,7 @@ rules:
     active: true
 
   - name: NCC Junior Early NCC Exposure
+    description: "NCC juniors must get at least 1 week of NCC between weeks 5-19 (after orientation, before mid-year)."
     type: shift_total
     groups: [NCC_JR]
     shifts: [NCC1, NCC2]
@@ -174,8 +182,8 @@ rules:
     strength: hard
     active: true
 
-  # --- Prerequisite ---
   - name: "NCC Junior: NCC Before Swing"
+    description: "NCC juniors must complete 4 weeks of NCC1/NCC2 before they can do Swing. They need to learn the service before taking the more independent swing role."
     type: prerequisite
     groups: [NCC_JR]
     prerequisite_shifts: [NCC1, NCC2]

@@ -869,26 +869,26 @@ function BudgetBar({ label, configured, required, unit }: { label: string; confi
 function RulesTable({ rules, onToggle }: { rules: Rule[]; onToggle: (i: number, field: 'active' | 'strength') => void }) {
   if (!rules.length) return <p className="hint">No rules loaded.</p>;
   return (
-    <table className="config-table rules-table">
-      <thead><tr><th>Active</th><th>Name</th><th>Kind</th><th>Strength</th><th>Groups</th></tr></thead>
-      <tbody>
-        {rules.map((r, i) => (
-          <tr key={i} className={r.active ? '' : 'rule-inactive'}>
-            <td><input type="checkbox" checked={r.active} onChange={() => onToggle(i, 'active')} /></td>
-            <td>{r.name}</td>
-            <td className="rule-kind">{r.kind}</td>
-            <td>
-              {r.strength && (
-                <button className={`strength-toggle ${r.strength}`} onClick={() => onToggle(i, 'strength')}>
-                  {r.strength}
-                </button>
-              )}
-            </td>
-            <td className="rule-groups">{(r.fellow_groups || []).join(', ')}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="standing-rules-list">
+      {rules.map((r, i) => (
+        <div key={i} className={`standing-rule-item ${r.active ? '' : 'rule-inactive'}`}>
+          <div className="standing-rule-header">
+            <input type="checkbox" checked={r.active} onChange={() => onToggle(i, 'active')} />
+            <span className="standing-rule-name">{r.name}</span>
+            <span className="rule-type-label">{r.type || r.kind}</span>
+            {r.strength && (
+              <button className={`strength-toggle ${r.strength}`} onClick={() => onToggle(i, 'strength')}>
+                {r.strength}
+              </button>
+            )}
+            <span className="rule-groups">{(r.groups || r.fellow_groups || []).join(', ')}</span>
+          </div>
+          {r.description && (
+            <p className="standing-rule-desc">{r.description}</p>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
