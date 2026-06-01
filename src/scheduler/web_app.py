@@ -164,9 +164,10 @@ def feasibility_check():
     config_data = body.get("config", {})
     rule = body.get("rule")
     pair_with = body.get("pair_with")
+    rules_list = body.get("rules")  # For collective testing (e.g., all shift_totals for a group)
 
-    if not rule:
-        return jsonify({"error": "rule is required"}), 400
+    if not rule and not rules_list:
+        return jsonify({"error": "rule or rules is required"}), 400
 
     try:
         fellow_groups = config_data.get("fellow_groups", {})
@@ -196,8 +197,11 @@ def feasibility_check():
             standing_config = yaml.safe_load(STANDING_RULE_CONFIG.read_text())
             standing_constraints = list(standing_constraints_from_config(standing_config))
 
-        # Build probe constraints: standing + target rule + optional pair
-        probe_rules = [rule]
+        # Build probe constraints: standing + target rule(s) + optional pair
+        if rules_list:
+            probe_rules = rules_list
+        else:
+            probe_rules = [rule]
         if pair_with:
             probe_rules.append(pair_with)
 

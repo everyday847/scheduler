@@ -287,41 +287,87 @@ function App() {
       rules: paletteRules,
     };
 
-    // Solo checks: run with concurrency limit of 3
-    const soloResults: Record<string, boolean> = {};
-    const soloQueue = [...activeRules];
+    // Shift totals for a group are tested collectively (they define what's allowed).
+    // Non-shift-total rules are tested individually.
+    const shiftTotals = activeRules.filter(r => r.type === 'shift_total');
+    const constraintRules = activeRules.filter(r => r.type !== 'shift_total');
 
-    const runSoloProbe = async (rule: PaletteRule) => {
-      try {
-        const resp = await fetch(`${API_BASE}/api/feasibility/check`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            config: configPayload,
-            standing_rules: standingRules,
-            rule,
-          }),
-        });
-        const data = await resp.json();
-        soloResults[rule.name] = data.satisfiable;
-        setFeasibility(prev => ({
-          ...prev,
-          [rule.name]: { ...prev[rule.name], solo: data.satisfiable ? 'pass' : 'fail' },
-        }));
-      } catch {
-        soloResults[rule.name] = false;
-        setFeasibility(prev => ({
-          ...prev,
-          [rule.name]: { ...prev[rule.name], solo: 'fail' },
-        }));
+    // Group shift_totals by group for collective testing
+    const totalsByGroup: Record<string, PaletteRule[]> = {};
+    for (const r of shiftTotals) {
+      for (const g of (r.groups || [])) {
+        if (!totalsByGroup[g]) totalsByGroup[g] = [];
+        totalsByGroup[g].push(r);
       }
-    };
+    }
 
-    // Run solo probes with concurrency limit
+    const soloResults: Record<string, boolean> = {};
     const concurrency = 3;
-    for (let i = 0; i < soloQueue.length; i += concurrency) {
-      const batch = soloQueue.slice(i, i + concurrency);
-      await Promise.all(batch.map(runSoloProbe));
+
+    // Test each group's shift_totals collectively (one probe per group)
+    const groupProbes = Object.entries(totalsByGroup);
+    for (let i = 0; i < groupProbes.length; i += concurrency) {
+      const batch = groupProbes.slice(i, i + concurrency);
+      await Promise.all(batch.map(async ([group, rules]) => {
+        try {
+          const resp = await fetch(`${API_BASE}/api/feasibility/check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              config: configPayload,
+              standing_rules: standingRules,
+              rules: rules,
+            }),
+          });
+          const data = await resp.json();
+          const status = data.satisfiable ? 'pass' as const : 'fail' as const;
+          for (const r of rules) {
+            soloResults[r.name] = data.satisfiable;
+          }
+          setFeasibility(prev => {
+            const next = { ...prev };
+            for (const r of rules) { next[r.name] = { ...next[r.name], solo: status }; }
+            return next;
+          });
+        } catch {
+          for (const r of rules) { soloResults[r.name] = false; }
+          setFeasibility(prev => {
+            const next = { ...prev };
+            for (const r of rules) { next[r.name] = { ...next[r.name], solo: 'fail' }; }
+            return next;
+          });
+        }
+      }));
+    }
+
+    // Test constraint rules individually
+    for (let i = 0; i < constraintRules.length; i += concurrency) {
+      const batch = constraintRules.slice(i, i + concurrency);
+      await Promise.all(batch.map(async (rule) => {
+        try {
+          const resp = await fetch(`${API_BASE}/api/feasibility/check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              config: configPayload,
+              standing_rules: standingRules,
+              rule,
+            }),
+          });
+          const data = await resp.json();
+          soloResults[rule.name] = data.satisfiable;
+          setFeasibility(prev => ({
+            ...prev,
+            [rule.name]: { ...prev[rule.name], solo: data.satisfiable ? 'pass' : 'fail' },
+          }));
+        } catch {
+          soloResults[rule.name] = false;
+          setFeasibility(prev => ({
+            ...prev,
+            [rule.name]: { ...prev[rule.name], solo: 'fail' },
+          }));
+        }
+      }));
     }
 
     // Pairwise checks: only for rules that passed solo
