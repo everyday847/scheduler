@@ -6,6 +6,7 @@ type Props = {
   rule: PaletteRule;
   onToggleActive: (ruleName: string) => void;
   onToggleStrength: (ruleName: string) => void;
+  onEdit?: () => void;
 };
 
 function ruleSummary(rule: PaletteRule): string {
@@ -29,7 +30,7 @@ function ruleSummary(rule: PaletteRule): string {
   }
 }
 
-export function RuleCard({ rule, onToggleActive, onToggleStrength }: Props) {
+export function RuleCard({ rule, onToggleActive, onToggleStrength, onEdit }: Props) {
   const label = PALETTE_TYPE_LABELS[rule.type as keyof typeof PALETTE_TYPE_LABELS] || rule.type;
 
   return (
@@ -41,6 +42,7 @@ export function RuleCard({ rule, onToggleActive, onToggleStrength }: Props) {
           onClick={() => onToggleStrength(rule.name)}>
           {rule.strength}
         </button>
+        {onEdit && <button className="edit-btn" onClick={onEdit}>Edit</button>}
         <FeasibilityPips solo="unchecked" pairwise="unchecked" />
       </div>
       <div className="rule-card-summary">

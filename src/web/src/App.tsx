@@ -4,6 +4,8 @@ import { TopBar } from './components/TopBar';
 import { Sidebar, SidebarSection } from './components/Sidebar';
 import { CoverageTotalsTable } from './components/CoverageTotalsTable';
 import { RuleCard } from './components/RuleCard';
+import { RuleEditor } from './components/RuleEditor';
+import { RulePalette } from './components/RulePalette';
 import { PaletteRule, ShiftTotalRule, Relation } from './types';
 
 const API_BASE = 'http://127.0.0.1:5000';
@@ -96,6 +98,8 @@ function App() {
 
   const [activeSection, setActiveSection] = useState<SidebarSection>('fellows');
   const [hasDraft] = useState(false);
+  const [editingRule, setEditingRule] = useState<string | null>(null);
+  const [showPalette, setShowPalette] = useState(false);
 
   const W = config.num_weeks || 52;
 
@@ -237,6 +241,22 @@ function App() {
     setPaletteRules(prev => prev.map(r =>
       r.name === ruleName && r.type === 'shift_total' ? { ...r, relation } : r
     ));
+  };
+
+  const savePaletteRule = (updated: PaletteRule) => {
+    setPaletteRules(prev => prev.map(r => r.name === editingRule ? updated : r));
+    setEditingRule(null);
+  };
+
+  const removePaletteRule = (ruleName: string) => {
+    setPaletteRules(prev => prev.filter(r => r.name !== ruleName));
+    setEditingRule(null);
+  };
+
+  const addPaletteRule = (rule: PaletteRule) => {
+    setPaletteRules(prev => [...prev, rule]);
+    setShowPalette(false);
+    setEditingRule(rule.name);
   };
 
   // Solver
@@ -528,27 +548,51 @@ function App() {
           return (
             <section className="config-card">
               <h2>{group}</h2>
-              <CoverageTotalsTable
-                rules={shiftTotals}
-                onToggleActive={togglePaletteRuleActive}
-                onToggleStrength={togglePaletteRuleStrength}
-                onChangeCount={changePaletteRuleCount}
-                onChangeRelation={changePaletteRuleRelation}
-              />
-              {otherRules.length > 0 && (
-                <div className="rule-cards">
-                  <h3>Constraints</h3>
-                  {otherRules.map(r => (
-                    <RuleCard
-                      key={r.name}
-                      rule={r}
-                      onToggleActive={togglePaletteRuleActive}
-                      onToggleStrength={togglePaletteRuleStrength}
-                    />
-                  ))}
-                </div>
+
+              {editingRule && groupRules.find(r => r.name === editingRule) ? (
+                <RuleEditor
+                  rule={groupRules.find(r => r.name === editingRule)!}
+                  allShifts={config.shifts}
+                  allGroups={groupNames}
+                  onSave={savePaletteRule}
+                  onCancel={() => setEditingRule(null)}
+                  onRemove={() => removePaletteRule(editingRule)}
+                />
+              ) : showPalette ? (
+                <RulePalette
+                  group={group}
+                  onAdd={addPaletteRule}
+                  onCancel={() => setShowPalette(false)}
+                />
+              ) : (
+                <>
+                  <CoverageTotalsTable
+                    rules={shiftTotals}
+                    onToggleActive={togglePaletteRuleActive}
+                    onToggleStrength={togglePaletteRuleStrength}
+                    onChangeCount={changePaletteRuleCount}
+                    onChangeRelation={changePaletteRuleRelation}
+                  />
+                  {otherRules.length > 0 && (
+                    <div className="rule-cards">
+                      <h3>Constraints</h3>
+                      {otherRules.map(r => (
+                        <RuleCard
+                          key={r.name}
+                          rule={r}
+                          onToggleActive={togglePaletteRuleActive}
+                          onToggleStrength={togglePaletteRuleStrength}
+                          onEdit={() => setEditingRule(r.name)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <button className="add-btn" style={{ marginTop: '1rem' }}
+                    onClick={() => setShowPalette(true)}>+ Add Rule</button>
+                </>
               )}
-              {groupRules.length === 0 && (
+
+              {groupRules.length === 0 && !showPalette && (
                 <p className="hint">No rules configured for {group}.</p>
               )}
             </section>
