@@ -2,3 +2,4 @@
 src/scheduler/*.xlsx
 **/*.pyc
 **/.idea/*
+.DS_Store
