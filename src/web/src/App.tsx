@@ -6,7 +6,7 @@ import { CoverageTotalsTable } from './components/CoverageTotalsTable';
 import { RuleCard } from './components/RuleCard';
 import { RuleEditor } from './components/RuleEditor';
 import { RulePalette } from './components/RulePalette';
-import { PaletteRule, ShiftTotalRule, Relation } from './types';
+import { PaletteRule, ShiftTotalRule, Relation, RuleFeasibility } from './types';
 
 const API_BASE = 'http://127.0.0.1:5000';
 const HORIZON_START = new Date(2026, 5, 29); // June 29, 2026
@@ -100,6 +100,7 @@ function App() {
   const [hasDraft, setHasDraft] = useState(false);
   const [editingRule, setEditingRule] = useState<string | null>(null);
   const [showPalette, setShowPalette] = useState(false);
+  const [feasibility, setFeasibility] = useState<Record<string, RuleFeasibility>>({});
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const W = config.num_weeks || 52;
@@ -264,6 +265,113 @@ function App() {
     setShowPalette(false);
     setEditingRule(rule.name);
   };
+
+  // Feasibility checking
+  const checkFeasibility = useCallback(async () => {
+    if (paletteRules.length === 0) return;
+
+    const activeRules = paletteRules.filter(r => r.active);
+    if (activeRules.length === 0) return;
+
+    // Mark all as checking
+    const checking: Record<string, RuleFeasibility> = {};
+    for (const r of activeRules) {
+      checking[r.name] = { solo: 'checking', pairwise: 'unchecked' };
+    }
+    setFeasibility(checking);
+
+    const configPayload = {
+      fellow_groups: config.fellow_groups,
+      shifts: config.shifts,
+      num_weeks: config.num_weeks || 52,
+      rules: paletteRules,
+    };
+
+    // Solo checks: run with concurrency limit of 3
+    const soloResults: Record<string, boolean> = {};
+    const soloQueue = [...activeRules];
+
+    const runSoloProbe = async (rule: PaletteRule) => {
+      try {
+        const resp = await fetch(`${API_BASE}/api/feasibility/check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            config: configPayload,
+            standing_rules: standingRules,
+            rule,
+          }),
+        });
+        const data = await resp.json();
+        soloResults[rule.name] = data.satisfiable;
+        setFeasibility(prev => ({
+          ...prev,
+          [rule.name]: { ...prev[rule.name], solo: data.satisfiable ? 'pass' : 'fail' },
+        }));
+      } catch {
+        soloResults[rule.name] = false;
+        setFeasibility(prev => ({
+          ...prev,
+          [rule.name]: { ...prev[rule.name], solo: 'fail' },
+        }));
+      }
+    };
+
+    // Run solo probes with concurrency limit
+    const concurrency = 3;
+    for (let i = 0; i < soloQueue.length; i += concurrency) {
+      const batch = soloQueue.slice(i, i + concurrency);
+      await Promise.all(batch.map(runSoloProbe));
+    }
+
+    // Pairwise checks: only for rules that passed solo
+    const passedRules = activeRules.filter(r => soloResults[r.name]);
+
+    // Mark pairwise as checking for passed rules
+    setFeasibility(prev => {
+      const next = { ...prev };
+      for (const r of passedRules) {
+        next[r.name] = { ...next[r.name], pairwise: 'checking' };
+      }
+      return next;
+    });
+
+    for (const rule of passedRules) {
+      let allPairsPass = true;
+      const others = passedRules.filter(r => r.name !== rule.name);
+
+      for (let i = 0; i < others.length; i += concurrency) {
+        const batch = others.slice(i, i + concurrency);
+        const results = await Promise.all(batch.map(async (other) => {
+          try {
+            const resp = await fetch(`${API_BASE}/api/feasibility/check`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                config: configPayload,
+                standing_rules: standingRules,
+                rule,
+                pair_with: other,
+              }),
+            });
+            const data = await resp.json();
+            return data.satisfiable;
+          } catch {
+            return false;
+          }
+        }));
+        if (results.some(r => !r)) {
+          allPairsPass = false;
+          break;
+        }
+      }
+
+      setFeasibility(prev => ({
+        ...prev,
+        [rule.name]: { ...prev[rule.name], pairwise: allPairsPass ? 'pass' : 'fail' },
+      }));
+    }
+  }, [paletteRules, config, standingRules]);
 
   // Draft auto-save: debounce 3s after any palette rule change
   const saveDraft = useCallback(() => {
@@ -619,6 +727,7 @@ function App() {
                 <>
                   <CoverageTotalsTable
                     rules={shiftTotals}
+                    feasibility={feasibility}
                     onToggleActive={togglePaletteRuleActive}
                     onToggleStrength={togglePaletteRuleStrength}
                     onChangeCount={changePaletteRuleCount}
@@ -634,12 +743,16 @@ function App() {
                           onToggleActive={togglePaletteRuleActive}
                           onToggleStrength={togglePaletteRuleStrength}
                           onEdit={() => setEditingRule(r.name)}
+                          feasibility={feasibility[r.name]}
                         />
                       ))}
                     </div>
                   )}
                   <button className="add-btn" style={{ marginTop: '1rem' }}
                     onClick={() => setShowPalette(true)}>+ Add Rule</button>
+                  <button onClick={checkFeasibility} style={{ marginLeft: '0.5rem', marginTop: '1rem' }}>
+                    Check Feasibility
+                  </button>
                 </>
               )}
 

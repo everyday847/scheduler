@@ -1,16 +1,17 @@
 import React from 'react';
-import { ShiftTotalRule, Relation } from '../types';
+import { ShiftTotalRule, Relation, RuleFeasibility } from '../types';
 import { FeasibilityPips } from './FeasibilityPips';
 
 type Props = {
   rules: ShiftTotalRule[];
+  feasibility: Record<string, RuleFeasibility>;
   onToggleActive: (ruleName: string) => void;
   onToggleStrength: (ruleName: string) => void;
   onChangeCount: (ruleName: string, count: number) => void;
   onChangeRelation: (ruleName: string, relation: Relation) => void;
 };
 
-export function CoverageTotalsTable({ rules, onToggleActive, onToggleStrength, onChangeCount, onChangeRelation }: Props) {
+export function CoverageTotalsTable({ rules, feasibility, onToggleActive, onToggleStrength, onChangeCount, onChangeRelation }: Props) {
   if (rules.length === 0) return null;
 
   return (
@@ -56,7 +57,10 @@ export function CoverageTotalsTable({ rules, onToggleActive, onToggleStrength, o
                 </button>
               </td>
               <td>
-                <FeasibilityPips solo="unchecked" pairwise="unchecked" />
+                <FeasibilityPips
+                  solo={feasibility[r.name]?.solo || 'unchecked'}
+                  pairwise={feasibility[r.name]?.pairwise || 'unchecked'}
+                />
               </td>
             </tr>
           ))}

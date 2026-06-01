@@ -1,5 +1,5 @@
 import React from 'react';
-import { PaletteRule, PALETTE_TYPE_LABELS } from '../types';
+import { PaletteRule, PALETTE_TYPE_LABELS, RuleFeasibility } from '../types';
 import { FeasibilityPips } from './FeasibilityPips';
 
 type Props = {
@@ -7,6 +7,7 @@ type Props = {
   onToggleActive: (ruleName: string) => void;
   onToggleStrength: (ruleName: string) => void;
   onEdit?: () => void;
+  feasibility?: RuleFeasibility;
 };
 
 function ruleSummary(rule: PaletteRule): string {
@@ -30,7 +31,7 @@ function ruleSummary(rule: PaletteRule): string {
   }
 }
 
-export function RuleCard({ rule, onToggleActive, onToggleStrength, onEdit }: Props) {
+export function RuleCard({ rule, onToggleActive, onToggleStrength, onEdit, feasibility }: Props) {
   const label = PALETTE_TYPE_LABELS[rule.type as keyof typeof PALETTE_TYPE_LABELS] || rule.type;
 
   return (
@@ -43,7 +44,10 @@ export function RuleCard({ rule, onToggleActive, onToggleStrength, onEdit }: Pro
           {rule.strength}
         </button>
         {onEdit && <button className="edit-btn" onClick={onEdit}>Edit</button>}
-        <FeasibilityPips solo="unchecked" pairwise="unchecked" />
+        <FeasibilityPips
+          solo={feasibility?.solo || 'unchecked'}
+          pairwise={feasibility?.pairwise || 'unchecked'}
+        />
       </div>
       <div className="rule-card-summary">
         <span className="rule-type-label">{label}</span>
