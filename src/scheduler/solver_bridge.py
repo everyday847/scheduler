@@ -134,10 +134,12 @@ def _build_palette_constraints(
         if not rule.get("active", True):
             continue
         if rule.get("type") == "full_assignment":
-            constraints.extend(palette_rule_to_constraints(
-                {**rule, "type": "staffing_per_week", "shifts": shifts,
-                 "relation": "exactly", "count": 1},
+            constraints.append(SemanticConstraint(
+                kind="full_assignment",
                 lifecycle=ConstraintLifecycle.STANDING_RULE,
+                strength=ConstraintStrength.HARD,
+                fellows=FellowSelector.by_groups(*rule["groups"]),
+                params={"name": rule["name"]},
             ))
             continue
         constraints.extend(palette_rule_to_constraints(
