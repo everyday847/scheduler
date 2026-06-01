@@ -1,0 +1,494 @@
+fellow_groups:
+  NCC_JR:
+  - NCC Alaric
+  - NCC Bertram
+  NCC_SR:
+  - NCC Durga
+  - NCC Eos
+  STROKE:
+  - Stroke Gabi
+  - Stroke Jeff
+  - Stroke Victoria
+  - Stroke Parshva
+  CCM:
+  - CCM Generic
+  NH:
+  - NH Adam
+  - NH Barry
+
+shifts:
+- SICU
+- MICU
+- NS
+- Anaesthesia
+- NCC1
+- NCC2
+- Swing
+- Elec
+- Vac
+- Stroke
+- Telestroke/Clinic
+- Clinic/Elective
+- SCVMC Rehab
+- NIR
+- ISC
+
+num_weeks: 52
+horizon_start: 2026-06-29
+
+rules:
+
+  # ===================================================================
+  # NCC Junior Coverage Totals
+  # (decomposed from ncc_jr_service_profile)
+  # Zero-shifts are DERIVED — any shift not mentioned here is forbidden.
+  # ===================================================================
+  - name: "NCC Junior: MICU Total"
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [MICU]
+    relation: exactly
+    count: 20
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: Anaesthesia Total"
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [Anaesthesia]
+    relation: exactly
+    count: 4
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: Elective Total"
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [Elec]
+    relation: exactly
+    count: 8
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: Vacation Total"
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [Vac]
+    relation: exactly
+    count: 4
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: SICU Total"
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [SICU]
+    relation: at_least
+    count: 4
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: NCC+Swing Total"
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [Swing, NCC1, NCC2]
+    relation: exactly
+    count: 12
+    strength: hard
+    active: true
+
+  # ===================================================================
+  # NCC Senior Coverage Totals
+  # (decomposed from ncc_sr_service_profile)
+  # ===================================================================
+  - name: "NCC Senior: MICU Total"
+    type: shift_total
+    groups: [NCC_SR]
+    shifts: [MICU]
+    relation: exactly
+    count: 8
+    strength: hard
+    active: true
+
+  - name: "NCC Senior: Elective Total"
+    type: shift_total
+    groups: [NCC_SR]
+    shifts: [Elec]
+    relation: at_least
+    count: 10
+    strength: hard
+    active: true
+
+  - name: "NCC Senior: Vacation Total"
+    type: shift_total
+    groups: [NCC_SR]
+    shifts: [Vac]
+    relation: at_least
+    count: 4
+    strength: hard
+    active: true
+
+  - name: "NCC Senior: NS Total"
+    type: shift_total
+    groups: [NCC_SR]
+    shifts: [NS]
+    relation: exactly
+    count: 6
+    strength: hard
+    active: true
+
+  - name: "NCC Senior: Stroke Total"
+    type: shift_total
+    groups: [NCC_SR]
+    shifts: [Stroke]
+    relation: exactly
+    count: 2
+    strength: hard
+    active: true
+
+  - name: "NCC Senior: NCC+Swing Total"
+    type: shift_total
+    groups: [NCC_SR]
+    shifts: [Swing, NCC1, NCC2]
+    relation: exactly
+    count: 22
+    strength: hard
+    active: true
+
+  # ===================================================================
+  # Stroke Fellow Coverage Totals
+  # (decomposed from stroke_service_profile — was soft, stays soft)
+  # ===================================================================
+  - name: "Stroke: Swing Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [Swing]
+    relation: exactly
+    count: 2
+    strength: soft
+    active: true
+
+  - name: "Stroke: NCC Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NCC1, NCC2]
+    relation: exactly
+    count: 4
+    strength: soft
+    active: true
+
+  - name: "Stroke: Stroke Service Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [Stroke]
+    relation: at_least
+    count: 11
+    strength: soft
+    active: true
+
+  - name: "Stroke: Elective Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [Elec]
+    relation: at_least
+    count: 2
+    strength: soft
+    active: true
+
+  - name: "Stroke: Vacation Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [Vac]
+    relation: at_least
+    count: 3
+    strength: soft
+    active: true
+
+  - name: "Stroke: Telestroke Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [Telestroke/Clinic]
+    relation: at_least
+    count: 13
+    strength: soft
+    active: true
+
+  - name: "Stroke: Clinic/Elective Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [Clinic/Elective]
+    relation: at_least
+    count: 9
+    strength: soft
+    active: true
+
+  - name: "Stroke: SCVMC Rehab Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [SCVMC Rehab]
+    relation: exactly
+    count: 2
+    strength: soft
+    active: true
+
+  - name: "Stroke: NIR Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NIR]
+    relation: exactly
+    count: 2
+    strength: soft
+    active: true
+
+  - name: "Stroke: ISC Total"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [ISC]
+    relation: exactly
+    count: 1
+    strength: soft
+    active: true
+
+  # ===================================================================
+  # NH Coverage Totals
+  # (decomposed from nh_service_profile — was inactive/hard)
+  # ===================================================================
+  - name: "NH: NCC Total"
+    type: shift_total
+    groups: [NH]
+    shifts: [NCC1, NCC2]
+    relation: exactly
+    count: 3
+    strength: hard
+    active: false
+
+  - name: "NH: Swing Total"
+    type: shift_total
+    groups: [NH]
+    shifts: [Swing]
+    relation: exactly
+    count: 1
+    strength: hard
+    active: false
+
+  # ===================================================================
+  # CCM Coverage Totals
+  # (decomposed from ccm_service_profile)
+  # ===================================================================
+  - name: "CCM: NCC Total"
+    type: shift_total
+    groups: [CCM]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 3
+    strength: hard
+    active: true
+
+  - name: "CCM: Swing Total"
+    type: shift_total
+    groups: [CCM]
+    shifts: [Swing]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  # ===================================================================
+  # CCM NCC Block (from ccm active_blocks)
+  # ===================================================================
+  - name: CCM NCC Block
+    type: block_rotation
+    groups: [CCM]
+    shifts: [NCC1, NCC2, Swing]
+    block_size: 4
+    strength: hard
+    active: true
+
+  # ===================================================================
+  # Max Consecutive Rules (moved from standing to annual)
+  # ===================================================================
+  - name: Core ICU Max Consecutive
+    type: max_consecutive
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [NCC1, NCC2, Swing, SICU, MICU, Stroke]
+    max_weeks: 8
+    strength: hard
+    active: true
+
+  - name: NCC Team Max Consecutive
+    type: max_consecutive
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [NCC1, NCC2, Swing]
+    max_weeks: 6
+    strength: hard
+    active: true
+
+  - name: Swing Max Consecutive
+    type: max_consecutive
+    groups: [NCC_JR, NCC_SR, STROKE]
+    shifts: [Swing]
+    max_weeks: 2
+    strength: hard
+    active: true
+
+  - name: Stroke Short Core ICU Runs
+    type: max_consecutive
+    groups: [STROKE]
+    shifts: [NCC1, NCC2, Swing, SICU, MICU, Stroke]
+    max_weeks: 2
+    strength: soft
+    active: false
+
+  # ===================================================================
+  # Rotation Continuity (moved from standing to annual)
+  # ===================================================================
+  - name: NCC 2-Week Team Continuity
+    type: rotation_continuity
+    groups: [NCC_JR, NCC_SR, CCM]
+    block_size: 2
+    choices:
+      - [NCC1, Swing]
+      - [NCC2, Swing]
+    allow_none: true
+    strength: hard
+    active: true
+
+  - name: NCC 4-Week Team Preference
+    type: rotation_continuity
+    groups: [NCC_JR, NCC_SR]
+    block_size: 4
+    choices:
+      - [NCC1, Swing]
+      - [NCC2, Swing]
+    allow_none: true
+    strength: soft
+    active: false
+
+  # ===================================================================
+  # Coverage Target (combined swing_deficit + minimize_swing_deficit)
+  # ===================================================================
+  - name: Swing Coverage Target
+    type: coverage_target
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [Swing]
+    max_uncovered_weeks: 2
+    strength: soft
+    active: false
+
+  # ===================================================================
+  # Balance
+  # ===================================================================
+  - name: Half-Year Balance
+    type: windowed_balance
+    groups: [NCC_JR, NCC_SR]
+    shifts: [MICU]
+    window_a: [0, 26]
+    window_b: [26, 52]
+    max_difference: 4
+    strength: soft
+    active: false
+
+  # ===================================================================
+  # Windowed Shift Totals (decomposed from one-off rules)
+  # ===================================================================
+  - name: "Stroke NIR First Half"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NIR]
+    relation: exactly
+    count: 1
+    window: [0, 26]
+    strength: hard
+    active: true
+
+  - name: "Stroke NIR Second Half"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NIR]
+    relation: exactly
+    count: 1
+    window: [26, 52]
+    strength: hard
+    active: true
+
+  - name: "Stroke SCVMC Second Half"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [SCVMC Rehab]
+    relation: exactly
+    count: 2
+    window: [26, 52]
+    strength: hard
+    active: true
+
+  # ===================================================================
+  # Block Rotations (moved from standing to annual)
+  # ===================================================================
+  - name: Stroke 2-Week Blocks
+    type: block_rotation
+    groups: [STROKE]
+    shifts: [Stroke, Telestroke/Clinic]
+    block_size: 2
+    strength: hard
+    active: false
+
+  # ===================================================================
+  # Annual-specific rules
+  # ===================================================================
+  - name: vacation_requests
+    type: vacation_request_policy
+    active: true
+    hard_request_count: 3
+
+night_call:
+  - group: STROKE
+    total_nights: 236
+    friday_nights: 32
+  - group: NCC_SR
+    total_nights: 58
+    friday_nights: 8
+  - group: NCC_JR
+    total_nights: 40
+    friday_nights: 6
+  - group: NH
+    total_nights: 30
+    friday_nights: 6
+
+weekend_call:
+  - group: STROKE
+    ncc_total: 22
+    stroke_total: 50
+  - group: NCC_SR
+    ncc_total: 30
+    stroke_total: 2
+  - group: NCC_JR
+    ncc_total: 24
+    stroke_total: 0
+  - group: NH
+    ncc_total: 6
+    stroke_total: 0
+  - group: CCM
+    ncc_total: 22
+    stroke_total: 0
+
+holiday_dates:
+  - 2026-07-03
+  - 2026-09-07
+  - 2026-11-26
+  - 2026-11-27
+  - 2026-12-24
+  - 2026-12-25
+  - 2027-01-01
+  - 2027-01-18
+  - 2027-02-15
+  - 2027-05-31
+
+fellow_week_pairs:
+  NCC Alaric: []
+  NCC Bertram: []
+  NCC Durga: []
+  NCC Eos: []
+  Stroke Gabi: []
+  Stroke Jeff: []
+  Stroke Victoria: []
+  Stroke Parshva: []

@@ -1,0 +1,185 @@
+# Standing Rules — palette format (v2)
+#
+# These are inter-program commitments and structural invariants that
+# rarely change. They define how the fellowship program works, not how
+# a particular year is configured.
+
+rules:
+
+  # --- Full Assignment ---
+  # NCC and Stroke fellows must be assigned something every week.
+  - name: Full Assignment for NCC/Stroke
+    type: full_assignment
+    groups: [NCC_JR, NCC_SR, STROKE]
+    strength: hard
+    active: true
+
+  # --- NCC Coverage (decomposed from monolithic ncc_coverage rule) ---
+  - name: NCC1 Coverage
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: NCC1 Cap
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: NCC2 Coverage
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC2]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: NCC2 Cap
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC2]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: NCC Team Cap
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1, NCC2]
+    relation: at_most
+    count: 3
+    strength: hard
+    active: true
+
+  - name: NCC+Swing Cap
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1, NCC2, Swing]
+    relation: at_most
+    count: 4
+    strength: hard
+    active: true
+
+  - name: Swing Cap
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [Swing]
+    relation: at_most
+    count: 1
+    strength: hard
+    active: true
+
+  # --- Block Rotations (inter-program commitments) ---
+  - name: MICU 4-Week Blocks
+    type: block_rotation
+    groups: [NCC_JR, NCC_SR]
+    shifts: [MICU]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: SICU 4-Week Blocks
+    type: block_rotation
+    groups: [NCC_JR]
+    shifts: [SICU]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: Anaesthesia 4-Week Blocks
+    type: block_rotation
+    groups: [NCC_JR]
+    shifts: [Anaesthesia]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: NS 2-Week Blocks
+    type: block_rotation
+    groups: [NCC_SR]
+    shifts: [NS]
+    block_size: 2
+    strength: hard
+    active: true
+
+  # --- NCC/Stroke Oversight ---
+  # At least one NCC fellow (JR/SR/Stroke) on NCC1 or NCC2 each week.
+  - name: NCC/Stroke Oversight
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  # --- Stroke Shift Coverage ---
+  - name: Stroke Service Coverage
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Stroke]
+    relation: exactly
+    count: 1
+    strength: hard
+    active: true
+
+  - name: Telestroke Coverage
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Telestroke/Clinic]
+    relation: exactly
+    count: 1
+    strength: hard
+    active: true
+
+  # --- Stroke: No NCC in First Block ---
+  # Stroke fellows don't do NCC1/NCC2/Swing in weeks 0-3.
+  - name: "Stroke: No NCC in First Block"
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NCC1, NCC2, Swing]
+    relation: exactly
+    count: 0
+    window: [0, 4]
+    strength: hard
+    active: true
+
+  # --- NCC Junior Orientation ---
+  - name: NCC Junior Orientation MICU
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [MICU]
+    relation: exactly
+    count: 4
+    window: [0, 4]
+    strength: hard
+    active: true
+
+  - name: NCC Junior Early NCC Exposure
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 1
+    window: [4, 19]
+    strength: hard
+    active: true
+
+  # --- Prerequisite ---
+  - name: "NCC Junior: NCC Before Swing"
+    type: prerequisite
+    groups: [NCC_JR]
+    prerequisite_shifts: [NCC1, NCC2]
+    target_shifts: [Swing]
+    min_prerequisite_weeks: 4
+    strength: hard
+    active: true
