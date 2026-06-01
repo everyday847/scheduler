@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css';
 import { TopBar } from './components/TopBar';
 import { Sidebar, SidebarSection } from './components/Sidebar';
+import { ImportSchedule } from './components/ImportSchedule';
 import { CoverageTotalsTable } from './components/CoverageTotalsTable';
 import { RuleCard } from './components/RuleCard';
 import { RuleEditor } from './components/RuleEditor';
@@ -98,6 +99,8 @@ function App() {
 
   const [activeSection, setActiveSection] = useState<SidebarSection>('fellows');
   const [hasDraft, setHasDraft] = useState(false);
+  const [lockedAssignments, setLockedAssignments] = useState<Record<string, string[]>>({});
+  const [importData, setImportData] = useState<any | null>(null);
   const [editingRuleIdx, setEditingRuleIdx] = useState<number | null>(null);
   const [showPalette, setShowPalette] = useState(false);
   const [feasibility, setFeasibility] = useState<Record<string, RuleFeasibility>>({});
@@ -468,6 +471,57 @@ function App() {
       .catch(() => {});
   }, [selectedFile, loadConfig]);
 
+  // Import handlers
+  const handleImportFile = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const resp = await fetch(`${API_BASE}/api/schedule/import`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        setError(err.error || 'Import failed');
+        return;
+      }
+      const data = await resp.json();
+      setImportData(data);
+      setActiveSection('fellows'); // switch to main panel to show preview
+    } catch (err) {
+      setError('Failed to upload file');
+    }
+  }, []);
+
+  const confirmImport = useCallback(() => {
+    if (!importData) return;
+
+    // Lock all imported fellows
+    setLockedAssignments(importData.assignments);
+
+    // Merge fellow names into config (as "Imported" group or add to existing)
+    setConfig(prev => {
+      const existingFellows = new Set(Object.values(prev.fellow_groups).flat());
+      const newFellows = importData.fellow_names.filter((f: string) => !existingFellows.has(f));
+      const groups = { ...prev.fellow_groups };
+      if (newFellows.length > 0) {
+        groups['Imported'] = [...(groups['Imported'] || []), ...newFellows];
+      }
+      return {
+        ...prev,
+        fellow_groups: groups,
+        num_weeks: importData.num_weeks,
+        shifts: Array.from(new Set([...prev.shifts, ...importData.shifts_found])),
+      };
+    });
+
+    setImportData(null);
+  }, [importData]);
+
+  const cancelImport = useCallback(() => {
+    setImportData(null);
+  }, []);
+
   // Solver
   const buildRequest = useCallback((): any => {
     const weekPairs: Record<string, number[]> = {};
@@ -494,8 +548,12 @@ function App() {
       req.standing_rules = standingRules.filter((r) => r.active);
     }
 
+    if (Object.keys(lockedAssignments).length > 0) {
+      req.locked_assignments = lockedAssignments;
+    }
+
     return req;
-  }, [config, allFellows, vacationDates, standingRules, paletteRules]);
+  }, [config, allFellows, vacationDates, standingRules, paletteRules, lockedAssignments]);
 
   const cancelSolve = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
@@ -570,6 +628,10 @@ function App() {
   // Main panel content renderer
   // =========================================================================
   function renderMainContent() {
+    if (importData) {
+      return <ImportSchedule data={importData} onConfirm={confirmImport} onCancel={cancelImport} />;
+    }
+
     if (mode === 'schedule') {
       return (
         <div className="schedule-view">
@@ -859,6 +921,7 @@ function App() {
         onWeeksChange={(w) => setConfig((c) => ({ ...c, num_weeks: w }))}
         onPublish={publishDraft}
         onDiscard={discardDraft}
+        onImportFile={handleImportFile}
       />
       <Sidebar
         active={activeSection}
@@ -866,6 +929,8 @@ function App() {
         groups={groupNames}
         onGenerate={generateSchedule}
         isRunning={isRunning}
+        lockedFellows={Object.keys(lockedAssignments)}
+        fellowGroups={config.fellow_groups}
       />
       <main className="main-panel">
         {renderMainContent()}

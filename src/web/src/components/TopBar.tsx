@@ -9,9 +9,10 @@ type TopBarProps = {
   onWeeksChange: (weeks: number) => void;
   onPublish: () => void;
   onDiscard: () => void;
+  onImportFile: (file: File) => void;
 };
 
-export function TopBar({ selectedFile, configFiles, numWeeks, hasDraft, onFileChange, onWeeksChange, onPublish, onDiscard }: TopBarProps) {
+export function TopBar({ selectedFile, configFiles, numWeeks, hasDraft, onFileChange, onWeeksChange, onPublish, onDiscard, onImportFile }: TopBarProps) {
   return (
     <header className="top-bar">
       <div className="top-bar-left">
@@ -29,6 +30,11 @@ export function TopBar({ selectedFile, configFiles, numWeeks, hasDraft, onFileCh
           <input type="number" value={numWeeks} min={1} max={53}
             onChange={(e) => onWeeksChange(Number(e.target.value) || 52)}
             style={{ width: '4rem' }} />
+        </label>
+        <label className="import-btn-label">
+          Import
+          <input type="file" accept=".csv,.xlsx" style={{ display: 'none' }}
+            onChange={(e) => { if (e.target.files?.[0]) onImportFile(e.target.files[0]); e.target.value = ''; }} />
         </label>
         {hasDraft && (
           <div className="draft-status">

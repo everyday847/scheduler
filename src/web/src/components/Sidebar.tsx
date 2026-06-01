@@ -11,9 +11,11 @@ type SidebarProps = {
   groups: string[];
   onGenerate: () => void;
   isRunning: boolean;
+  lockedFellows?: string[];
+  fellowGroups?: Record<string, string[]>;
 };
 
-export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning }: SidebarProps) {
+export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning, lockedFellows, fellowGroups }: SidebarProps) {
   return (
     <nav className="sidebar">
       <div className="sidebar-section">
@@ -23,9 +25,21 @@ export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning }: S
 
       <div className="sidebar-section">
         <div className="sidebar-heading">Rules</div>
-        {groups.map(g => (
-          <SidebarItem key={g} id={`rules-${g}` as SidebarSection} label={g} active={active} onNavigate={onNavigate} />
-        ))}
+        {groups.map(g => {
+          const lockedInGroup = (lockedFellows || []).filter(f =>
+            (fellowGroups || {})[g]?.includes(f)
+          ).length;
+          return (
+            <SidebarItem
+              key={g}
+              id={`rules-${g}` as SidebarSection}
+              label={g}
+              active={active}
+              onNavigate={onNavigate}
+              badge={lockedInGroup > 0 ? `🔒${lockedInGroup}` : undefined}
+            />
+          );
+        })}
         <SidebarItem id="rules-program" label="Program" active={active} onNavigate={onNavigate} />
       </div>
 
@@ -46,8 +60,8 @@ export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning }: S
   );
 }
 
-function SidebarItem({ id, label, active, onNavigate }: {
-  id: SidebarSection; label: string; active: SidebarSection; onNavigate: (s: SidebarSection) => void;
+function SidebarItem({ id, label, active, onNavigate, badge }: {
+  id: SidebarSection; label: string; active: SidebarSection; onNavigate: (s: SidebarSection) => void; badge?: string;
 }) {
   return (
     <button
@@ -55,6 +69,7 @@ function SidebarItem({ id, label, active, onNavigate }: {
       onClick={() => onNavigate(id)}
     >
       {label}
+      {badge && <span className="lock-badge">{badge}</span>}
     </button>
   );
 }

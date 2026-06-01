@@ -1059,6 +1059,86 @@ tbody th {
   margin-top: 0.15rem;
 }
 
+/* Import preview */
+.import-preview {
+  max-width: 100%;
+}
+
+.import-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.import-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.import-summary {
+  margin-bottom: 1rem;
+}
+
+.import-summary p {
+  margin: 0.25rem 0;
+}
+
+.import-table-wrap {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.import-table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  min-width: 100%;
+}
+
+.import-table th, .import-table td {
+  border: 1px solid var(--line);
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
+}
+
+.import-table thead th {
+  background: #eef3f9;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.import-table .week-col {
+  text-align: center;
+  font-weight: 600;
+  background: #eef3f9;
+}
+
+.import-btn-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.import-btn-label:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Lock badge in sidebar */
+.lock-badge {
+  font-size: 0.7rem;
+  margin-left: 0.35rem;
+  opacity: 0.8;
+}
+
 @media (max-width: 900px) {
   .config-top-bar {
     flex-direction: column;
