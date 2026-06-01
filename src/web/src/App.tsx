@@ -495,8 +495,8 @@ function App() {
 
   const cancelSolve = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
-    if (solverStatus !== 'done') setSolverStatus('idle');
-  }, [solverStatus]);
+    setSolverStatus('idle');
+  }, []);
 
   const generateSchedule = useCallback(async () => {
     cancelSolve();
@@ -829,7 +829,7 @@ function App() {
       />
       <Sidebar
         active={activeSection}
-        onNavigate={(s) => { setActiveSection(s); setMode('config'); }}
+        onNavigate={(s) => { setActiveSection(s); if (mode === 'schedule') { cancelSolve(); } setMode('config'); }}
         groups={groupNames}
         onGenerate={generateSchedule}
         isRunning={isRunning}
