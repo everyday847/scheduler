@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PaletteRule } from '../types';
 
 type Props = {
@@ -227,9 +227,128 @@ function renderTypeFields(
         </>
       );
 
+    case 'night_spacing':
+    case 'weekend_spacing': {
+      const params = (rule as any).params || {};
+      const isNight = rule.type === 'night_spacing';
+      return (
+        <>
+          <label className="editor-field">
+            <span>{isNight ? 'Max nights' : 'Max weekends'}</span>
+            <input type="number" value={params.maxNights ?? params.maxWeekends ?? 1} min={1}
+              onChange={e => update({
+                params: { ...params, [isNight ? 'maxNights' : 'maxWeekends']: Number(e.target.value) }
+              })} />
+          </label>
+          <label className="editor-field">
+            <span>{isNight ? 'Window (days)' : 'Window (weeks)'}</span>
+            <input type="number" value={params.windowDays ?? params.windowWeeks ?? 2} min={2}
+              onChange={e => update({
+                params: { ...params, [isNight ? 'windowDays' : 'windowWeeks']: Number(e.target.value) }
+              })} />
+          </label>
+        </>
+      );
+    }
+
+    case 'night_blocked_services':
+    case 'weekend_blocked_services': {
+      const params = (rule as any).params || {};
+      return (
+        <>
+          <label className="editor-field">
+            <span>Exact services</span>
+            <TagInput values={params.exactServices || []}
+              onChange={vals => update({ params: { ...params, exactServices: vals } })} />
+          </label>
+          <label className="editor-field">
+            <span>Substring services</span>
+            <TagInput values={params.substringServices || []}
+              onChange={vals => update({ params: { ...params, substringServices: vals } })} />
+          </label>
+        </>
+      );
+    }
+
+    case 'night_holiday_eligibility':
+    case 'weekend_stroke_eligibility': {
+      const params = (rule as any).params || {};
+      const isNight = rule.type === 'night_holiday_eligibility';
+      return (
+        <label className="editor-field">
+          <span>{isNight ? 'Allowed services' : 'Eligible services'}</span>
+          <TagInput values={params.allowedServices || params.eligibleServices || []}
+            onChange={vals => update({
+              params: { ...params, [isNight ? 'allowedServices' : 'eligibleServices']: vals }
+            })} />
+        </label>
+      );
+    }
+
+    case 'night_penalties':
+    case 'weekend_penalties': {
+      const params = (rule as any).params || {};
+      const weights = params.weights || {};
+      const keys = Object.keys(weights);
+      return (
+        <div className="editor-field">
+          <span>Weights</span>
+          {keys.length === 0 && <p className="hint">No weights configured. Add one below.</p>}
+          {keys.map((key) => (
+            <div key={key} className="editor-row">
+              <input type="text" value={key}
+                onChange={e => {
+                  const newWeights = { ...weights };
+                  const value = newWeights[key];
+                  delete newWeights[key];
+                  newWeights[e.target.value] = value;
+                  update({ params: { ...params, weights: newWeights } });
+                }} />
+              <input type="number" value={weights[key]} min={0}
+                onChange={e => update({
+                  params: { ...params, weights: { ...weights, [key]: Number(e.target.value) } }
+                })} />
+              <button onClick={() => {
+                const newWeights = { ...weights };
+                delete newWeights[key];
+                update({ params: { ...params, weights: newWeights } });
+              }}>×</button>
+            </div>
+          ))}
+          <button className="add-btn" onClick={() => {
+            update({ params: { ...params, weights: { ...weights, '': 1 } } });
+          }}>+ Weight</button>
+        </div>
+      );
+    }
+
+    case 'night_sunday_following': {
+      const params = (rule as any).params || {};
+      return (
+        <label className="editor-field">
+          <span>Preferred services</span>
+          <TagInput values={params.preferredServices || []}
+            onChange={vals => update({ params: { ...params, preferredServices: vals } })} />
+        </label>
+      );
+    }
+
     default:
       return null;
   }
+}
+
+function TagInput({ values, onChange }: { values: string[]; onChange: (v: string[]) => void }) {
+  const [text, setText] = useState(values.join(', '));
+  useEffect(() => {
+    setText(values.join(', '));
+  }, [values]);
+  return (
+    <input type="text" value={text}
+      onChange={e => setText(e.target.value)}
+      onBlur={() => onChange(text.split(',').map(s => s.trim()).filter(Boolean))}
+      placeholder="Comma-separated values" />
+  );
 }
 
 function ShiftsField({ shifts, allShifts, onChange, label }: {
