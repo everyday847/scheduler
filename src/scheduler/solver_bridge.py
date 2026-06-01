@@ -76,6 +76,21 @@ def build_solver_config_from_request(
 
     all_fellows = {name: group for group, names in fellow_groups.items() for name in names}
 
+    # Merge night_rules and weekend_rules from standing config and raw_request
+    # (annual overrides standing, same pattern as regular rules)
+    if is_palette_format:
+        standing_night_rules = standing_config.get("night_rules", [])
+        annual_night_rules = raw_request.get("night_rules", [])
+        merged_night_rules = annual_night_rules if annual_night_rules else standing_night_rules
+        if merged_night_rules:
+            raw_request = {**raw_request, "night_rules": merged_night_rules}
+
+        standing_weekend_rules = standing_config.get("weekend_rules", [])
+        annual_weekend_rules = raw_request.get("weekend_rules", [])
+        merged_weekend_rules = annual_weekend_rules if annual_weekend_rules else standing_weekend_rules
+        if merged_weekend_rules:
+            raw_request = {**raw_request, "weekend_rules": merged_weekend_rules}
+
     night_config = _build_night_config(raw_request, fellow_groups)
     weekend_config = _build_weekend_config(raw_request, fellow_groups)
 
@@ -240,6 +255,9 @@ def _build_night_config(
     else:
         horizon = date(2026, 6, 29)
 
+    night_rules_config = _apply_night_rules(request)
+    _validate_night_config(night_rules_config)
+
     return NightSolverConfig(
         total_nights=total_nights or None,
         friday_nights=friday_nights or None,
@@ -248,6 +266,7 @@ def _build_night_config(
         ccm_fellows=ccm_fellows,
         holiday_dates=parsed_holidays,
         horizon_start_date=horizon,
+        **night_rules_config,
     )
 
 
@@ -294,6 +313,9 @@ def _build_weekend_config(
                     stroke_totals[f] = fellow_stroke
                     stroke_eligible.add(f)
 
+    weekend_rules_config = _apply_weekend_rules(request)
+    _validate_weekend_config(weekend_rules_config)
+
     return WeekendSolverConfig(
         ncc_totals=ncc_totals or None,
         stroke_totals=stroke_totals or None,
@@ -305,7 +327,82 @@ def _build_weekend_config(
         always_stroke_eligible=frozenset(stroke_eligible),
         telestroke_stroke_eligible=frozenset(),
         stroke_only_eligible=frozenset(),
+        **weekend_rules_config,
     )
+
+
+# ---------------------------------------------------------------------------
+# Night rules helper
+# ---------------------------------------------------------------------------
+
+def _apply_night_rules(request: Dict[str, Any]) -> dict:
+    """Extract NightSolverConfig fields from night_rules section."""
+    result: dict[str, Any] = {}
+    night_rules = request.get("night_rules", [])
+    if not night_rules:
+        return result
+
+    for rule in night_rules:
+        if not rule.get("active", True):
+            continue
+        rule_type = rule.get("type")
+        if rule_type == "night_spacing":
+            result["spacing_max_nights"] = rule.get("max_nights", 1)
+            result["spacing_window_days"] = rule.get("window_days", 3)
+        elif rule_type == "night_blocked_services":
+            result["blocking_exact_services"] = tuple(rule.get("exact_services", []))
+            result["blocking_substring_services"] = tuple(rule.get("substring_services", []))
+        elif rule_type == "night_holiday_eligibility":
+            result["holiday_allowed_services"] = tuple(rule.get("allowed_services", []))
+        elif rule_type == "night_penalties":
+            result["penalty_weights"] = dict(rule.get("weights", {}))
+        elif rule_type == "night_sunday_following":
+            result["sunday_preferred_services"] = tuple(rule.get("preferred_services", []))
+
+    return result
+
+
+def _validate_night_config(config_dict: dict) -> None:
+    if "spacing_max_nights" in config_dict and config_dict["spacing_max_nights"] < 1:
+        raise ValueError("spacing_max_nights must be >= 1")
+    if "spacing_window_days" in config_dict and config_dict["spacing_window_days"] < 2:
+        raise ValueError("spacing_window_days must be >= 2")
+
+
+# ---------------------------------------------------------------------------
+# Weekend rules helper
+# ---------------------------------------------------------------------------
+
+def _apply_weekend_rules(request: Dict[str, Any]) -> dict:
+    """Extract WeekendSolverConfig fields from weekend_rules section."""
+    result: dict[str, Any] = {}
+    weekend_rules = request.get("weekend_rules", [])
+    if not weekend_rules:
+        return result
+
+    for rule in weekend_rules:
+        if not rule.get("active", True):
+            continue
+        rule_type = rule.get("type")
+        if rule_type == "weekend_spacing":
+            result["spacing_max_weekends"] = rule.get("max_weekends", 1)
+            result["spacing_window_weekends"] = rule.get("window_weekends", 2)
+        elif rule_type == "weekend_blocked_services":
+            result["blocking_exact_services"] = tuple(rule.get("exact_services", []))
+            result["blocking_substring_services"] = tuple(rule.get("substring_services", []))
+        elif rule_type == "weekend_stroke_eligibility":
+            result["stroke_eligible_services"] = tuple(rule.get("eligible_services", []))
+        elif rule_type == "weekend_penalties":
+            result["penalty_weights"] = dict(rule.get("weights", {}))
+
+    return result
+
+
+def _validate_weekend_config(config_dict: dict) -> None:
+    if "spacing_max_weekends" in config_dict and config_dict["spacing_max_weekends"] < 1:
+        raise ValueError("spacing_max_weekends must be >= 1")
+    if "spacing_window_weekends" in config_dict and config_dict["spacing_window_weekends"] < 2:
+        raise ValueError("spacing_window_weekends must be >= 2")
 
 
 # ---------------------------------------------------------------------------
