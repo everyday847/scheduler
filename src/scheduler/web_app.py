@@ -138,6 +138,107 @@ def schedule_workbook():
     )
 
 
+@app.route("/api/feasibility/check", methods=["POST"])
+def feasibility_check():
+    """Check feasibility of a rule (solo or paired with another).
+
+    Request: { config, standing_rules, rule, pair_with? }
+    Response: { satisfiable: bool, elapsed: float }
+    """
+    import time
+    import yaml
+    from .solver_bridge import get_runner, STANDING_RULE_CONFIG
+    from .palette_rules import palette_rule_to_constraints
+    from .palette_derivations import derive_forbidden_shifts
+    from .semantic_constraints import (
+        ConstraintLifecycle, ConstraintStrength, FellowSelector, SemanticConstraint,
+    )
+    from parafrost_scheduler.schedule_solver import ScheduleSolverConfig, build_full_schedule_opb
+    from .night_call_solver import NightSolverConfig
+    from .weekend_call_solver import WeekendSolverConfig
+
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Request body required"}), 400
+
+    config_data = body.get("config", {})
+    rule = body.get("rule")
+    pair_with = body.get("pair_with")
+
+    if not rule:
+        return jsonify({"error": "rule is required"}), 400
+
+    try:
+        fellow_groups = config_data.get("fellow_groups", {})
+        shifts = config_data.get("shifts", [])
+
+        # Build standing constraints
+        standing_rules_raw = body.get("standing_rules", [])
+        standing_constraints = []
+        if standing_rules_raw and isinstance(standing_rules_raw[0], dict) and "type" in standing_rules_raw[0]:
+            for sr in standing_rules_raw:
+                if not sr.get("active", True):
+                    continue
+                if sr.get("type") == "full_assignment":
+                    standing_constraints.append(SemanticConstraint(
+                        kind="full_assignment",
+                        lifecycle=ConstraintLifecycle.STANDING_RULE,
+                        strength=ConstraintStrength.HARD,
+                        fellows=FellowSelector.by_groups(*sr["groups"]),
+                        params={"name": sr["name"]},
+                    ))
+                else:
+                    standing_constraints.extend(palette_rule_to_constraints(
+                        sr, lifecycle=ConstraintLifecycle.STANDING_RULE,
+                    ))
+        else:
+            from .standing_rules import constraints_from_config as standing_constraints_from_config
+            standing_config = yaml.safe_load(STANDING_RULE_CONFIG.read_text())
+            standing_constraints = list(standing_constraints_from_config(standing_config))
+
+        # Build probe constraints: standing + target rule + optional pair
+        probe_rules = [rule]
+        if pair_with:
+            probe_rules.append(pair_with)
+
+        probe_constraints = list(standing_constraints)
+        for pr in probe_rules:
+            if pr.get("active", True):
+                probe_constraints.extend(palette_rule_to_constraints(
+                    pr, lifecycle=ConstraintLifecycle.ANNUAL_RULE,
+                ))
+
+        # Derive forbidden shifts using ALL shift_total rules from the config
+        # (not just the probe rules) — otherwise single-rule probes over-restrict
+        all_annual_rules = config_data.get("rules", [])
+        all_rules_for_derivation = standing_rules_raw + all_annual_rules
+        probe_constraints.extend(derive_forbidden_shifts(
+            all_rules_for_derivation, shifts, fellow_groups,
+        ))
+
+        solver_config = ScheduleSolverConfig(
+            fellow_groups=fellow_groups,
+            shifts=shifts,
+            constraints=probe_constraints,
+            night_config=NightSolverConfig(),
+            weekend_config=WeekendSolverConfig(),
+            num_weeks=config_data.get("num_weeks", 52),
+        )
+
+        t0 = time.time()
+        opb, var_map = build_full_schedule_opb(solver_config, soft_bound=None)
+        upper = sum(w for _, w in var_map.soft_violations)
+        opb_probe, _ = build_full_schedule_opb(solver_config, soft_bound=upper)
+
+        runner = get_runner()
+        result = runner.solve(opb_probe, timeout=10.0)
+        elapsed = time.time() - t0
+
+        return jsonify({"satisfiable": result.satisfiable, "elapsed": round(elapsed, 2)})
+    except Exception as exc:
+        return jsonify({"error": str(exc), "satisfiable": False}), 500
+
+
 @app.route("/api/schedule/stream", methods=["POST"])
 def schedule_stream():
     """SSE endpoint: progressively solves and streams improving schedules."""
