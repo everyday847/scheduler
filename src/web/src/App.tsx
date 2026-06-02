@@ -926,6 +926,7 @@ function App() {
               ) : showPalette ? (
                 <RulePalette
                   group={group}
+                  category="weekly"
                   onAdd={addPaletteRule}
                   onCancel={() => setShowPalette(false)}
                 />

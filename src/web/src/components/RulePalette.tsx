@@ -1,20 +1,27 @@
 import React from 'react';
 import { PaletteRule, PaletteRuleType, PALETTE_TYPE_LABELS, PALETTE_TYPE_DESCRIPTIONS } from '../types';
 
+const WEEKLY_TYPES: PaletteRuleType[] = [
+  'shift_total', 'staffing_per_week', 'coverage_target', 'max_consecutive',
+  'block_rotation', 'rotation_continuity', 'prerequisite', 'windowed_balance',
+];
+
+const NIGHT_TYPES: PaletteRuleType[] = [
+  'night_spacing', 'night_blocked_services', 'night_holiday_eligibility',
+  'night_penalties', 'night_sunday_following',
+];
+
+const WEEKEND_TYPES: PaletteRuleType[] = [
+  'weekend_spacing', 'weekend_blocked_services', 'weekend_stroke_eligibility',
+  'weekend_penalties',
+];
+
 type Props = {
   group: string;
   onAdd: (rule: PaletteRule) => void;
   onCancel: () => void;
+  category?: 'weekly' | 'night' | 'weekend';
 };
-
-const PALETTE_TYPES: PaletteRuleType[] = [
-  'shift_total', 'staffing_per_week', 'coverage_target', 'max_consecutive',
-  'block_rotation', 'rotation_continuity', 'prerequisite', 'windowed_balance',
-  'night_spacing', 'night_blocked_services', 'night_holiday_eligibility',
-  'night_penalties', 'night_sunday_following',
-  'weekend_spacing', 'weekend_blocked_services', 'weekend_stroke_eligibility',
-  'weekend_penalties',
-];
 
 function createDefaultRule(type: PaletteRuleType, group: string): PaletteRule {
   const label = PALETTE_TYPE_LABELS[type];
@@ -57,15 +64,18 @@ function createDefaultRule(type: PaletteRuleType, group: string): PaletteRule {
   }
 }
 
-export function RulePalette({ group, onAdd, onCancel }: Props) {
+export function RulePalette({ group, onAdd, onCancel, category }: Props) {
+  const types = category === 'night' ? NIGHT_TYPES
+    : category === 'weekend' ? WEEKEND_TYPES
+    : WEEKLY_TYPES;
   return (
     <div className="rule-palette">
       <div className="palette-header">
-        <h3>Add a rule for {group}</h3>
+        <h3>Add a {category === 'night' ? 'night' : category === 'weekend' ? 'weekend' : ''} rule{category ? '' : ` for ${group}`}</h3>
         <button onClick={onCancel}>Cancel</button>
       </div>
       <div className="palette-options">
-        {PALETTE_TYPES.map(type => (
+        {types.map(type => (
           <button key={type} className="palette-option"
             onClick={() => onAdd(createDefaultRule(type, group))}>
             <span className="palette-option-name">{PALETTE_TYPE_LABELS[type]}</span>
