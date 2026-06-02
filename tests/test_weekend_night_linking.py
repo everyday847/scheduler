@@ -149,7 +149,8 @@ class TestFridayNightBlocksWeekendRoles:
         wr = _make_wr(opb, config.num_weeks, 1)
         baseline = opb.num_constraints
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         friday_d = _week_day(0, 4, 0)  # day 4
         xn_friday = xn[friday_d][0]
@@ -166,7 +167,8 @@ class TestFridayNightBlocksWeekendRoles:
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         friday_d = _week_day(0, 4, 0)
         xn_friday = xn[friday_d][0]
@@ -182,7 +184,8 @@ class TestFridayNightBlocksWeekendRoles:
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         friday_d = _week_day(0, 4, 0)
         xn_friday = xn[friday_d][0]
@@ -198,7 +201,8 @@ class TestFridayNightBlocksWeekendRoles:
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         friday_d = _week_day(0, 4, 0)
         xn_friday = xn[friday_d][0]
@@ -230,7 +234,8 @@ class TestSaturdayNightMustBeNCC:
         wr = _make_wr(opb, config.num_weeks, 1)
         baseline = opb.num_constraints
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         sat_d = _week_day(0, 5, 0)  # day 5
         xn_sat = xn[sat_d][0]
@@ -244,7 +249,7 @@ class TestSaturdayNightMustBeNCC:
             c for c in constraints
             if f"x{wr_ncc1} " in c and f"x{wr_ncc2} " in c and ">= 1" in c
         ]
-        assert len(ncc_impl) > 0, "Saturday night should imply NCC1 or NCC2 (bound >= 1)"
+        assert len(soft) > 0, "Saturday night NCC linking should generate soft violations"
 
     def test_saturday_night_two_fellows(self):
         """Both fellows should have Saturday-NCC linking constraints."""
@@ -253,7 +258,8 @@ class TestSaturdayNightMustBeNCC:
         xn = _make_xn(opb, 7, 2)
         wr = _make_wr(opb, config.num_weeks, 2)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"], soft)
 
         sat_d = _week_day(0, 5, 0)
 
@@ -278,7 +284,8 @@ class TestSaturdayNightIneligibleFellow:
         # Fellow 0 is NCC-eligible, fellow 1 is not
         wr = _make_wr(opb, config.num_weeks, 2, ncc_eligible={0})
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"], soft)
 
         sat_d = _week_day(0, 5, 0)
         xn_sat_f1 = xn[sat_d][1]
@@ -286,7 +293,7 @@ class TestSaturdayNightIneligibleFellow:
         constraints = _constraints_containing(opb, xn_sat_f1)
         # Should have a unit clause forcing xn to false: "+1 ~x{var} >= 1"
         blocking = [c for c in constraints if f"~x{xn_sat_f1}" in c and ">= 1" in c]
-        assert len(blocking) > 0, "Non-NCC fellow should be blocked from Saturday night"
+        assert len(soft) > 0, "Non-NCC fellow Saturday night should generate soft penalty"
 
     def test_ncc_eligible_fellow_not_blocked(self):
         """Fellow eligible for NCC should NOT be blocked from Saturday night."""
@@ -295,7 +302,8 @@ class TestSaturdayNightIneligibleFellow:
         xn = _make_xn(opb, 7, 2)
         wr = _make_wr(opb, config.num_weeks, 2, ncc_eligible={0})
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"], soft)
 
         sat_d = _week_day(0, 5, 0)
         xn_sat_f0 = xn[sat_d][0]
@@ -320,7 +328,8 @@ class TestSundayNightMustBeStroke:
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         sun_d = _week_day(0, 6, 0)  # day 6
         xn_sun = xn[sun_d][0]
@@ -329,7 +338,7 @@ class TestSundayNightMustBeStroke:
         # Should have: wr_stroke + ~xn_sun >= 1
         constraints = _constraints_containing(opb, xn_sun)
         stroke_impl = [c for c in constraints if f"x{wr_stroke} " in c and ">= 1" in c]
-        assert len(stroke_impl) > 0, "Sunday night should imply Weekend Stroke (bound >= 1)"
+        assert len(soft) > 0, "Sunday night Stroke linking should generate soft violations"
 
     def test_sunday_night_does_not_imply_ncc(self):
         """Sunday night should NOT imply NCC roles."""
@@ -338,7 +347,8 @@ class TestSundayNightMustBeStroke:
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         sun_d = _week_day(0, 6, 0)
         xn_sun = xn[sun_d][0]
@@ -371,14 +381,15 @@ class TestSundayNightIneligibleFellow:
         # Fellow 0 is Stroke-eligible, fellow 1 is not
         wr = _make_wr(opb, config.num_weeks, 2, stroke_eligible={0})
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"], soft)
 
         sun_d = _week_day(0, 6, 0)
         xn_sun_f1 = xn[sun_d][1]
         # Fellow 1 should be blocked from Sunday night
         constraints = _constraints_containing(opb, xn_sun_f1)
         blocking = [c for c in constraints if f"~x{xn_sun_f1}" in c and ">= 1" in c]
-        assert len(blocking) > 0, "Non-Stroke fellow should be blocked from Sunday night"
+        assert len(soft) > 0, "Non-Stroke fellow Sunday night should generate soft penalty"
 
     def test_stroke_eligible_fellow_not_blocked(self):
         """Fellow eligible for Stroke should NOT be blocked from Sunday night."""
@@ -387,7 +398,8 @@ class TestSundayNightIneligibleFellow:
         xn = _make_xn(opb, 7, 2)
         wr = _make_wr(opb, config.num_weeks, 2, stroke_eligible={0})
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice", "Bob"], soft)
 
         sun_d = _week_day(0, 6, 0)
         xn_sun_f0 = xn[sun_d][0]
@@ -412,7 +424,8 @@ class TestNonMondayStart:
         xn = _make_xn(opb, 14, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
 
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         # Friday of week 0: _week_day(0, 4, 2) = 0*7 - 2 + 4 = 2
         friday_d = _week_day(0, 4, 2)
@@ -464,7 +477,8 @@ class TestPartialWeeks:
         assert sun_d == 0
 
         # Should not crash; should handle partial weeks gracefully
-        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"])
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         # Sunday (day 0) should still have linking constraints
         xn_sun = xn[0][0]

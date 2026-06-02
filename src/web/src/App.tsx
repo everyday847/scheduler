@@ -259,8 +259,8 @@ function App() {
         } else {
           setPaletteRules([]);
         }
-        setNightRules(annual.night_rules?.length ? annual.night_rules : (standing.night_rules || []));
-        setWeekendRules(annual.weekend_rules?.length ? annual.weekend_rules : (standing.weekend_rules || []));
+        setNightRules((annual.night_rules?.length ? annual.night_rules : (standing.night_rules || [])).map(yamlNightRuleToReact));
+        setWeekendRules((annual.weekend_rules?.length ? annual.weekend_rules : (standing.weekend_rules || [])).map(yamlWeekendRuleToReact));
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));

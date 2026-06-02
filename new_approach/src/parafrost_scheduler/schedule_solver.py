@@ -1574,8 +1574,8 @@ def _encode_night_constraints(
         opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
     )
 
-    # Weekend night linking: Fri/Sat/Sun night ↔ weekend roles
-    _encode_weekend_night_linking(opb, xn, wr, config, fellow_names)
+    # Weekend night linking: Fri/Sat/Sun night ↔ weekend roles (soft)
+    _encode_weekend_night_linking(opb, xn, wr, config, fellow_names, soft_violations)
 
     # No 3 consecutive nights
     opb.add_comment("Night: no 3 consecutive nights per fellow")
@@ -1800,22 +1800,25 @@ def _encode_weekend_night_linking(
     wr: list[list[dict[int, int]]],
     config: ScheduleSolverConfig,
     fellow_names: list[str],
+    soft_violations: list[tuple[int, int]],
 ) -> None:
-    """Link weekend night call assignments to weekend role assignments.
+    """Link weekend night call assignments to weekend role assignments (soft).
 
-    - Friday night: fellow must NOT have any weekend role that week.
-    - Saturday night: fellow must be Weekend NCC1 or NCC2.
-    - Sunday night: fellow must be Weekend Stroke.
+    Preferences (soft weight 20 each):
+    - Friday night: fellow should NOT have any weekend role that week.
+    - Saturday night: fellow should be Weekend NCC1 or NCC2.
+    - Sunday night: fellow should be Weekend Stroke.
     """
     num_days = config.num_days
     num_weeks = config.num_weeks
     start_dow = config.start_dow
     num_fellows = len(fellow_names)
+    weight = config.weekend_mismatch_weight
 
-    opb.add_comment("Night: weekend night linking (Fri/Sat/Sun ↔ weekend roles)")
+    opb.add_comment("Night: weekend night linking (Fri/Sat/Sun ↔ weekend roles, soft)")
 
     for w in range(num_weeks):
-        # --- Friday night: blocks all weekend roles ---
+        # --- Friday night: penalize having a weekend role ---
         friday_d = _week_day(w, 4, start_dow)
         if 0 <= friday_d < num_days:
             for f in range(num_fellows):
@@ -1823,10 +1826,13 @@ def _encode_weekend_night_linking(
                     continue
                 for role_idx in range(3):
                     if f in wr[w][role_idx]:
-                        # xn[friday_d][f] + wr[w][role_idx][f] <= 1
-                        opb.at_most_k([xn[friday_d][f], wr[w][role_idx][f]], 1)
+                        _encode_night_criterion_pair(
+                            opb, xn[friday_d][f], wr[w][role_idx][f],
+                            "weekend_night_friday", frozenset(),
+                            _SoftWeightProxy(weight), soft_violations,
+                        )
 
-        # --- Saturday night: must be Weekend NCC1 or NCC2 ---
+        # --- Saturday night: prefer Weekend NCC1 or NCC2 ---
         sat_d = _week_day(w, 5, start_dow)
         if 0 <= sat_d < num_days:
             for f in range(num_fellows):
@@ -1839,30 +1845,47 @@ def _encode_weekend_night_linking(
                     ncc_vars.append(wr[w][_ROLE_NCC2][f])
 
                 if ncc_vars:
-                    # xn[sat_d][f] → OR(ncc_vars)
-                    # sum(ncc_vars) + ~xn[sat_d][f] >= 1
+                    # Soft: xn[sat_d][f] AND NOT OR(ncc_vars) → penalty
+                    # Create violation = xn AND all(~ncc)
+                    not_ncc = opb.new_var()
+                    # not_ncc >= 1 - sum(ncc_vars)  →  sum(ncc) + not_ncc >= 1
                     opb.weighted_sum_at_least(
-                        [(v, 1) for v in ncc_vars] + [(-xn[sat_d][f], 1)], 1
+                        [(v, 1) for v in ncc_vars] + [(not_ncc, 1)], 1
                     )
-                else:
-                    # Fellow can't be NCC → can't do Saturday night
-                    opb.add_unit(-xn[sat_d][f])
+                    # not_ncc <= ~each_ncc  →  ncc_i + not_ncc <= 1
+                    for nv in ncc_vars:
+                        opb.at_most_k([nv, not_ncc], 1)
+                    _encode_night_criterion_pair(
+                        opb, xn[sat_d][f], not_ncc,
+                        "weekend_night_saturday", frozenset(),
+                        _SoftWeightProxy(weight), soft_violations,
+                    )
 
-        # --- Sunday night: must be Weekend Stroke ---
+        # --- Sunday night: prefer Weekend Stroke ---
         sun_d = _week_day(w, 6, start_dow)
         if 0 <= sun_d < num_days:
             for f in range(num_fellows):
                 if xn[sun_d][f] == 0:
                     continue
                 if f in wr[w][_ROLE_STROKE]:
-                    # xn[sun_d][f] → wr[w][STROKE][f]
-                    # wr_stroke + ~xn[sun_d][f] >= 1
-                    opb.weighted_sum_at_least(
-                        [(wr[w][_ROLE_STROKE][f], 1), (-xn[sun_d][f], 1)], 1
+                    # Soft: xn AND NOT wr_stroke → penalty
+                    not_stroke = opb.new_var()
+                    stroke_var = wr[w][_ROLE_STROKE][f]
+                    opb.weighted_sum_at_least([(stroke_var, 1), (not_stroke, 1)], 1)
+                    opb.at_most_k([stroke_var, not_stroke], 1)
+                    _encode_night_criterion_pair(
+                        opb, xn[sun_d][f], not_stroke,
+                        "weekend_night_sunday", frozenset(),
+                        _SoftWeightProxy(weight), soft_violations,
                     )
-                else:
-                    # Fellow not eligible for Weekend Stroke → can't do Sunday night
-                    opb.add_unit(-xn[sun_d][f])
+
+
+class _SoftWeightProxy:
+    """Adapter so _encode_night_criterion_pair can use a fixed weight."""
+    def __init__(self, w: int):
+        self._w = w
+    def for_criterion(self, _name: str) -> int:
+        return self._w
 
 
 def _encode_night_criterion_pair(
