@@ -501,26 +501,13 @@ function App() {
 
   const confirmImport = useCallback(() => {
     if (!importData) return;
-
-    // Lock all imported fellows
     setLockedAssignments(importData.assignments);
-
-    // Merge fellow names into config (as "Imported" group or add to existing)
     setConfig(prev => {
-      const existingFellows = new Set(Object.values(prev.fellow_groups).flat());
-      const newFellows = importData.fellow_names.filter((f: string) => !existingFellows.has(f));
-      const groups = { ...prev.fellow_groups };
-      if (newFellows.length > 0) {
-        groups['Imported'] = [...(groups['Imported'] || []), ...newFellows];
-      }
       return {
         ...prev,
-        fellow_groups: groups,
-        num_weeks: importData.num_weeks,
         shifts: Array.from(new Set([...prev.shifts, ...importData.shifts_found])),
       };
     });
-
     setImportData(null);
   }, [importData]);
 
