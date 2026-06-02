@@ -179,6 +179,12 @@ def _check_feasible(
     all_rules_for_derivation = standing_rules_raw + all_annual
     constraints.extend(derive_forbidden_shifts(all_rules_for_derivation, shifts, fellow_groups))
 
+    # Disable night/weekend system: diagnosis checks weekly shift feasibility only.
+    # Marking all fellows as CCM zeros their night variables, making all
+    # night/weekend constraints vacuous (exactly_one, linking, blocking, etc.)
+    all_fellow_names = frozenset(
+        name for names in fellow_groups.values() for name in names
+    )
     config = ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
@@ -188,7 +194,7 @@ def _check_feasible(
             friday_nights={},
             total_night_multisets=(),
             friday_night_multisets=(),
-            ccm_fellows=frozenset(),
+            ccm_fellows=all_fellow_names,
             holiday_dates=(),
         ),
         weekend_config=WeekendSolverConfig(
@@ -196,7 +202,7 @@ def _check_feasible(
             stroke_totals={},
             stroke_cohort=(),
             stroke_cohort_total=None,
-            ccm_fellows=frozenset(),
+            ccm_fellows=all_fellow_names,
             always_stroke_eligible=frozenset(),
             telestroke_stroke_eligible=frozenset(),
             stroke_only_eligible=frozenset(),
