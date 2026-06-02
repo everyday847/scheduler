@@ -116,8 +116,8 @@ def _count_constraints_containing(opb: OpbBuilder, var_id: int) -> int:
 
 def _get_constraints_containing(opb: OpbBuilder, var_id: int) -> list[str]:
     """Get all constraints referencing a given variable id."""
-    var_str_pos = f"x{var_id}"
-    var_str_neg = f"~x{var_id}"
+    var_str_pos = f"x{var_id} "
+    var_str_neg = f"~x{var_id} "
     return [c for c in opb._constraints if var_str_pos in c or var_str_neg in c]
 
 
@@ -148,7 +148,7 @@ class TestNightBlockingSunThu:
         sicu_var_week0 = xs[0][0][shift_idx["SICU"]]
         night_var_day2 = xn[2][0]
         constraints = _get_constraints_containing(opb, night_var_day2)
-        sicu_constraints = [c for c in constraints if f"x{sicu_var_week0}" in c]
+        sicu_constraints = [c for c in constraints if f"x{sicu_var_week0} " in c]
         assert len(sicu_constraints) > 0, "SICU should block Wednesday night"
 
     def test_sicu_does_not_block_friday_night(self):
@@ -169,7 +169,7 @@ class TestNightBlockingSunThu:
         night_var_day4 = xn[4][0]
         constraints = _get_constraints_containing(opb, night_var_day4)
         sicu_constraints = [c for c in constraints
-                           if f"x{sicu_var_week0}" in c or f"x{sicu_var_week1}" in c]
+                           if f"x{sicu_var_week0} " in c or f"x{sicu_var_week1} " in c]
         assert len(sicu_constraints) == 0, "SICU should NOT block Friday night"
 
     def test_sicu_does_not_block_saturday_night(self):
@@ -190,7 +190,7 @@ class TestNightBlockingSunThu:
         night_var_day5 = xn[5][0]
         constraints = _get_constraints_containing(opb, night_var_day5)
         sicu_constraints = [c for c in constraints
-                           if f"x{sicu_var_week0}" in c or f"x{sicu_var_week1}" in c]
+                           if f"x{sicu_var_week0} " in c or f"x{sicu_var_week1} " in c]
         assert len(sicu_constraints) == 0, "SICU should NOT block Saturday night"
 
     def test_sicu_blocks_sunday_night(self):
@@ -210,7 +210,7 @@ class TestNightBlockingSunThu:
         sicu_var_week1 = xs[0][1][shift_idx["SICU"]]
         night_var_day6 = xn[6][0]
         constraints = _get_constraints_containing(opb, night_var_day6)
-        sicu_constraints = [c for c in constraints if f"x{sicu_var_week1}" in c]
+        sicu_constraints = [c for c in constraints if f"x{sicu_var_week1} " in c]
         assert len(sicu_constraints) > 0, "SICU should block Sunday night"
 
     def test_blocking_checks_next_day_week(self):
@@ -233,8 +233,8 @@ class TestNightBlockingSunThu:
         constraints = _get_constraints_containing(opb, night_var_day6)
 
         # Should reference week 1's SICU, not week 0's
-        week1_refs = [c for c in constraints if f"x{sicu_var_week1}" in c]
-        week0_refs = [c for c in constraints if f"x{sicu_var_week0}" in c]
+        week1_refs = [c for c in constraints if f"x{sicu_var_week1} " in c]
+        week0_refs = [c for c in constraints if f"x{sicu_var_week0} " in c]
         assert len(week1_refs) > 0, "Sunday night should check next day's week (week 1)"
         # Week 0 should not be referenced for SICU blocking (it IS referenced for vacation)
         assert len(week0_refs) == 0 or all("Vac" in c for c in week0_refs), \
@@ -264,7 +264,7 @@ class TestVacationBlocksAllNights:
         vac_var_week0 = xs[0][0][shift_idx["Vac"]]
         night_var_day4 = xn[4][0]
         constraints = _get_constraints_containing(opb, night_var_day4)
-        vac_constraints = [c for c in constraints if f"x{vac_var_week0}" in c]
+        vac_constraints = [c for c in constraints if f"x{vac_var_week0} " in c]
         assert len(vac_constraints) > 0, "Vacation should block Friday night"
 
     def test_vacation_blocks_saturday_night(self):
@@ -283,7 +283,7 @@ class TestVacationBlocksAllNights:
         vac_var_week0 = xs[0][0][shift_idx["Vac"]]
         night_var_day5 = xn[5][0]
         constraints = _get_constraints_containing(opb, night_var_day5)
-        vac_constraints = [c for c in constraints if f"x{vac_var_week0}" in c]
+        vac_constraints = [c for c in constraints if f"x{vac_var_week0} " in c]
         assert len(vac_constraints) > 0, "Vacation should block Saturday night"
 
     def test_vacation_blocks_all_7_nights(self):
@@ -303,7 +303,7 @@ class TestVacationBlocksAllNights:
         for d in range(7):
             night_var = xn[d][0]
             constraints = _get_constraints_containing(opb, night_var)
-            vac_constraints = [c for c in constraints if f"x{vac_var_week0}" in c]
+            vac_constraints = [c for c in constraints if f"x{vac_var_week0} " in c]
             if vac_constraints:
                 blocked_count += 1
         assert blocked_count == 7, f"Vacation should block all 7 nights, but only blocked {blocked_count}"
@@ -337,7 +337,7 @@ class TestStrokeCriterionNextDay:
         stroke_var_week1 = xs[0][1][shift_idx["Stroke"]]
         night_var_day6 = xn[6][0]
         constraints = _get_constraints_containing(opb, night_var_day6)
-        stroke_constraints = [c for c in constraints if f"x{stroke_var_week1}" in c]
+        stroke_constraints = [c for c in constraints if f"x{stroke_var_week1} " in c]
         assert len(stroke_constraints) > 0, "Sunday night should be blocked by next week's Stroke"
 
     def test_stroke_does_not_block_friday_night(self):
@@ -361,7 +361,7 @@ class TestStrokeCriterionNextDay:
         night_var_day4 = xn[4][0]
         constraints = _get_constraints_containing(opb, night_var_day4)
         stroke_constraints = [c for c in constraints
-                             if f"x{stroke_var_week0}" in c or f"x{stroke_var_week1}" in c]
+                             if f"x{stroke_var_week0} " in c or f"x{stroke_var_week1} " in c]
         assert len(stroke_constraints) == 0, "Friday night should NOT be blocked by Stroke"
 
     def test_stroke_does_not_block_saturday_night(self):
@@ -385,7 +385,7 @@ class TestStrokeCriterionNextDay:
         night_var_day5 = xn[5][0]
         constraints = _get_constraints_containing(opb, night_var_day5)
         stroke_constraints = [c for c in constraints
-                             if f"x{stroke_var_week0}" in c or f"x{stroke_var_week1}" in c]
+                             if f"x{stroke_var_week0} " in c or f"x{stroke_var_week1} " in c]
         assert len(stroke_constraints) == 0, "Saturday night should NOT be blocked by Stroke weekday criterion"
 
     def test_stroke_blocks_thursday_night_before_friday(self):
@@ -407,7 +407,7 @@ class TestStrokeCriterionNextDay:
         stroke_var_week0 = xs[0][0][shift_idx["Stroke"]]
         night_var_day3 = xn[3][0]
         constraints = _get_constraints_containing(opb, night_var_day3)
-        stroke_constraints = [c for c in constraints if f"x{stroke_var_week0}" in c]
+        stroke_constraints = [c for c in constraints if f"x{stroke_var_week0} " in c]
         assert len(stroke_constraints) > 0, "Thursday night should be blocked by Stroke"
 
 
@@ -443,7 +443,7 @@ class TestClinicCriterionDays:
             clinic_found = False
             for w in range(num_weeks):
                 clinic_var = xs[0][w][shift_idx["Clinic/Elective"]]
-                if any(f"x{clinic_var}" in c for c in constraints):
+                if any(f"x{clinic_var} " in c for c in constraints):
                     clinic_found = True
                     break
             if clinic_found:
@@ -642,7 +642,7 @@ class TestScvmcRehabBlocked:
         rehab_var_week0 = xs[0][0][shift_idx["SCVMC Rehab"]]
         night_var_day0 = xn[0][0]
         constraints = _get_constraints_containing(opb, night_var_day0)
-        rehab_constraints = [c for c in constraints if f"x{rehab_var_week0}" in c]
+        rehab_constraints = [c for c in constraints if f"x{rehab_var_week0} " in c]
         assert len(rehab_constraints) > 0, "SCVMC Rehab should block Monday night"
 
 
@@ -669,7 +669,7 @@ class TestIscBlocking:
         night_var_day4 = xn[4][0]  # Friday
         constraints = _get_constraints_containing(opb, night_var_day4)
         isc_constraints = [c for c in constraints
-                          if f"x{isc_var_week0}" in c or f"x{isc_var_week1}" in c]
+                          if f"x{isc_var_week0} " in c or f"x{isc_var_week1} " in c]
         assert len(isc_constraints) == 0, "ISC should NOT block Friday night"
 
     def test_isc_does_not_block_saturday_night(self):
@@ -688,7 +688,7 @@ class TestIscBlocking:
         night_var_day5 = xn[5][0]  # Saturday
         constraints = _get_constraints_containing(opb, night_var_day5)
         isc_constraints = [c for c in constraints
-                          if f"x{isc_var_week0}" in c or f"x{isc_var_week1}" in c]
+                          if f"x{isc_var_week0} " in c or f"x{isc_var_week1} " in c]
         assert len(isc_constraints) == 0, "ISC should NOT block Saturday night"
 
     def test_isc_blocks_wednesday_night(self):
@@ -706,5 +706,43 @@ class TestIscBlocking:
         isc_var_week0 = xs[0][0][shift_idx["ISC"]]
         night_var_day2 = xn[2][0]
         constraints = _get_constraints_containing(opb, night_var_day2)
-        isc_constraints = [c for c in constraints if f"x{isc_var_week0}" in c]
+        isc_constraints = [c for c in constraints if f"x{isc_var_week0} " in c]
         assert len(isc_constraints) > 0, "ISC should block Wednesday night"
+
+    def test_isc_blocks_monday_night(self):
+        """ISC should block Monday night (dow=0) — next day is Tuesday (workday)."""
+        shifts = ["NCC1", "ISC"]
+        config = _make_config(shifts, start_dow=0, num_days=14)
+        shift_idx = {s: i for i, s in enumerate(shifts)}
+        num_weeks = config.num_weeks
+        opb = OpbBuilder()
+        xs, xn, wr = _make_vars(opb, 1, 14, len(shifts), num_weeks)
+        soft = []
+
+        _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
+
+        # Day 0 = Monday. Next day = Tuesday (week 0).
+        isc_var_week0 = xs[0][0][shift_idx["ISC"]]
+        night_var_day0 = xn[0][0]
+        constraints = _get_constraints_containing(opb, night_var_day0)
+        isc_constraints = [c for c in constraints if f"x{isc_var_week0} " in c]
+        assert len(isc_constraints) > 0, "ISC should block Monday night"
+
+    def test_isc_blocks_sunday_night(self):
+        """ISC should block Sunday night (dow=6) — next day is Monday (workday)."""
+        shifts = ["NCC1", "ISC"]
+        config = _make_config(shifts, start_dow=0, num_days=14)
+        shift_idx = {s: i for i, s in enumerate(shifts)}
+        num_weeks = config.num_weeks
+        opb = OpbBuilder()
+        xs, xn, wr = _make_vars(opb, 1, 14, len(shifts), num_weeks)
+        soft = []
+
+        _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
+
+        # Day 6 = Sunday. Next day = Monday (day 7, week 1).
+        isc_var_week1 = xs[0][1][shift_idx["ISC"]]
+        night_var_day6 = xn[6][0]
+        constraints = _get_constraints_containing(opb, night_var_day6)
+        isc_constraints = [c for c in constraints if f"x{isc_var_week1} " in c]
+        assert len(isc_constraints) > 0, "ISC should block Sunday night"

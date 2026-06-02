@@ -1452,10 +1452,12 @@ def _encode_night_constraints(
     opb.add_comment("Night: service-based blocking (vacation = all nights)")
     vac_idx = shift_idx.get("Vac")
     non_vac_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx and s != "Vac"]
+    s_isc = shift_idx.get("ISC")
 
     for d in range(num_days):
         week_idx = _day_to_week(d, start_dow)
         dow = _day_of_week(d, start_dow)
+        next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else week_idx
         for f in range(num_fellows):
             if xn[d][f] == 0:
                 continue
@@ -1466,16 +1468,12 @@ def _encode_night_constraints(
 
             # Other blocked services: only Sun-Thu nights (next morning is a workday)
             if dow not in (4, 5):  # Skip Fri/Sat nights
-                next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
                 for si in non_vac_blocked:
                     if xs[f][next_day_week][si] != 0:
                         opb.at_most_k([xs[f][next_day_week][si], xn[d][f]], 1)
 
-            # ISC: blocked Sun-Thu only (next morning is an ISC workday)
-            s_isc = shift_idx.get("ISC")
-            if s_isc is not None and dow not in (4, 5):
-                next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
-                if xs[f][next_day_week][s_isc] != 0:
+                # ISC: blocked Sun-Thu only (next morning is an ISC workday)
+                if s_isc is not None and xs[f][next_day_week][s_isc] != 0:
                     opb.at_most_k([xs[f][next_day_week][s_isc], xn[d][f]], 1)
 
             # Holiday: only NCC1/NCC2/Stroke can work holidays
