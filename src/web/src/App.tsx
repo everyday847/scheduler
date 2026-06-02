@@ -186,6 +186,23 @@ function App() {
 
   const W = config.num_weeks || 52;
 
+  // Compute actual num_days and Friday count from horizon_start (matching solver logic)
+  const { numDays, numFridays } = useMemo(() => {
+    const horizonStr = config.horizon_start || '2026-07-01';
+    const parts = horizonStr.split('-');
+    const startYear = parseInt(parts[0]), startMonth = parseInt(parts[1]) - 1, startDay = parseInt(parts[2]);
+    const start = new Date(startYear, startMonth, startDay);
+    const end = new Date(startYear + 1, startMonth, startDay);
+    end.setDate(end.getDate() - 1);
+    const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    const startDow = start.getDay() === 0 ? 6 : start.getDay() - 1; // JS Sun=0 → Mon=0..Sun=6
+    let fridays = 0;
+    for (let d = 0; d < totalDays; d++) {
+      if ((startDow + d) % 7 === 4) fridays++;
+    }
+    return { numDays: totalDays, numFridays: fridays };
+  }, [config.horizon_start]);
+
   // Load config file list
   useEffect(() => {
     fetch(`${API_BASE}/api/configs`)
@@ -251,12 +268,12 @@ function App() {
 
   // Budget calculations (values are group totals, sum directly)
   const nightBudget = useMemo(() => {
-    const required = W * 7;
+    const required = numDays;
     const configured = config.night_call.reduce((s, e) => s + (e.total_nights || 0), 0);
-    const fridayRequired = W;
+    const fridayRequired = numFridays;
     const fridayConfigured = config.night_call.reduce((s, e) => s + (e.friday_nights || 0), 0);
     return { required, configured, fridayRequired, fridayConfigured };
-  }, [config.night_call, W]);
+  }, [config.night_call, numDays, numFridays]);
 
   const weekendBudget = useMemo(() => {
     const nccRequired = W * 2;
