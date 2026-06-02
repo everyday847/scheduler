@@ -69,6 +69,80 @@ function weekIndexToDate(weekIndex: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Night/Weekend rule format converters (YAML ↔ React component format)
+// ---------------------------------------------------------------------------
+
+function yamlNightRuleToReact(rule: any): PaletteRule {
+  const base = { name: rule.name, groups: rule.groups || [], strength: rule.strength || 'hard', active: rule.active !== false, description: rule.description || '' };
+  switch (rule.type) {
+    case 'night_spacing':
+      return { ...base, type: rule.type, params: { maxNights: rule.max_nights ?? 1, windowDays: rule.window_days ?? 3 } };
+    case 'night_blocked_services':
+      return { ...base, type: rule.type, params: { exactServices: rule.exact_services || [], substringServices: rule.substring_services || [] } };
+    case 'night_holiday_eligibility':
+      return { ...base, type: rule.type, params: { allowedServices: rule.allowed_services || [] } };
+    case 'night_penalties':
+      return { ...base, type: rule.type, params: { weights: rule.weights || {} } };
+    case 'night_sunday_following':
+      return { ...base, type: rule.type, params: { preferredServices: rule.preferred_services || [] } };
+    default:
+      return { ...base, type: rule.type, params: rule.params || {} } as any;
+  }
+}
+
+function yamlWeekendRuleToReact(rule: any): PaletteRule {
+  const base = { name: rule.name, groups: rule.groups || [], strength: rule.strength || 'hard', active: rule.active !== false, description: rule.description || '' };
+  switch (rule.type) {
+    case 'weekend_spacing':
+      return { ...base, type: rule.type, params: { maxWeekends: rule.max_weekends ?? 1, windowWeeks: rule.window_weekends ?? 4 } };
+    case 'weekend_blocked_services':
+      return { ...base, type: rule.type, params: { exactServices: rule.exact_services || [], substringServices: rule.substring_services || [] } };
+    case 'weekend_stroke_eligibility':
+      return { ...base, type: rule.type, params: { eligibleServices: rule.eligible_services || [] } };
+    case 'weekend_penalties':
+      return { ...base, type: rule.type, params: { weights: rule.weights || {} } };
+    default:
+      return { ...base, type: rule.type, params: rule.params || {} } as any;
+  }
+}
+
+function reactNightRuleToYaml(rule: PaletteRule): any {
+  const base = { name: rule.name, type: rule.type, groups: (rule as any).groups, active: rule.active, description: (rule as any).description };
+  const params = (rule as any).params || {};
+  switch (rule.type) {
+    case 'night_spacing':
+      return { ...base, max_nights: params.maxNights, window_days: params.windowDays };
+    case 'night_blocked_services':
+      return { ...base, exact_services: params.exactServices, substring_services: params.substringServices };
+    case 'night_holiday_eligibility':
+      return { ...base, allowed_services: params.allowedServices };
+    case 'night_penalties':
+      return { ...base, weights: params.weights };
+    case 'night_sunday_following':
+      return { ...base, preferred_services: params.preferredServices };
+    default:
+      return { ...base, ...params };
+  }
+}
+
+function reactWeekendRuleToYaml(rule: PaletteRule): any {
+  const base = { name: rule.name, type: rule.type, groups: (rule as any).groups, active: rule.active, description: (rule as any).description };
+  const params = (rule as any).params || {};
+  switch (rule.type) {
+    case 'weekend_spacing':
+      return { ...base, max_weekends: params.maxWeekends, window_weekends: params.windowWeeks };
+    case 'weekend_blocked_services':
+      return { ...base, exact_services: params.exactServices, substring_services: params.substringServices };
+    case 'weekend_stroke_eligibility':
+      return { ...base, eligible_services: params.eligibleServices };
+    case 'weekend_penalties':
+      return { ...base, weights: params.weights };
+    default:
+      return { ...base, ...params };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -163,8 +237,8 @@ function App() {
         } else {
           setPaletteRules([]);
         }
-        setNightRules(annual.night_rules || []);
-        setWeekendRules(annual.weekend_rules || []);
+        setNightRules((annual.night_rules || []).map(yamlNightRuleToReact));
+        setWeekendRules((annual.weekend_rules || []).map(yamlWeekendRuleToReact));
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -532,8 +606,8 @@ function App() {
       ...config,
       fellow_groups: cleanGroups,
       fellow_week_pairs: weekPairs,
-      night_rules: nightRules,
-      weekend_rules: weekendRules,
+      night_rules: nightRules.map(reactNightRuleToYaml),
+      weekend_rules: weekendRules.map(reactWeekendRuleToYaml),
     };
 
     if (paletteRules.length > 0) {
