@@ -61,7 +61,7 @@ from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 # Configuration
 # ---------------------------------------------------------------------------
 
-NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "Vac", "NS"})
+NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "Vac", "NS", "SCVMC Rehab"})
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 CLINIC_SHIFTS = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
 STROKE_SHIFTS = frozenset({"Stroke"})
@@ -1447,8 +1447,11 @@ def _encode_night_constraints(
             opb.exactly_one(active)
 
     # Night blocking based on weekly shift (dynamic)
-    opb.add_comment("Night: service-based blocking")
-    blocked_shift_indices = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx]
+    # Vacation blocks ALL 7 nights; other blocked services only block Sun-Thu
+    # (nights where the fellow works the next morning).
+    opb.add_comment("Night: service-based blocking (vacation = all nights)")
+    vac_idx = shift_idx.get("Vac")
+    non_vac_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx and s != "Vac"]
 
     for d in range(num_days):
         week_idx = _day_to_week(d, start_dow)
@@ -1456,17 +1459,24 @@ def _encode_night_constraints(
         for f in range(num_fellows):
             if xn[d][f] == 0:
                 continue
-            # Hard block from night-blocking shifts
-            for si in blocked_shift_indices:
-                if xs[f][week_idx][si] != 0:
-                    # xs[f][w][blocked] + xn[d][f] <= 1
-                    opb.at_most_k([xs[f][week_idx][si], xn[d][f]], 1)
 
-            # ISC: blocked Tue-Fri (dow 1-4)
+            # Vacation blocks all nights of the vacation week
+            if vac_idx is not None and xs[f][week_idx][vac_idx] != 0:
+                opb.at_most_k([xs[f][week_idx][vac_idx], xn[d][f]], 1)
+
+            # Other blocked services: only Sun-Thu nights (next morning is a workday)
+            if dow not in (4, 5):  # Skip Fri/Sat nights
+                next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
+                for si in non_vac_blocked:
+                    if xs[f][next_day_week][si] != 0:
+                        opb.at_most_k([xs[f][next_day_week][si], xn[d][f]], 1)
+
+            # ISC: blocked Sun-Thu only (next morning is an ISC workday)
             s_isc = shift_idx.get("ISC")
-            if s_isc is not None and 1 <= dow <= 4:
-                if xs[f][week_idx][s_isc] != 0:
-                    opb.at_most_k([xs[f][week_idx][s_isc], xn[d][f]], 1)
+            if s_isc is not None and dow not in (4, 5):
+                next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
+                if xs[f][next_day_week][s_isc] != 0:
+                    opb.at_most_k([xs[f][next_day_week][s_isc], xn[d][f]], 1)
 
             # Holiday: only NCC1/NCC2/Stroke can work holidays
             if d in holiday_set:
@@ -1479,6 +1489,21 @@ def _encode_night_constraints(
                     )
                 else:
                     opb.add_unit(-xn[d][f])
+
+    # First-week restriction: NCC_JR and STROKE fellows blocked until first Friday
+    opb.add_comment("Night: first-week restriction for NCC_JR and STROKE")
+    first_friday = next((d for d in range(num_days) if _day_of_week(d, start_dow) == 4), None)
+    if first_friday is not None:
+        restricted_fellows = set()
+        for group_name, fellows in config.fellow_groups.items():
+            if group_name in ("NCC_JR", "STROKE"):
+                for name in fellows:
+                    if name in fellow_names:
+                        restricted_fellows.add(fellow_names.index(name))
+        for d in range(first_friday):
+            for fi in restricted_fellows:
+                if xn[d][fi] != 0:
+                    opb.add_unit(-xn[d][fi])
 
     # Night policy criteria (soft/hard depending on config)
     opb.add_comment("Night: policy criteria (anaesthesia, clinic, stroke, sunday_following)")
@@ -1593,47 +1618,44 @@ def _encode_night_policy_criteria(
                     CRITERION_ANAESTHESIA, hard_criteria, weights, soft_violations,
                 )
 
-    # Clinic criterion: weekday nights only
+    # Clinic criterion: only Sun/Tue/Wed nights (before Mon/Wed/Thu clinic days)
     for d in range(num_days):
-        week_idx = _day_to_week(d, start_dow)
         dow = _day_of_week(d, start_dow)
-        if dow > 4:
+        if dow not in (6, 1, 2):  # Only Sun, Tue, Wed nights
             continue
+        next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
         for f in range(num_fellows):
             if xn[d][f] == 0:
                 continue
             for si in clinic_indices:
-                if xs[f][week_idx][si] == 0:
+                if xs[f][next_day_week][si] == 0:
                     continue
                 _encode_night_criterion_pair(
-                    opb, xs[f][week_idx][si], xn[d][f],
+                    opb, xs[f][next_day_week][si], xn[d][f],
                     CRITERION_CLINIC, hard_criteria, weights, soft_violations,
                 )
 
-    # Stroke criterion: weekday nights only, exempt in dual-stroke weeks
+    # Stroke criterion: block night before Stroke workday (Sun-Thu only)
     if stroke_idx is not None:
         for d in range(num_days):
-            week_idx = _day_to_week(d, start_dow)
             dow = _day_of_week(d, start_dow)
-            if dow > 4:
+            if dow in (4, 5):  # Fri/Sat — next day is not a stroke workday
                 continue
-            ds_var = dual_stroke_vars[week_idx]
+            next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
+            ds_var = dual_stroke_vars[next_day_week] if next_day_week < num_weeks else 0
             for f in range(num_fellows):
                 if xn[d][f] == 0:
                     continue
-                if xs[f][week_idx][stroke_idx] == 0:
+                if xs[f][next_day_week][stroke_idx] == 0:
                     continue
                 if ds_var == 0:
-                    # Not a dual-stroke week (can never be)
                     _encode_night_criterion_pair(
-                        opb, xs[f][week_idx][stroke_idx], xn[d][f],
+                        opb, xs[f][next_day_week][stroke_idx], xn[d][f],
                         CRITERION_STROKE, hard_criteria, weights, soft_violations,
                     )
                 else:
-                    # Conditional: only penalize if NOT dual-stroke
-                    # The criterion applies when stroke_shift AND night AND NOT dual_stroke
                     _encode_night_criterion_triple(
-                        opb, xs[f][week_idx][stroke_idx], xn[d][f], ds_var,
+                        opb, xs[f][next_day_week][stroke_idx], xn[d][f], ds_var,
                         CRITERION_STROKE, hard_criteria, weights, soft_violations,
                     )
 
