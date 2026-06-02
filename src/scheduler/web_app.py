@@ -285,6 +285,7 @@ def diagnose_stream():
             "shifts": body.get("shifts", []),
             "num_weeks": body.get("num_weeks", 52),
             "rules": body.get("rules", []),
+            "locked_assignments": body.get("locked_assignments", {}),
         }
         standing_rules = body.get("standing_rules", [])
         annual_rules = body.get("rules", [])
