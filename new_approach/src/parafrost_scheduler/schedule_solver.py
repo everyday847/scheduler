@@ -1324,6 +1324,54 @@ def _encode_weekend_constraints(
     opb.add_comment("Weekend: prefer role matches weekday service (soft)")
     _encode_weekend_mismatch_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
 
+    # Penalize weekend call in the week before a vacation
+    opb.add_comment("Weekend: pre-vacation weekend penalty (soft)")
+    _encode_prevacation_weekend_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
+
+
+def _encode_prevacation_weekend_penalty(
+    opb: OpbBuilder,
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Soft penalty for weekend call in the week before vacation."""
+    vac_idx = shift_idx.get("Vac")
+    if vac_idx is None:
+        return
+
+    num_weeks = config.num_weeks
+    num_fellows = len(fellow_names)
+
+    for f in range(num_fellows):
+        for w in range(1, num_weeks):  # Start at 1 (need week w-1)
+            if xs[f][w][vac_idx] == 0:
+                continue
+            # Fellow f has vacation in week w.
+            # Penalize any weekend role in week w-1.
+            for role_idx in range(3):
+                if f not in wr[w - 1][role_idx]:
+                    continue
+                wr_var = wr[w - 1][role_idx][f]
+                # Create conjunction indicator: ind = vac[w] AND wr[w-1][role][f]
+                ind = opb.new_var()
+                # ind >= vac + wr - 1
+                opb.weighted_sum_at_most(
+                    [(xs[f][w][vac_idx], 1), (wr_var, 1), (-ind, 1)], 2
+                )
+                # ind <= vac
+                opb.weighted_sum_at_least(
+                    [(-xs[f][w][vac_idx], 1), (-ind, 1)], 1
+                )
+                # ind <= wr
+                opb.weighted_sum_at_least(
+                    [(-wr_var, 1), (-ind, 1)], 1
+                )
+                soft_violations.append((ind, 1))  # weight = 1
+
 
 def _encode_weekend_eligibility(
     opb: OpbBuilder,
