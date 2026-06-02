@@ -225,21 +225,31 @@ def _check_feasible(
 def _build_standing_constraints(
     standing_rules: list[dict[str, Any]],
 ) -> list[SemanticConstraint]:
-    """Convert standing rules to constraints."""
+    """Convert standing rules to constraints.
+
+    Handles both v1 format (``kind`` key) and v2 palette format (``type`` key).
+    V1 rules without a ``type`` key are skipped (they use a different constraint
+    system that the diagnosis doesn't support).
+    """
     constraints = []
     for rule in standing_rules:
         if not rule.get("active", True):
             continue
-        if rule.get("type") == "full_assignment":
+        rule_type = rule.get("type") or rule.get("kind")
+        if rule_type == "full_assignment":
+            groups = rule.get("groups") or rule.get("fellow_groups", [])
             constraints.append(SemanticConstraint(
                 kind="full_assignment",
                 lifecycle=ConstraintLifecycle.STANDING_RULE,
                 strength=ConstraintStrength.HARD,
-                fellows=FellowSelector.by_groups(*rule["groups"]),
+                fellows=FellowSelector.by_groups(*groups),
                 params={"name": rule["name"]},
             ))
-        else:
-            constraints.extend(palette_rule_to_constraints(
-                rule, lifecycle=ConstraintLifecycle.STANDING_RULE,
-            ))
+        elif "type" in rule:
+            try:
+                constraints.extend(palette_rule_to_constraints(
+                    rule, lifecycle=ConstraintLifecycle.STANDING_RULE,
+                ))
+            except (ValueError, KeyError):
+                continue
     return constraints
