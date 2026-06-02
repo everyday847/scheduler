@@ -268,6 +268,47 @@ def feasibility_check():
         return jsonify({"error": str(exc), "satisfiable": False}), 500
 
 
+@app.route("/api/diagnose/stream", methods=["POST"])
+def diagnose_stream():
+    """SSE endpoint: streams MUS cores as they're found."""
+    body = request.get_json(silent=True)
+
+    def generate():
+        from .conflict_diagnosis import extract_mus_cores
+        from .solver_bridge import get_runner
+
+        if not body:
+            yield _sse("error", {"message": "Request body required"})
+            return
+
+        config_data = {
+            "fellow_groups": body.get("fellow_groups", {}),
+            "shifts": body.get("shifts", []),
+            "num_weeks": body.get("num_weeks", 52),
+            "rules": body.get("rules", []),
+        }
+        standing_rules = body.get("standing_rules", [])
+        annual_rules = body.get("rules", [])
+
+        try:
+            runner = get_runner()
+            for event in extract_mus_cores(
+                config_data, standing_rules, annual_rules, runner,
+                probe_timeout=5.0, max_cores=5,
+            ):
+                yield _sse(event["type"], event)
+        except GeneratorExit:
+            pass
+        except Exception as exc:
+            yield _sse("error", {"message": str(exc)})
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.route("/api/schedule/export", methods=["POST"])
 def schedule_export():
     """Export current solution as an Excel workbook (3 sheets)."""
