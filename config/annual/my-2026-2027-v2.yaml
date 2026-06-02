@@ -1,20 +1,22 @@
 fellow_groups:
   CCM:
-  - CCM Generic
+  - Pulmonary/Cardio CCM Fellow (Core NCC) 1
+  - Pulmonary/Cardio CCM Fellow (Core NCC) 2
+  - CCM  Fellow (Elective) 1
   NCC_JR:
-  - NCC Alaric
-  - NCC Bertram
+  - Cindy Wong
+  - Alex Hanson
   NCC_SR:
-  - NCC Durga
-  - NCC Eos
+  - Raya Aliakbar
+  - Joseph Conovaloff
   NH:
-  - NH Adam
-  - NH Barry
+  - Jinyuan Liu
+  - Sokena Zaidi
   STROKE:
-  - Stroke Gabi
-  - Stroke Jeff
-  - Stroke Victoria
-  - Stroke Parshva
+  - Aditya Srivatsan
+  - Cameron Schmidt
+  - Harneet Dhillon
+  - Helena Xeros
 shifts:
 - SICU
 - MICU
@@ -36,18 +38,23 @@ shifts:
 - MSICU
 - NS SCVMC
 - Vacation
+- Elec/APBN
+- Elective/NCS 2026
+- Elective/SICU
 fellow_week_pairs:
-  CCM Generic: []
-  NCC Alaric: []
-  NCC Bertram: []
-  NCC Durga: []
-  NCC Eos: []
-  NH Adam: []
-  NH Barry: []
-  Stroke Gabi: []
-  Stroke Jeff: []
-  Stroke Victoria: []
-  Stroke Parshva: []
+  Pulmonary/Cardio CCM Fellow (Core NCC) 1: []
+  Pulmonary/Cardio CCM Fellow (Core NCC) 2: []
+  CCM  Fellow (Elective) 1: []
+  Cindy Wong: []
+  Alex Hanson: []
+  Raya Aliakbar: []
+  Joseph Conovaloff: []
+  Jinyuan Liu: []
+  Sokena Zaidi: []
+  Aditya Srivatsan: []
+  Cameron Schmidt: []
+  Harneet Dhillon: []
+  Helena Xeros: []
 night_call:
 - friday_nights: 32
   group: STROKE
@@ -89,83 +96,93 @@ holiday_dates:
 - '2027-02-15'
 - '2027-05-31'
 num_weeks: 53
-_has_draft: true
+_has_draft: false
 horizon_start: '2026-07-01'
 night_rules:
-- active: true
-  description: Max 1 night in any 3-consecutive-day window
+- name: Night spacing
   groups:
   - STROKE
   - NCC_JR
   - NCC_SR
   - NH
-  max_nights: 1
-  name: Night spacing
+  strength: hard
+  active: true
+  description: Max 1 night in any 3-consecutive-day window
   type: night_spacing
-  window_days: 3
-- active: true
-  description: Weekday services that preclude night call
-  exact_services:
-  - Vacation
-  - NS SCVMC
-  - AAN
-  - Elective/NCS 2026
+  params:
+    maxNights: 1
+    windowDays: 3
+- name: Night blocked services
   groups:
   - STROKE
   - NCC_JR
   - NCC_SR
   - NH
   - CCM
-  name: Night blocked services
-  substring_services:
-  - SICU
-  - MSICU
+  strength: hard
+  active: true
+  description: Weekday services that preclude night call
   type: night_blocked_services
-- active: true
-  allowed_services:
-  - NCC1
-  - NCC2
-  - Stroke
+  params:
+    exactServices:
+    - Vacation
+    - NS SCVMC
+    - AAN
+    - Elective/NCS 2026
+    substringServices:
+    - SICU
+    - MSICU
+- name: Holiday eligibility
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
   description: Only NCC1/NCC2/Stroke fellows can do night call on holidays
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  name: Holiday eligibility
   type: night_holiday_eligibility
-- active: true
+  params:
+    allowedServices:
+    - NCC1
+    - NCC2
+    - Stroke
+- name: Night soft penalties
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
   description: Weights for undesirable night call patterns
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  name: Night soft penalties
   type: night_penalties
-  weights:
-    anaesthesia: 1
-    clinic: 1
-    friday_weekend_ncc1: 1
-    stroke: 5
-    sunday_following: 1
-- active: true
-  description: Preferred weekday service after Sunday night call
+  params:
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      friday_weekend_ncc1: 1
+      stroke: 5
+      sunday_following: 1
+- name: Sunday following preference
   groups:
   - STROKE
   - NCC_JR
   - NCC_SR
   - NH
-  name: Sunday following preference
-  preferred_services:
-  - Elec
-  - Telestroke/Clinic
-  - Clinic/Elective
-  - SCVMC Rehab
-  - NIR
-  - ISC
-  - Vac
+  strength: hard
+  active: true
+  description: Preferred weekday service after Sunday night call
   type: night_sunday_following
+  params:
+    preferredServices:
+    - Elec
+    - Telestroke/Clinic
+    - Clinic/Elective
+    - SCVMC Rehab
+    - NIR
+    - ISC
+    - Vac
 rules:
 - active: true
   count: 20
@@ -649,56 +666,64 @@ rules:
   strength: hard
   type: shift_total
 weekend_rules:
-- active: true
+- name: Weekend spacing
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  - CCM
+  strength: hard
+  active: true
   description: Max 1 weekend in any 2-consecutive-week window
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  - CCM
-  max_weekends: 1
-  name: Weekend spacing
   type: weekend_spacing
-  window_weeks: 2
-- active: true
-  description: Weekday services that preclude weekend call
-  exact_services:
-  - Vacation
-  - Elective/NCS 2026
+  params:
+    maxWeekends: 1
+    windowWeeks: 4
+- name: Weekend blocked services
   groups:
   - STROKE
   - NCC_JR
   - NCC_SR
   - NH
   - CCM
-  name: Weekend blocked services
-  substring_services:
-  - SICU
-  - MSICU
+  strength: hard
+  active: true
+  description: Weekday services that preclude weekend call
   type: weekend_blocked_services
-- active: true
+  params:
+    exactServices:
+    - Vacation
+    - Elective/NCS 2026
+    substringServices:
+    - SICU
+    - MSICU
+- name: Weekend Stroke eligibility
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
   description: Which services make a fellow eligible for Weekend Stroke
-  eligible_services:
-  - Stroke
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  name: Weekend Stroke eligibility
   type: weekend_stroke_eligibility
-- active: true
-  description: Weights for undesirable weekend call patterns
+  params:
+    eligibleServices:
+    - Stroke
+- name: Weekend soft penalties
   groups:
   - STROKE
   - NCC_JR
   - NCC_SR
   - NH
-  name: Weekend soft penalties
+  strength: hard
+  active: true
+  description: Weights for undesirable weekend call patterns
   type: weekend_penalties
-  weights:
-    anaesthesia: 1
-    clinic: 1
-    friday_weekend_ncc1: 1
-    stroke: 5
+  params:
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      friday_weekend_ncc1: 1
+      stroke: 5
