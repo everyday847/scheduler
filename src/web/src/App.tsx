@@ -163,8 +163,8 @@ function App() {
         } else {
           setPaletteRules([]);
         }
-        setNightRules(annual.night_rules || []);
-        setWeekendRules(annual.weekend_rules || []);
+        setNightRules(annual.night_rules?.length ? annual.night_rules : (standing.night_rules || []));
+        setWeekendRules(annual.weekend_rules?.length ? annual.weekend_rules : (standing.weekend_rules || []));
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -438,6 +438,8 @@ function App() {
     const body = {
       ...config,
       rules: paletteRules,
+      night_rules: nightRules,
+      weekend_rules: weekendRules,
       fellow_week_pairs: (() => {
         const wp: Record<string, number[]> = {};
         for (const f of Object.values(config.fellow_groups).flat()) {
@@ -453,7 +455,7 @@ function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(() => setHasDraft(true)).catch(() => {});
-  }, [config, paletteRules, vacationDates, selectedFile]);
+  }, [config, paletteRules, vacationDates, selectedFile, nightRules, weekendRules]);
 
   // Auto-save on palette rule edits
   useEffect(() => {
