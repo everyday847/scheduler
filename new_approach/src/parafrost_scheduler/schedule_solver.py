@@ -91,7 +91,7 @@ def _day_of_week(d: int, start_dow: int) -> int:
 
 
 def _day_to_week(d: int, start_dow: int) -> int:
-    """Return the ISO-style week index for absolute day *d*."""
+    """Return the academic-year week index for absolute day *d*."""
     return (start_dow + d) // 7
 
 
@@ -124,13 +124,16 @@ class ScheduleSolverConfig:
     night_hard_criteria: frozenset[str] = frozenset(
         {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
     )
-    num_weeks: int = 52
     start_dow: int = 0  # weekday of day 0 (0=Mon ... 6=Sun)
     num_days: int = 365  # total days in the academic year
+    num_weeks: int = field(init=False)
     weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
 
 
 @dataclass(frozen=True)
@@ -181,7 +184,7 @@ def build_full_schedule_opb(
     shifts = config.shifts
     num_days = config.num_days
     start_dow = config.start_dow
-    num_weeks = _num_weeks_for(start_dow, num_days)
+    num_weeks = config.num_weeks
     num_fellows = len(fellow_names)
     num_shifts = len(shifts)
     shift_idx = {s: i for i, s in enumerate(shifts)}
@@ -2608,7 +2611,6 @@ def load_schedule_config(
     weekend_config: WeekendSolverConfig | None = None,
     night_weights: NightPolicyWeights | None = None,
     night_hard_criteria: frozenset[str] | None = None,
-    num_weeks: int = 52,
 ) -> ScheduleSolverConfig:
     """Load schedule solver config from YAML files."""
     annual = yaml.safe_load(Path(annual_config_path).read_text())
@@ -2628,5 +2630,4 @@ def load_schedule_config(
         night_hard_criteria=night_hard_criteria or frozenset(
             {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
         ),
-        num_weeks=num_weeks,
     )

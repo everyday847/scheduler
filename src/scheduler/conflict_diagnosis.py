@@ -179,7 +179,6 @@ def _check_feasible(
         constraints=constraints,
         night_config=NightSolverConfig(),
         weekend_config=WeekendSolverConfig(),
-        num_weeks=num_weeks,
     )
 
     try:

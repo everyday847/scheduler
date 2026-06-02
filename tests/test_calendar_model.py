@@ -116,6 +116,28 @@ class TestWeekDay:
             for dow in range(7):
                 assert _week_day(w, dow, 0) == w * 7 + dow
 
+    def test_start_dow_5_saturday(self):
+        """start_dow=5 (Saturday): week 0 Saturday is day 0, Sunday is day 1."""
+        # Saturday of week 0: d = 0*7 - 5 + 5 = 0
+        assert _week_day(0, 5, 5) == 0
+        # Sunday of week 0: d = 0*7 - 5 + 6 = 1
+        assert _week_day(0, 6, 5) == 1
+        # Monday of week 1: d = 1*7 - 5 + 0 = 2
+        assert _week_day(1, 0, 5) == 2
+        # Friday of week 0: d = 0*7 - 5 + 4 = -1 (before start)
+        assert _week_day(0, 4, 5) == -1
+
+    def test_start_dow_6_sunday(self):
+        """start_dow=6 (Sunday): week 0 Sunday is day 0, week 1 starts at day 1."""
+        # Sunday of week 0: d = 0*7 - 6 + 6 = 0
+        assert _week_day(0, 6, 6) == 0
+        # Monday of week 1: d = 1*7 - 6 + 0 = 1
+        assert _week_day(1, 0, 6) == 1
+        # Saturday of week 0: d = 0*7 - 6 + 5 = -1 (before start)
+        assert _week_day(0, 5, 6) == -1
+        # Friday of week 1: d = 1*7 - 6 + 4 = 5
+        assert _week_day(1, 4, 6) == 5
+
     def test_roundtrip_day_to_week_and_back(self):
         """For any valid d, _week_day(_day_to_week(d, s), _day_of_week(d, s), s) == d."""
         for start_dow in range(7):
@@ -197,3 +219,79 @@ class TestSolverBridgeCalendar:
         assert config.num_days == 366
         # (3 + 365) // 7 + 1 = 52 + 1 = 53
         assert config.num_weeks == 53
+
+
+class TestScheduleSolverConfigDerivedNumWeeks:
+    """Test that ScheduleSolverConfig derives num_weeks from start_dow and num_days."""
+
+    def test_num_weeks_derived_from_start_dow_and_num_days(self):
+        """num_weeks is always consistent with _num_weeks_for(start_dow, num_days)."""
+        from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+        from scheduler.night_call_solver import NightSolverConfig
+        from scheduler.weekend_call_solver import WeekendSolverConfig
+
+        config = ScheduleSolverConfig(
+            fellow_groups={"PGY5": ["Alice"]},
+            shifts=["NCC1"],
+            constraints=[],
+            night_config=NightSolverConfig(),
+            weekend_config=WeekendSolverConfig(),
+            start_dow=2,
+            num_days=365,
+        )
+        assert config.num_weeks == _num_weeks_for(2, 365)
+        assert config.num_weeks == 53
+
+    def test_num_weeks_default_365_monday(self):
+        """Default config (start_dow=0, num_days=365) gives 53 weeks."""
+        from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+        from scheduler.night_call_solver import NightSolverConfig
+        from scheduler.weekend_call_solver import WeekendSolverConfig
+
+        config = ScheduleSolverConfig(
+            fellow_groups={"PGY5": ["Alice"]},
+            shifts=["NCC1"],
+            constraints=[],
+            night_config=NightSolverConfig(),
+            weekend_config=WeekendSolverConfig(),
+        )
+        assert config.num_weeks == 53
+
+
+class TestBuildFullScheduleOpbNonMondayStart:
+    """Integration test: build_full_schedule_opb with non-Monday start."""
+
+    def test_wednesday_start_builds_without_error(self):
+        """Config with start_dow=2 (Wednesday) builds a valid OPB formula."""
+        from parafrost_scheduler.schedule_solver import (
+            ScheduleSolverConfig,
+            build_full_schedule_opb,
+        )
+        from scheduler.night_call_solver import NightSolverConfig
+        from scheduler.weekend_call_solver import WeekendSolverConfig
+
+        num_days = 21  # 3 weeks of days
+        start_dow = 2  # Wednesday
+
+        config = ScheduleSolverConfig(
+            fellow_groups={"PGY5": ["Alice", "Bob"]},
+            shifts=["NCC1", "NCC2"],
+            constraints=[],
+            night_config=NightSolverConfig(),
+            weekend_config=WeekendSolverConfig(),
+            start_dow=start_dow,
+            num_days=num_days,
+        )
+
+        expected_weeks = _num_weeks_for(start_dow, num_days)
+        assert config.num_weeks == expected_weeks
+
+        opb, var_map = build_full_schedule_opb(config)
+
+        # The var_map should use the same num_weeks as the config
+        assert var_map.num_weeks == config.num_weeks
+        assert var_map.start_dow == start_dow
+        assert var_map.num_days == num_days
+        # Formula should have variables and constraints
+        assert opb.num_vars > 0
+        assert opb.num_constraints > 0

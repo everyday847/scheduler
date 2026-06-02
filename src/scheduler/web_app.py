@@ -251,7 +251,6 @@ def feasibility_check():
             constraints=probe_constraints,
             night_config=NightSolverConfig(),
             weekend_config=WeekendSolverConfig(),
-            num_weeks=config_data.get("num_weeks", 52),
         )
 
         t0 = time.time()
