@@ -2360,8 +2360,11 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
     num_fellows = kw["num_fellows"]
+    config = kw["config"]
     is_soft = constraint.strength == ConstraintStrength.SOFT
-    weight = kw["config"].weekly_soft_weight
+    if not is_soft and config.locked_assignments and constraint.params["relation"] in ("at_most", "exactly"):
+        is_soft = True
+    weight = config.weekly_soft_weight
     soft_violations = kw["soft_violations"]
 
     relation = constraint.params["relation"]
@@ -2436,9 +2439,17 @@ def _encode_coverage_target(opb, xs, constraint, fellow_indices, **kw):
 
 
 def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
-    """Forbid fellows from being assigned specific shifts."""
+    """Forbid fellows from being assigned specific shifts.
+
+    When locked assignments exist, zero_shifts are soft (high weight) rather
+    than hard — the forbidden shift derivation shouldn't block the solve when
+    locked fellows create staffing gaps that force free fellows onto unusual shifts.
+    """
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
+    config = kw["config"]
+    soft_violations = kw["soft_violations"]
+    has_locked = bool(config.locked_assignments)
 
     for shift_name in constraint.params.get("zero_shifts", []):
         si = shift_idx.get(shift_name)
@@ -2447,7 +2458,10 @@ def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
         for f in fellow_indices:
             for w in range(num_weeks):
                 if xs[f][w][si] != 0:
-                    opb.add_unit(-xs[f][w][si])
+                    if has_locked:
+                        soft_violations.append((xs[f][w][si], config.weekly_soft_weight))
+                    else:
+                        opb.add_unit(-xs[f][w][si])
 
 
 def _encode_prerequisite(opb, xs, constraint, fellow_indices, **kw):
