@@ -2439,17 +2439,9 @@ def _encode_coverage_target(opb, xs, constraint, fellow_indices, **kw):
 
 
 def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
-    """Forbid fellows from being assigned specific shifts.
-
-    When locked assignments exist, zero_shifts are soft (high weight) rather
-    than hard — the forbidden shift derivation shouldn't block the solve when
-    locked fellows create staffing gaps that force free fellows onto unusual shifts.
-    """
+    """Forbid fellows from being assigned specific shifts."""
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
-    config = kw["config"]
-    soft_violations = kw["soft_violations"]
-    has_locked = bool(config.locked_assignments)
 
     for shift_name in constraint.params.get("zero_shifts", []):
         si = shift_idx.get(shift_name)
@@ -2458,10 +2450,7 @@ def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
         for f in fellow_indices:
             for w in range(num_weeks):
                 if xs[f][w][si] != 0:
-                    if has_locked:
-                        soft_violations.append((xs[f][w][si], config.weekly_soft_weight))
-                    else:
-                        opb.add_unit(-xs[f][w][si])
+                    opb.add_unit(-xs[f][w][si])
 
 
 def _encode_prerequisite(opb, xs, constraint, fellow_indices, **kw):
@@ -2664,11 +2653,12 @@ def solve_full_schedule(
         elapsed = time.time() - t0
         print(f"Feasible at bound={upper_bound} ({elapsed:.1f}s)", flush=True)
 
-    # Coarse linear scan downward
+    # Coarse linear scan downward — step proportional to starting penalty
+    effective_coarse = max(coarse_step, best_bound // 20)
     if emit_progress:
-        print(f"Starting coarse scan (step={coarse_step})...", flush=True)
+        print(f"Starting coarse scan (step={effective_coarse})...", flush=True)
 
-    current = upper_bound - coarse_step
+    current = upper_bound - effective_coarse
     while current >= 0:
         opb_probe, _ = build_full_schedule_opb(config, soft_bound=current)
         try:
@@ -2682,7 +2672,7 @@ def solve_full_schedule(
             best_bound = current
             if emit_progress:
                 print(f"  SAT at {current}", flush=True)
-            current -= coarse_step
+            current -= effective_coarse
         else:
             if emit_progress:
                 print(f"  UNSAT at {current}", flush=True)
@@ -2799,10 +2789,11 @@ def solve_full_schedule_progressive(
         "elapsed": time.time() - t0,
     }
 
-    # Coarse scan — start from the first solution's actual penalty, not the upper bound
-    yield {"type": "status", "phase": "coarse_scan", "step": coarse_step}
+    # Coarse scan — step proportional to starting penalty
+    effective_coarse = max(coarse_step, first_solution.soft_penalty // 20)
+    yield {"type": "status", "phase": "coarse_scan", "step": effective_coarse}
     last_yielded_penalty = first_solution.soft_penalty
-    current = first_solution.soft_penalty - coarse_step
+    current = first_solution.soft_penalty - effective_coarse
     while current >= 0:
         opb_probe, _ = build_full_schedule_opb(config, soft_bound=current)
         try:
@@ -2821,7 +2812,7 @@ def solve_full_schedule_progressive(
                     **solution_to_json(improved),
                     "elapsed": time.time() - t0,
                 }
-            current -= coarse_step
+            current -= effective_coarse
         else:
             break
 
