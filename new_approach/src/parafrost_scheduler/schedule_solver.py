@@ -1775,9 +1775,9 @@ def _encode_weekend_night_linking(
 
                 if ncc_vars:
                     # xn[sat_d][f] → OR(ncc_vars)
-                    # Equivalently: sum(ncc_vars) - xn[sat_d][f] >= 0
+                    # sum(ncc_vars) + ~xn[sat_d][f] >= 1
                     opb.weighted_sum_at_least(
-                        [(v, 1) for v in ncc_vars] + [(-xn[sat_d][f], 1)], 0
+                        [(v, 1) for v in ncc_vars] + [(-xn[sat_d][f], 1)], 1
                     )
                 else:
                     # Fellow can't be NCC → can't do Saturday night
@@ -1791,9 +1791,9 @@ def _encode_weekend_night_linking(
                     continue
                 if f in wr[w][_ROLE_STROKE]:
                     # xn[sun_d][f] → wr[w][STROKE][f]
-                    # Equivalently: wr_stroke - xn[sun_d][f] >= 0
+                    # wr_stroke + ~xn[sun_d][f] >= 1
                     opb.weighted_sum_at_least(
-                        [(wr[w][_ROLE_STROKE][f], 1), (-xn[sun_d][f], 1)], 0
+                        [(wr[w][_ROLE_STROKE][f], 1), (-xn[sun_d][f], 1)], 1
                     )
                 else:
                     # Fellow not eligible for Weekend Stroke → can't do Sunday night

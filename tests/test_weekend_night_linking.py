@@ -237,14 +237,14 @@ class TestSaturdayNightMustBeNCC:
         wr_ncc1 = wr[0][_ROLE_NCC1][0]
         wr_ncc2 = wr[0][_ROLE_NCC2][0]
 
-        # Should have a constraint: wr_ncc1 + wr_ncc2 - xn_sat >= 0
+        # Should have a constraint: wr_ncc1 + wr_ncc2 + ~xn_sat >= 1
         constraints = _constraints_containing(opb, xn_sat)
-        # Look for implication constraint (weighted_sum_at_least with ncc vars)
+        # Look for implication constraint (weighted_sum_at_least with ncc vars and bound >= 1)
         ncc_impl = [
             c for c in constraints
-            if f"x{wr_ncc1}" in c and f"x{wr_ncc2}" in c
+            if f"x{wr_ncc1} " in c and f"x{wr_ncc2} " in c and ">= 1" in c
         ]
-        assert len(ncc_impl) > 0, "Saturday night should imply NCC1 or NCC2"
+        assert len(ncc_impl) > 0, "Saturday night should imply NCC1 or NCC2 (bound >= 1)"
 
     def test_saturday_night_two_fellows(self):
         """Both fellows should have Saturday-NCC linking constraints."""
@@ -300,9 +300,9 @@ class TestSaturdayNightIneligibleFellow:
         sat_d = _week_day(0, 5, 0)
         xn_sat_f0 = xn[sat_d][0]
         constraints = _constraints_containing(opb, xn_sat_f0)
-        # Should NOT have unit blocking clause
-        blocking = [c for c in constraints if f"~x{xn_sat_f0}" in c and ">= 1" in c
-                    and f"+1 ~x{xn_sat_f0} >= 1" in c]
+        # Should NOT have unit blocking clause (exact match for unit clause)
+        unit_clause = f"+1 ~x{xn_sat_f0} >= 1 ;"
+        blocking = [c for c in constraints if c.strip() == unit_clause]
         assert len(blocking) == 0, "NCC-eligible fellow should not be blocked from Saturday"
 
 
@@ -326,10 +326,10 @@ class TestSundayNightMustBeStroke:
         xn_sun = xn[sun_d][0]
         wr_stroke = wr[0][_ROLE_STROKE][0]
 
-        # Should have: wr_stroke - xn_sun >= 0
+        # Should have: wr_stroke + ~xn_sun >= 1
         constraints = _constraints_containing(opb, xn_sun)
-        stroke_impl = [c for c in constraints if f"x{wr_stroke}" in c]
-        assert len(stroke_impl) > 0, "Sunday night should imply Weekend Stroke"
+        stroke_impl = [c for c in constraints if f"x{wr_stroke} " in c and ">= 1" in c]
+        assert len(stroke_impl) > 0, "Sunday night should imply Weekend Stroke (bound >= 1)"
 
     def test_sunday_night_does_not_imply_ncc(self):
         """Sunday night should NOT imply NCC roles."""
@@ -392,8 +392,9 @@ class TestSundayNightIneligibleFellow:
         sun_d = _week_day(0, 6, 0)
         xn_sun_f0 = xn[sun_d][0]
         constraints = _constraints_containing(opb, xn_sun_f0)
-        # Should have implication constraint, NOT blocking
-        blocking = [c for c in constraints if f"+1 ~x{xn_sun_f0} >= 1" in c]
+        # Should have implication constraint, NOT unit blocking clause
+        unit_clause = f"+1 ~x{xn_sun_f0} >= 1 ;"
+        blocking = [c for c in constraints if c.strip() == unit_clause]
         assert len(blocking) == 0, "Stroke-eligible fellow should not be blocked from Sunday"
 
 
