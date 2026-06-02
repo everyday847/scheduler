@@ -69,6 +69,80 @@ function weekIndexToDate(weekIndex: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// Night/Weekend rule format converters (YAML ↔ React component format)
+// ---------------------------------------------------------------------------
+
+function yamlNightRuleToReact(rule: any): PaletteRule {
+  const base = { name: rule.name, groups: rule.groups || [], strength: rule.strength || 'hard', active: rule.active !== false, description: rule.description || '' };
+  switch (rule.type) {
+    case 'night_spacing':
+      return { ...base, type: rule.type, params: { maxNights: rule.max_nights ?? 1, windowDays: rule.window_days ?? 3 } };
+    case 'night_blocked_services':
+      return { ...base, type: rule.type, params: { exactServices: rule.exact_services || [], substringServices: rule.substring_services || [] } };
+    case 'night_holiday_eligibility':
+      return { ...base, type: rule.type, params: { allowedServices: rule.allowed_services || [] } };
+    case 'night_penalties':
+      return { ...base, type: rule.type, params: { weights: rule.weights || {} } };
+    case 'night_sunday_following':
+      return { ...base, type: rule.type, params: { preferredServices: rule.preferred_services || [] } };
+    default:
+      return { ...base, type: rule.type, params: rule.params || {} } as any;
+  }
+}
+
+function yamlWeekendRuleToReact(rule: any): PaletteRule {
+  const base = { name: rule.name, groups: rule.groups || [], strength: rule.strength || 'hard', active: rule.active !== false, description: rule.description || '' };
+  switch (rule.type) {
+    case 'weekend_spacing':
+      return { ...base, type: rule.type, params: { maxWeekends: rule.max_weekends ?? 1, windowWeeks: rule.window_weekends ?? 4 } };
+    case 'weekend_blocked_services':
+      return { ...base, type: rule.type, params: { exactServices: rule.exact_services || [], substringServices: rule.substring_services || [] } };
+    case 'weekend_stroke_eligibility':
+      return { ...base, type: rule.type, params: { eligibleServices: rule.eligible_services || [] } };
+    case 'weekend_penalties':
+      return { ...base, type: rule.type, params: { weights: rule.weights || {} } };
+    default:
+      return { ...base, type: rule.type, params: rule.params || {} } as any;
+  }
+}
+
+function reactNightRuleToYaml(rule: PaletteRule): any {
+  const base = { name: rule.name, type: rule.type, groups: (rule as any).groups, active: rule.active, description: (rule as any).description };
+  const params = (rule as any).params || {};
+  switch (rule.type) {
+    case 'night_spacing':
+      return { ...base, max_nights: params.maxNights, window_days: params.windowDays };
+    case 'night_blocked_services':
+      return { ...base, exact_services: params.exactServices, substring_services: params.substringServices };
+    case 'night_holiday_eligibility':
+      return { ...base, allowed_services: params.allowedServices };
+    case 'night_penalties':
+      return { ...base, weights: params.weights };
+    case 'night_sunday_following':
+      return { ...base, preferred_services: params.preferredServices };
+    default:
+      return { ...base, ...params };
+  }
+}
+
+function reactWeekendRuleToYaml(rule: PaletteRule): any {
+  const base = { name: rule.name, type: rule.type, groups: (rule as any).groups, active: rule.active, description: (rule as any).description };
+  const params = (rule as any).params || {};
+  switch (rule.type) {
+    case 'weekend_spacing':
+      return { ...base, max_weekends: params.maxWeekends, window_weekends: params.windowWeeks };
+    case 'weekend_blocked_services':
+      return { ...base, exact_services: params.exactServices, substring_services: params.substringServices };
+    case 'weekend_stroke_eligibility':
+      return { ...base, eligible_services: params.eligibleServices };
+    case 'weekend_penalties':
+      return { ...base, weights: params.weights };
+    default:
+      return { ...base, ...params };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -117,6 +191,23 @@ function App() {
 
   const W = config.num_weeks || 52;
 
+  // Compute actual num_days and Friday count from horizon_start (matching solver logic)
+  const { numDays, numFridays } = useMemo(() => {
+    const horizonStr = config.horizon_start || '2026-07-01';
+    const parts = horizonStr.split('-');
+    const startYear = parseInt(parts[0]), startMonth = parseInt(parts[1]) - 1, startDay = parseInt(parts[2]);
+    const start = new Date(startYear, startMonth, startDay);
+    const end = new Date(startYear + 1, startMonth, startDay);
+    end.setDate(end.getDate() - 1);
+    const totalDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    const startDow = start.getDay() === 0 ? 6 : start.getDay() - 1; // JS Sun=0 → Mon=0..Sun=6
+    let fridays = 0;
+    for (let d = 0; d < totalDays; d++) {
+      if ((startDow + d) % 7 === 4) fridays++;
+    }
+    return { numDays: totalDays, numFridays: fridays };
+  }, [config.horizon_start]);
+
   // Load config file list
   useEffect(() => {
     fetch(`${API_BASE}/api/configs`)
@@ -142,7 +233,7 @@ function App() {
     // Determine standing config name based on whether annual config is v2
     const standingName = filename.includes('-v2')
       ? 'stanford-fellowship-v2.yaml'
-      : 'stanford-fellowship.yaml';
+      : 'stanford-fellowship-v2.yaml';
     Promise.all([
       fetch(`${API_BASE}/api/config/annual/${filename}/draft`).then((r) => r.json()),
       fetch(`${API_BASE}/api/config/standing/${standingName}`).then((r) => r.json()),
@@ -182,12 +273,12 @@ function App() {
 
   // Budget calculations (values are group totals, sum directly)
   const nightBudget = useMemo(() => {
-    const required = W * 7;
+    const required = numDays;
     const configured = config.night_call.reduce((s, e) => s + (e.total_nights || 0), 0);
-    const fridayRequired = W;
+    const fridayRequired = numFridays;
     const fridayConfigured = config.night_call.reduce((s, e) => s + (e.friday_nights || 0), 0);
     return { required, configured, fridayRequired, fridayConfigured };
-  }, [config.night_call, W]);
+  }, [config.night_call, numDays, numFridays]);
 
   const weekendBudget = useMemo(() => {
     const nccRequired = W * 2;
@@ -548,26 +639,14 @@ function App() {
 
   const confirmImport = useCallback(() => {
     if (!importData) return;
-
-    // Lock all imported fellows
     setLockedAssignments(importData.assignments);
-
-    // Merge fellow names into config (as "Imported" group or add to existing)
     setConfig(prev => {
-      const existingFellows = new Set(Object.values(prev.fellow_groups).flat());
-      const newFellows = importData.fellow_names.filter((f: string) => !existingFellows.has(f));
-      const groups = { ...prev.fellow_groups };
-      if (newFellows.length > 0) {
-        groups['Imported'] = [...(groups['Imported'] || []), ...newFellows];
-      }
       return {
         ...prev,
-        fellow_groups: groups,
         num_weeks: importData.num_weeks,
         shifts: Array.from(new Set([...prev.shifts, ...importData.shifts_found])),
       };
     });
-
     setImportData(null);
   }, [importData]);
 
@@ -592,8 +671,8 @@ function App() {
       ...config,
       fellow_groups: cleanGroups,
       fellow_week_pairs: weekPairs,
-      night_rules: nightRules,
-      weekend_rules: weekendRules,
+      night_rules: nightRules.map(reactNightRuleToYaml),
+      weekend_rules: weekendRules.map(reactWeekendRuleToYaml),
     };
 
     if (paletteRules.length > 0) {

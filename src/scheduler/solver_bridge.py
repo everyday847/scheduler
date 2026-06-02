@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict
 
@@ -95,6 +95,20 @@ def build_solver_config_from_request(
     weekend_config = _build_weekend_config(raw_request, fellow_groups)
 
     locked_assignments = raw_request.get("locked_assignments", {})
+    call_rules = raw_request.get("call_rules", [])
+
+    # Compute calendar model from horizon_start
+    horizon_start_str = raw_request.get("horizon_start", "2026-07-01")
+    if isinstance(horizon_start_str, str):
+        horizon_date = date.fromisoformat(horizon_start_str)
+    else:
+        horizon_date = date(2026, 7, 1)
+
+    start_dow = horizon_date.weekday()  # 0=Mon, 6=Sun
+
+    # Academic year: from horizon_start to one year later minus one day
+    horizon_end = date(horizon_date.year + 1, horizon_date.month, horizon_date.day) - timedelta(days=1)
+    num_days = (horizon_end - horizon_date).days + 1  # 365 or 366
 
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
@@ -103,6 +117,9 @@ def build_solver_config_from_request(
         night_config=night_config,
         weekend_config=weekend_config,
         locked_assignments=locked_assignments,
+        call_rules=call_rules,
+        start_dow=start_dow,
+        num_days=num_days,
     )
 
 
@@ -250,8 +267,7 @@ def _build_night_config(
 
     # Parse horizon start
     if isinstance(horizon_start, str):
-        parts = horizon_start.split("-")
-        horizon = date(int(parts[0]), int(parts[1]), int(parts[2]))
+        horizon = date.fromisoformat(horizon_start)
     else:
         horizon = date(2026, 6, 29)
 
@@ -418,8 +434,7 @@ def _require_dict(request: Dict[str, Any], key: str) -> Dict[str, list[str]]:
 
 def _parse_date(value: Any) -> date:
     if isinstance(value, str):
-        parts = value.split("-")
-        return date(int(parts[0]), int(parts[1]), int(parts[2]))
+        return date.fromisoformat(value)
     if isinstance(value, (list, tuple)):
         return date(*value)
     if isinstance(value, date):

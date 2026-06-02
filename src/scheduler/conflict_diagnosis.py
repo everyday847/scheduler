@@ -49,6 +49,7 @@ def extract_mus_cores(
     fellow_groups = config_data.get("fellow_groups", {})
     shifts = config_data.get("shifts", [])
     num_weeks = config_data.get("num_weeks", 52)
+    locked_assignments = config_data.get("locked_assignments", {})
 
     standing_constraints = _build_standing_constraints(standing_rules)
 
@@ -67,6 +68,7 @@ def extract_mus_cores(
             fellow_groups, shifts, num_weeks,
             standing_constraints, standing_rules, candidate, active_annual,
             runner, probe_timeout,
+            locked_assignments=locked_assignments,
         )
         total_probes += probes
 
@@ -79,6 +81,7 @@ def extract_mus_cores(
                 fellow_groups, shifts, num_weeks,
                 standing_constraints, standing_rules, candidate, active_annual,
                 runner, probe_timeout,
+                locked_assignments=locked_assignments,
             )
             total_probes += mus["probes"]
 
@@ -113,6 +116,7 @@ def _shrink_to_mus(
     all_annual: list[dict],
     runner: RoundingSatRunner,
     timeout: float,
+    locked_assignments: dict[str, list[str]] | None = None,
 ) -> dict:
     """Shrink an UNSAT set of rules to a MUS by removing unnecessary rules."""
     probes = 0
@@ -129,6 +133,7 @@ def _shrink_to_mus(
             fellow_groups, shifts, num_weeks,
             standing_constraints, standing_rules_raw, test_set, all_annual,
             runner, timeout,
+            locked_assignments=locked_assignments,
         )
         probes += p
 
@@ -153,6 +158,7 @@ def _check_feasible(
     all_annual: list[dict],
     runner: RoundingSatRunner,
     timeout: float,
+    locked_assignments: dict[str, list[str]] | None = None,
 ) -> tuple[bool, int]:
     """Check if standing + annual_subset is feasible. Returns (sat, probe_count)."""
     constraints = list(standing_constraints)
@@ -173,13 +179,37 @@ def _check_feasible(
     all_rules_for_derivation = standing_rules_raw + all_annual
     constraints.extend(derive_forbidden_shifts(all_rules_for_derivation, shifts, fellow_groups))
 
+    # Disable night/weekend system: diagnosis checks weekly shift feasibility only.
+    # Marking all fellows as CCM zeros their night variables, making all
+    # night/weekend constraints vacuous (exactly_one, linking, blocking, etc.)
+    all_fellow_names = frozenset(
+        name for names in fellow_groups.values() for name in names
+    )
     config = ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
         constraints=constraints,
-        night_config=NightSolverConfig(),
-        weekend_config=WeekendSolverConfig(),
-        num_weeks=num_weeks,
+        night_config=NightSolverConfig(
+            total_nights={},
+            friday_nights={},
+            total_night_multisets=(),
+            friday_night_multisets=(),
+            ccm_fellows=all_fellow_names,
+            holiday_dates=(),
+        ),
+        weekend_config=WeekendSolverConfig(
+            ncc_totals={},
+            stroke_totals={},
+            stroke_cohort=(),
+            stroke_cohort_total=None,
+            ccm_fellows=all_fellow_names,
+            always_stroke_eligible=frozenset(),
+            telestroke_stroke_eligible=frozenset(),
+            stroke_only_eligible=frozenset(),
+        ),
+        start_dow=0,
+        num_days=num_weeks * 7,
+        locked_assignments=locked_assignments or {},
     )
 
     try:

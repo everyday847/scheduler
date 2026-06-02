@@ -61,7 +61,7 @@ from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 # Configuration
 # ---------------------------------------------------------------------------
 
-NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "Vac", "NS"})
+NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "Vac", "NS", "SCVMC Rehab"})
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 CLINIC_SHIFTS = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
 STROKE_SHIFTS = frozenset({"Stroke"})
@@ -82,6 +82,43 @@ DEFAULT_SWING_UNCOVERED_WEIGHT = 100
 
 
 # ---------------------------------------------------------------------------
+# Calendar helpers
+# ---------------------------------------------------------------------------
+
+def _day_of_week(d: int, start_dow: int) -> int:
+    """Return the day-of-week (Mon=0 ... Sun=6) for absolute day *d*."""
+    return (start_dow + d) % 7
+
+
+def _day_to_week(d: int, start_dow: int) -> int:
+    """Return the academic-year week index for absolute day *d*."""
+    return (start_dow + d) // 7
+
+
+def _week_day(w: int, dow_target: int, start_dow: int) -> int:
+    """Return absolute day *d* for weekday *dow_target* in week *w*.
+
+    May return a negative value (before the academic year) or a value
+    >= num_days (after the academic year); callers must bounds-check.
+    """
+    return w * 7 - start_dow + dow_target
+
+
+def _num_weeks_for(start_dow: int, num_days: int) -> int:
+    """Number of (possibly partial) weeks that span *num_days* starting on *start_dow*."""
+    return (start_dow + num_days - 1) // 7 + 1
+
+
+def _date_to_day_index(date_str: str | date, horizon_start: date) -> int:
+    """Convert a date string (or date object) to absolute day index from horizon start."""
+    if isinstance(date_str, str):
+        d = date.fromisoformat(date_str)
+    else:
+        d = date_str
+    return (d - horizon_start).days
+
+
+# ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 
@@ -96,11 +133,17 @@ class ScheduleSolverConfig:
     night_hard_criteria: frozenset[str] = frozenset(
         {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
     )
-    num_weeks: int = 52
+    start_dow: int = 0  # weekday of day 0 (0=Mon ... 6=Sun)
+    num_days: int = 365  # total days in the academic year
+    num_weeks: int = field(init=False)
     weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
+    call_rules: list[dict] = field(default_factory=list)
+
+    def __post_init__(self):
+        object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
 
 
 @dataclass(frozen=True)
@@ -120,6 +163,8 @@ class ScheduleVarMap:
     num_weeks: int
     num_fellows: int
     num_shifts: int
+    start_dow: int
+    num_days: int
 
     # xs[f][w][s] = OPB variable index (or 0 if forbidden)
     xs: list[list[list[int]]]
@@ -147,6 +192,8 @@ def build_full_schedule_opb(
         fellow_mapping.get_fellow_name(i) for i in range(fellow_mapping.total_fellows)
     ]
     shifts = config.shifts
+    num_days = config.num_days
+    start_dow = config.start_dow
     num_weeks = config.num_weeks
     num_fellows = len(fellow_names)
     num_shifts = len(shifts)
@@ -242,7 +289,6 @@ def build_full_schedule_opb(
     # 6. Night variables: xn[d][f]
     # -------------------------------------------------------------------
     opb.add_comment("Night assignment variables")
-    num_days = num_weeks * 7
     xn: list[list[int]] = []
     for d in range(num_days):
         xn.append([])
@@ -260,6 +306,13 @@ def build_full_schedule_opb(
     )
 
     # -------------------------------------------------------------------
+    # 7b. Annual call rules (pin/block night/weekend)
+    # -------------------------------------------------------------------
+    if config.call_rules:
+        opb.add_comment("Annual call rules (pin/block night/weekend)")
+        _encode_call_rules(opb, xn, wr, config, fellow_names)
+
+    # -------------------------------------------------------------------
     # 8. Soft penalty bound
     # -------------------------------------------------------------------
     if soft_bound is not None and soft_violations:
@@ -273,6 +326,8 @@ def build_full_schedule_opb(
         num_weeks=num_weeks,
         num_fellows=num_fellows,
         num_shifts=num_shifts,
+        start_dow=start_dow,
+        num_days=num_days,
         xs=xs,
         wr=wr,
         xn=xn,
@@ -1269,6 +1324,54 @@ def _encode_weekend_constraints(
     opb.add_comment("Weekend: prefer role matches weekday service (soft)")
     _encode_weekend_mismatch_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
 
+    # Penalize weekend call in the week before a vacation
+    opb.add_comment("Weekend: pre-vacation weekend penalty (soft)")
+    _encode_prevacation_weekend_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
+
+
+def _encode_prevacation_weekend_penalty(
+    opb: OpbBuilder,
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Soft penalty for weekend call in the week before vacation."""
+    vac_idx = shift_idx.get("Vac")
+    if vac_idx is None:
+        return
+
+    num_weeks = config.num_weeks
+    num_fellows = len(fellow_names)
+
+    for f in range(num_fellows):
+        for w in range(1, num_weeks):  # Start at 1 (need week w-1)
+            if xs[f][w][vac_idx] == 0:
+                continue
+            # Fellow f has vacation in week w.
+            # Penalize any weekend role in week w-1.
+            for role_idx in range(3):
+                if f not in wr[w - 1][role_idx]:
+                    continue
+                wr_var = wr[w - 1][role_idx][f]
+                # Create conjunction indicator: ind = vac[w] AND wr[w-1][role][f]
+                ind = opb.new_var()
+                # ind >= vac + wr - 1
+                opb.weighted_sum_at_most(
+                    [(xs[f][w][vac_idx], 1), (wr_var, 1), (-ind, 1)], 2
+                )
+                # ind <= vac
+                opb.weighted_sum_at_least(
+                    [(-xs[f][w][vac_idx], 1), (-ind, 1)], 1
+                )
+                # ind <= wr
+                opb.weighted_sum_at_least(
+                    [(-wr_var, 1), (-ind, 1)], 1
+                )
+                soft_violations.append((ind, 1))  # weight = 1
+
 
 def _encode_weekend_eligibility(
     opb: OpbBuilder,
@@ -1391,8 +1494,9 @@ def _encode_night_constraints(
     soft_violations: list[tuple[int, int]],
 ) -> None:
     """Encode all night assignment constraints."""
-    num_weeks = config.num_weeks
-    num_days = num_weeks * 7
+    num_days = config.num_days
+    start_dow = config.start_dow
+    num_weeks = _num_weeks_for(start_dow, num_days)
     num_fellows = len(fellow_names)
     night_config = config.night_config
     weights = config.night_weights
@@ -1408,25 +1512,34 @@ def _encode_night_constraints(
             opb.exactly_one(active)
 
     # Night blocking based on weekly shift (dynamic)
-    opb.add_comment("Night: service-based blocking")
-    blocked_shift_indices = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx]
+    # Vacation blocks ALL 7 nights; other blocked services only block Sun-Thu
+    # (nights where the fellow works the next morning).
+    opb.add_comment("Night: service-based blocking (vacation = all nights)")
+    vac_idx = shift_idx.get("Vac")
+    non_vac_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx and s != "Vac"]
+    s_isc = shift_idx.get("ISC")
 
     for d in range(num_days):
-        week_idx, day_of_week = divmod(d, 7)
+        week_idx = _day_to_week(d, start_dow)
+        dow = _day_of_week(d, start_dow)
+        next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else week_idx
         for f in range(num_fellows):
             if xn[d][f] == 0:
                 continue
-            # Hard block from night-blocking shifts
-            for si in blocked_shift_indices:
-                if xs[f][week_idx][si] != 0:
-                    # xs[f][w][blocked] + xn[d][f] <= 1
-                    opb.at_most_k([xs[f][week_idx][si], xn[d][f]], 1)
 
-            # ISC: blocked Tue-Fri (day_of_week 1-4)
-            s_isc = shift_idx.get("ISC")
-            if s_isc is not None and 1 <= day_of_week <= 4:
-                if xs[f][week_idx][s_isc] != 0:
-                    opb.at_most_k([xs[f][week_idx][s_isc], xn[d][f]], 1)
+            # Vacation blocks all nights of the vacation week
+            if vac_idx is not None and xs[f][week_idx][vac_idx] != 0:
+                opb.at_most_k([xs[f][week_idx][vac_idx], xn[d][f]], 1)
+
+            # Other blocked services: only Sun-Thu nights (next morning is a workday)
+            if dow not in (4, 5):  # Skip Fri/Sat nights
+                for si in non_vac_blocked:
+                    if xs[f][next_day_week][si] != 0:
+                        opb.at_most_k([xs[f][next_day_week][si], xn[d][f]], 1)
+
+                # ISC: blocked Sun-Thu only (next morning is an ISC workday)
+                if s_isc is not None and xs[f][next_day_week][s_isc] != 0:
+                    opb.at_most_k([xs[f][next_day_week][s_isc], xn[d][f]], 1)
 
             # Holiday: only NCC1/NCC2/Stroke can work holidays
             if d in holiday_set:
@@ -1440,11 +1553,29 @@ def _encode_night_constraints(
                 else:
                     opb.add_unit(-xn[d][f])
 
+    # First-week restriction: NCC_JR and STROKE fellows blocked until first Friday
+    opb.add_comment("Night: first-week restriction for NCC_JR and STROKE")
+    first_friday = next((d for d in range(num_days) if _day_of_week(d, start_dow) == 4), None)
+    if first_friday is not None:
+        restricted_fellows = set()
+        for group_name, fellows in config.fellow_groups.items():
+            if group_name in ("NCC_JR", "STROKE"):
+                for name in fellows:
+                    if name in fellow_names:
+                        restricted_fellows.add(fellow_names.index(name))
+        for d in range(first_friday):
+            for fi in restricted_fellows:
+                if xn[d][fi] != 0:
+                    opb.add_unit(-xn[d][fi])
+
     # Night policy criteria (soft/hard depending on config)
     opb.add_comment("Night: policy criteria (anaesthesia, clinic, stroke, sunday_following)")
     _encode_night_policy_criteria(
         opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
     )
+
+    # Weekend night linking: Fri/Sat/Sun night ↔ weekend roles
+    _encode_weekend_night_linking(opb, xn, wr, config, fellow_names)
 
     # No 3 consecutive nights
     opb.add_comment("Night: no 3 consecutive nights per fellow")
@@ -1474,7 +1605,7 @@ def _encode_night_constraints(
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
-        friday_vars = [xn[d][fi] for d in range(4, num_days, 7) if xn[d][fi] != 0]
+        friday_vars = [xn[d][fi] for d in range(num_days) if _day_of_week(d, start_dow) == 4 and xn[d][fi] != 0]
         if friday_vars:
             _add_cardinality_constraint(
                 opb, friday_vars, "exactly", total,
@@ -1484,9 +1615,9 @@ def _encode_night_constraints(
     # Multiset constraints
     opb.add_comment("Night: multiset constraints")
     for multiset in night_config.total_night_multisets:
-        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, friday_only=False)
+        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow, friday_only=False)
     for multiset in night_config.friday_night_multisets:
-        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, friday_only=True)
+        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow, friday_only=True)
 
 
 def _encode_night_policy_criteria(
@@ -1500,8 +1631,9 @@ def _encode_night_policy_criteria(
     soft_violations: list[tuple[int, int]],
 ) -> None:
     """Encode the night policy criteria as variable-gated constraints."""
-    num_weeks = config.num_weeks
-    num_days = num_weeks * 7
+    num_days = config.num_days
+    start_dow = config.start_dow
+    num_weeks = _num_weeks_for(start_dow, num_days)
     num_fellows = len(fellow_names)
     weights = config.night_weights
     hard_criteria = config.night_hard_criteria
@@ -1535,10 +1667,11 @@ def _encode_night_policy_criteria(
     else:
         dual_stroke_vars = [0] * num_weeks
 
-    # Anaesthesia criterion: weekday nights only (Mon-Fri, day_of_week 0-4)
+    # Anaesthesia criterion: weekday nights only (Mon-Fri, dow 0-4)
     for d in range(num_days):
-        week_idx, day_of_week = divmod(d, 7)
-        if day_of_week > 4:
+        week_idx = _day_to_week(d, start_dow)
+        dow = _day_of_week(d, start_dow)
+        if dow > 4:
             continue  # Weekend nights: no anaesthesia criterion
         for f in range(num_fellows):
             if xn[d][f] == 0:
@@ -1551,45 +1684,44 @@ def _encode_night_policy_criteria(
                     CRITERION_ANAESTHESIA, hard_criteria, weights, soft_violations,
                 )
 
-    # Clinic criterion: weekday nights only
+    # Clinic criterion: only Sun/Tue/Wed nights (before Mon/Wed/Thu clinic days)
     for d in range(num_days):
-        week_idx, day_of_week = divmod(d, 7)
-        if day_of_week > 4:
+        dow = _day_of_week(d, start_dow)
+        if dow not in (6, 1, 2):  # Only Sun, Tue, Wed nights
             continue
+        next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
         for f in range(num_fellows):
             if xn[d][f] == 0:
                 continue
             for si in clinic_indices:
-                if xs[f][week_idx][si] == 0:
+                if xs[f][next_day_week][si] == 0:
                     continue
                 _encode_night_criterion_pair(
-                    opb, xs[f][week_idx][si], xn[d][f],
+                    opb, xs[f][next_day_week][si], xn[d][f],
                     CRITERION_CLINIC, hard_criteria, weights, soft_violations,
                 )
 
-    # Stroke criterion: weekday nights only, exempt in dual-stroke weeks
+    # Stroke criterion: block night before Stroke workday (Sun-Thu only)
     if stroke_idx is not None:
         for d in range(num_days):
-            week_idx, day_of_week = divmod(d, 7)
-            if day_of_week > 4:
+            dow = _day_of_week(d, start_dow)
+            if dow in (4, 5):  # Fri/Sat — next day is not a stroke workday
                 continue
-            ds_var = dual_stroke_vars[week_idx]
+            next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
+            ds_var = dual_stroke_vars[next_day_week] if next_day_week < num_weeks else 0
             for f in range(num_fellows):
                 if xn[d][f] == 0:
                     continue
-                if xs[f][week_idx][stroke_idx] == 0:
+                if xs[f][next_day_week][stroke_idx] == 0:
                     continue
                 if ds_var == 0:
-                    # Not a dual-stroke week (can never be)
                     _encode_night_criterion_pair(
-                        opb, xs[f][week_idx][stroke_idx], xn[d][f],
+                        opb, xs[f][next_day_week][stroke_idx], xn[d][f],
                         CRITERION_STROKE, hard_criteria, weights, soft_violations,
                     )
                 else:
-                    # Conditional: only penalize if NOT dual-stroke
-                    # The criterion applies when stroke_shift AND night AND NOT dual_stroke
                     _encode_night_criterion_triple(
-                        opb, xs[f][week_idx][stroke_idx], xn[d][f], ds_var,
+                        opb, xs[f][next_day_week][stroke_idx], xn[d][f], ds_var,
                         CRITERION_STROKE, hard_criteria, weights, soft_violations,
                     )
 
@@ -1601,9 +1733,9 @@ def _encode_night_policy_criteria(
                 if f not in wr[w][_ROLE_STROKE]:
                     continue
                 wr_stroke = wr[w][_ROLE_STROKE][f]
-                for day_of_week in (5, 6):  # Sat, Sun
-                    d = w * 7 + day_of_week
-                    if d >= num_days or xn[d][f] == 0:
+                for dow_target in (5, 6):  # Sat, Sun
+                    d = _week_day(w, dow_target, start_dow)
+                    if d < 0 or d >= num_days or xn[d][f] == 0:
                         continue
                     if ds_var == 0:
                         _encode_night_criterion_pair(
@@ -1618,8 +1750,8 @@ def _encode_night_policy_criteria(
 
     # Friday/weekend NCC1 criterion
     for w in range(num_weeks):
-        friday_d = w * 7 + 4
-        if friday_d >= num_days:
+        friday_d = _week_day(w, 4, start_dow)
+        if friday_d < 0 or friday_d >= num_days:
             continue
         for f in range(num_fellows):
             if f not in wr[w][_ROLE_NCC1]:
@@ -1635,8 +1767,8 @@ def _encode_night_policy_criteria(
     # Sunday following criterion: Sunday night fellow's next-week service is non-preferred
     non_preferred_indices = [shift_idx[s] for s in NON_PREFERRED_SUNDAY_FOLLOWING if s in shift_idx]
     for w in range(num_weeks - 1):
-        sunday_d = w * 7 + 6
-        if sunday_d >= num_days:
+        sunday_d = _week_day(w, 6, start_dow)
+        if sunday_d < 0 or sunday_d >= num_days:
             continue
         for f in range(num_fellows):
             if xn[sunday_d][f] == 0:
@@ -1660,6 +1792,77 @@ def _encode_night_policy_criteria(
                 opb, non_pref_var, xn[sunday_d][f],
                 CRITERION_SUNDAY_FOLLOWING, hard_criteria, weights, soft_violations,
             )
+
+
+def _encode_weekend_night_linking(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+) -> None:
+    """Link weekend night call assignments to weekend role assignments.
+
+    - Friday night: fellow must NOT have any weekend role that week.
+    - Saturday night: fellow must be Weekend NCC1 or NCC2.
+    - Sunday night: fellow must be Weekend Stroke.
+    """
+    num_days = config.num_days
+    num_weeks = config.num_weeks
+    start_dow = config.start_dow
+    num_fellows = len(fellow_names)
+
+    opb.add_comment("Night: weekend night linking (Fri/Sat/Sun ↔ weekend roles)")
+
+    for w in range(num_weeks):
+        # --- Friday night: blocks all weekend roles ---
+        friday_d = _week_day(w, 4, start_dow)
+        if 0 <= friday_d < num_days:
+            for f in range(num_fellows):
+                if xn[friday_d][f] == 0:
+                    continue
+                for role_idx in range(3):
+                    if f in wr[w][role_idx]:
+                        # xn[friday_d][f] + wr[w][role_idx][f] <= 1
+                        opb.at_most_k([xn[friday_d][f], wr[w][role_idx][f]], 1)
+
+        # --- Saturday night: must be Weekend NCC1 or NCC2 ---
+        sat_d = _week_day(w, 5, start_dow)
+        if 0 <= sat_d < num_days:
+            for f in range(num_fellows):
+                if xn[sat_d][f] == 0:
+                    continue
+                ncc_vars = []
+                if f in wr[w][_ROLE_NCC1]:
+                    ncc_vars.append(wr[w][_ROLE_NCC1][f])
+                if f in wr[w][_ROLE_NCC2]:
+                    ncc_vars.append(wr[w][_ROLE_NCC2][f])
+
+                if ncc_vars:
+                    # xn[sat_d][f] → OR(ncc_vars)
+                    # sum(ncc_vars) + ~xn[sat_d][f] >= 1
+                    opb.weighted_sum_at_least(
+                        [(v, 1) for v in ncc_vars] + [(-xn[sat_d][f], 1)], 1
+                    )
+                else:
+                    # Fellow can't be NCC → can't do Saturday night
+                    opb.add_unit(-xn[sat_d][f])
+
+        # --- Sunday night: must be Weekend Stroke ---
+        sun_d = _week_day(w, 6, start_dow)
+        if 0 <= sun_d < num_days:
+            for f in range(num_fellows):
+                if xn[sun_d][f] == 0:
+                    continue
+                if f in wr[w][_ROLE_STROKE]:
+                    # xn[sun_d][f] → wr[w][STROKE][f]
+                    # wr_stroke + ~xn[sun_d][f] >= 1
+                    opb.weighted_sum_at_least(
+                        [(wr[w][_ROLE_STROKE][f], 1), (-xn[sun_d][f], 1)], 1
+                    )
+                else:
+                    # Fellow not eligible for Weekend Stroke → can't do Sunday night
+                    opb.add_unit(-xn[sun_d][f])
 
 
 def _encode_night_criterion_pair(
@@ -1722,6 +1925,7 @@ def _encode_night_multiset(
     multiset: CountMultiset,
     fellow_names: list[str],
     num_days: int,
+    start_dow: int,
     *,
     friday_only: bool,
 ) -> None:
@@ -1737,7 +1941,7 @@ def _encode_night_multiset(
             return  # Can't encode if fellow not present
 
     if friday_only:
-        day_filter = lambda d: d % 7 == 4
+        day_filter = lambda d: _day_of_week(d, start_dow) == 4
     else:
         day_filter = lambda d: True
 
@@ -2026,6 +2230,71 @@ def _encode_balance_constraint(
 
 
 # ---------------------------------------------------------------------------
+# Annual call rules (pin/block night/weekend)
+# ---------------------------------------------------------------------------
+
+def _encode_call_rules(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+) -> None:
+    """Encode annual call rules (night/weekend pin/block assignments).
+
+    These are NOT palette rules — they produce unit constraints directly
+    on the ``xn`` (night) and ``wr`` (weekend) variable layers.
+    """
+    start_dow = config.start_dow
+    num_days = config.num_days
+    num_weeks = config.num_weeks
+    horizon_start = config.night_config.horizon_start_date
+
+    for rule in config.call_rules:
+        if not rule.get("active", True):
+            continue
+        rule_type = rule.get("type")
+        fellow_name = rule.get("fellow")
+        if fellow_name not in fellow_names:
+            continue
+        fi = fellow_names.index(fellow_name)
+
+        if rule_type == "specific_night_assignment":
+            for date_str in rule.get("dates", []):
+                d = _date_to_day_index(date_str, horizon_start)
+                if 0 <= d < num_days and xn[d][fi] != 0:
+                    opb.add_unit(xn[d][fi])
+
+        elif rule_type == "blocked_night":
+            for date_str in rule.get("dates", []):
+                d = _date_to_day_index(date_str, horizon_start)
+                if 0 <= d < num_days and xn[d][fi] != 0:
+                    opb.add_unit(-xn[d][fi])
+
+        elif rule_type == "specific_weekend_assignment":
+            role_name = rule.get("role", "")
+            role_idx = {"NCC1": 0, "NCC2": 1, "Stroke": 2}.get(role_name)
+            if role_idx is None:
+                continue
+            for w in rule.get("weeks", []):
+                if 0 <= w < num_weeks and fi in wr[w][role_idx]:
+                    opb.add_unit(wr[w][role_idx][fi])
+
+        elif rule_type == "blocked_weekend":
+            for w in rule.get("weeks", []):
+                if 0 <= w < num_weeks:
+                    for role_idx in range(3):
+                        if fi in wr[w][role_idx]:
+                            opb.add_unit(-wr[w][role_idx][fi])
+
+        elif rule_type == "friday_call_assignment":
+            for w in rule.get("weeks", []):
+                friday_d = _week_day(w, 4, start_dow)
+                if 0 <= friday_d < num_days and xn[friday_d][fi] != 0:
+                    opb.add_unit(xn[friday_d][fi])
+
+
+# ---------------------------------------------------------------------------
 # Palette v2 generic encoders
 # ---------------------------------------------------------------------------
 
@@ -2269,11 +2538,15 @@ def decode_solution(
 
     # Night assignments
     night_by_week = []
-    num_days = num_weeks * 7
+    num_days = var_map.num_days
+    start_dow = var_map.start_dow
     for w in range(num_weeks):
         week_nights = {}
-        for day_of_week, role in enumerate(NIGHT_ROLES):
-            d = w * 7 + day_of_week
+        for dow_target, role in enumerate(NIGHT_ROLES):
+            d = _week_day(w, dow_target, start_dow)
+            if d < 0 or d >= num_days:
+                week_nights[role] = ""
+                continue
             for f in range(num_fellows):
                 var = var_map.xn[d][f]
                 if var != 0 and assignment.get(var, False):
@@ -2562,7 +2835,6 @@ def load_schedule_config(
     weekend_config: WeekendSolverConfig | None = None,
     night_weights: NightPolicyWeights | None = None,
     night_hard_criteria: frozenset[str] | None = None,
-    num_weeks: int = 52,
 ) -> ScheduleSolverConfig:
     """Load schedule solver config from YAML files."""
     annual = yaml.safe_load(Path(annual_config_path).read_text())
@@ -2582,5 +2854,4 @@ def load_schedule_config(
         night_hard_criteria=night_hard_criteria or frozenset(
             {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
         ),
-        num_weeks=num_weeks,
     )

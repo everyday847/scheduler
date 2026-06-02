@@ -251,7 +251,6 @@ def feasibility_check():
             constraints=probe_constraints,
             night_config=NightSolverConfig(),
             weekend_config=WeekendSolverConfig(),
-            num_weeks=config_data.get("num_weeks", 52),
         )
 
         t0 = time.time()
@@ -286,6 +285,7 @@ def diagnose_stream():
             "shifts": body.get("shifts", []),
             "num_weeks": body.get("num_weeks", 52),
             "rules": body.get("rules", []),
+            "locked_assignments": body.get("locked_assignments", {}),
         }
         standing_rules = body.get("standing_rules", [])
         annual_rules = body.get("rules", [])

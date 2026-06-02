@@ -60,13 +60,13 @@ night_call:
   total_nights: 40
 - friday_nights: 6
   group: NH
-  total_nights: 30
+  total_nights: 31
 weekend_call:
 - group: STROKE
   ncc_total: 22
-  stroke_total: 50
+  stroke_total: 51
 - group: NCC_SR
-  ncc_total: 30
+  ncc_total: 32
   stroke_total: 2
 - group: NCC_JR
   ncc_total: 24
@@ -195,7 +195,7 @@ rules:
   relation: exactly
   shifts:
   - Elec
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 4
@@ -205,7 +205,7 @@ rules:
   relation: exactly
   shifts:
   - Vac
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 4
@@ -215,7 +215,7 @@ rules:
   relation: at_least
   shifts:
   - SICU
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 12
@@ -247,7 +247,7 @@ rules:
   relation: at_least
   shifts:
   - Elec
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 4
@@ -257,7 +257,7 @@ rules:
   relation: at_least
   shifts:
   - Vac
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 6
@@ -267,7 +267,7 @@ rules:
   relation: exactly
   shifts:
   - NS
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 2
@@ -393,7 +393,7 @@ rules:
   strength: soft
   type: shift_total
 - active: true
-  count: 3
+  count: 2
   groups:
   - NH
   name: 'NH: NCC Total'
@@ -401,15 +401,6 @@ rules:
   shifts:
   - NCC1
   - NCC2
-  strength: hard
-  type: shift_total
-- active: true
-  count: 1
-  groups:
-  - NH
-  name: 'NH: Swing Total'
-  relation: exactly
-  shifts:
   - Swing
   strength: hard
   type: shift_total
@@ -612,31 +603,51 @@ rules:
   hard_request_count: 3
   name: vacation_requests
   type: vacation_request_policy
-- name: Short Stroke/Telestroke/Clinic/Elective
+- active: true
   groups:
   - STROKE
-  strength: hard
-  active: true
-  type: max_consecutive
+  max_weeks: 3
+  name: Short Stroke/Telestroke/Clinic/Elective
   shifts:
   - Stroke
   - Telestroke/Clinic
   - Clinic/Elective
-  max_weeks: 3
-- name: Only One NH on Core ICU Rotations
+  strength: hard
+  type: max_consecutive
+- active: true
+  count: 1
   groups:
   - NH
-  strength: hard
-  active: true
-  type: staffing_per_week
+  name: Only One NH on Core ICU Rotations
+  relation: at_most
   shifts:
   - NCC1
   - NCC2
   - Swing
   - Stroke
   - Telestroke/Clinic
-  relation: at_most
-  count: 1
+  strength: hard
+  type: staffing_per_week
+- active: true
+  count: 2
+  groups:
+  - NH
+  name: Stroke
+  relation: at_least
+  shifts:
+  - Stroke
+  strength: soft
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - NH
+  name: Telestroke
+  relation: exactly
+  shifts:
+  - Telestroke/Clinic
+  strength: hard
+  type: shift_total
 weekend_rules:
 - active: true
   description: Max 1 weekend in any 2-consecutive-week window
