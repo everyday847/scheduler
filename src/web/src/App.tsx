@@ -228,7 +228,7 @@ function App() {
     // Determine standing config name based on whether annual config is v2
     const standingName = filename.includes('-v2')
       ? 'stanford-fellowship-v2.yaml'
-      : 'stanford-fellowship.yaml';
+      : 'stanford-fellowship-v2.yaml';
     Promise.all([
       fetch(`${API_BASE}/api/config/annual/${filename}/draft`).then((r) => r.json()),
       fetch(`${API_BASE}/api/config/standing/${standingName}`).then((r) => r.json()),
