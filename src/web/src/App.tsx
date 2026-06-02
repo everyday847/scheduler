@@ -8,6 +8,7 @@ import { RuleCard } from './components/RuleCard';
 import { RuleEditor } from './components/RuleEditor';
 import { RulePalette } from './components/RulePalette';
 import { PaletteRule, ShiftTotalRule, Relation, RuleFeasibility } from './types';
+import { DiagnosePanel } from './components/DiagnosePanel';
 
 const API_BASE = 'http://127.0.0.1:5000';
 const HORIZON_START = new Date(2026, 5, 29); // June 29, 2026
@@ -98,6 +99,7 @@ function App() {
 
   const [mode, setMode] = useState<AppMode>('config');
   const [scheduleTab, setScheduleTab] = useState<'weekly' | 'weekend' | 'night'>('weekly');
+  const [showDiagnose, setShowDiagnose] = useState(false);
 
   const [activeSection, setActiveSection] = useState<SidebarSection>('fellows');
   const [hasDraft, setHasDraft] = useState(false);
@@ -559,7 +561,7 @@ function App() {
     }
 
     return req;
-  }, [config, allFellows, vacationDates, standingRules, paletteRules, lockedAssignments]);
+  }, [config, allFellows, vacationDates, standingRules, paletteRules, lockedAssignments, nightRules, weekendRules]);
 
   const cancelSolve = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
@@ -568,6 +570,7 @@ function App() {
 
   const generateSchedule = useCallback(async () => {
     cancelSolve();
+    setShowDiagnose(false);
     setSolverStatus('building'); setSolution(null); setPenalty(null); setElapsed(0);
     setError(null); setFormulaInfo(''); setMode('schedule');
 
@@ -649,7 +652,27 @@ function App() {
 
           {error && <div className="error-banner" role="alert">{error}</div>}
 
-          {solution ? (
+          {error && error.toLowerCase().includes('infeasible') && !showDiagnose && (
+            <button className="primary" onClick={() => setShowDiagnose(true)} style={{ marginTop: '0.5rem' }}>
+              Diagnose Conflicts
+            </button>
+          )}
+
+          {showDiagnose && (
+            <DiagnosePanel
+              apiBase={API_BASE}
+              requestBody={buildRequest()}
+              onDisableRule={(name) => {
+                setPaletteRules(prev => prev.map(r => r.name === name ? { ...r, active: false } : r));
+              }}
+              onSoftenRule={(name) => {
+                setPaletteRules(prev => prev.map(r => r.name === name ? { ...r, strength: 'soft' } : r));
+              }}
+              onClose={() => setShowDiagnose(false)}
+            />
+          )}
+
+          {!showDiagnose && solution ? (
             <>
               <div className="tab-bar">
                 {(['weekly', 'weekend', 'night'] as const).map((tab) => (
@@ -680,10 +703,12 @@ function App() {
               {scheduleTab === 'night' && <ScheduleTable columns={solution.night_assignments.length > 0 ? Object.keys(solution.night_assignments[0]) : []} rows={pivotWeeklyList(solution.night_assignments)} />}
             </>
           ) : (
-            <div className="empty-state">
-              <h2>{isRunning ? 'Building schedule...' : 'No schedule yet'}</h2>
-              <p>{isRunning ? 'The first result will appear within a few seconds.' : 'Go back to configuration and click Generate.'}</p>
-            </div>
+            !showDiagnose && (
+              <div className="empty-state">
+                <h2>{isRunning ? 'Building schedule...' : 'No schedule yet'}</h2>
+                <p>{isRunning ? 'The first result will appear within a few seconds.' : 'Go back to configuration and click Generate.'}</p>
+              </div>
+            )
           )}
         </div>
       );

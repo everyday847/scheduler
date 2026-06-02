@@ -1139,6 +1139,95 @@ tbody th {
   opacity: 0.8;
 }
 
+/* Diagnose panel */
+.diagnose-panel {
+  max-width: 700px;
+}
+
+.diagnose-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.diagnose-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #eef6ff;
+  border: 1px solid #bbd4f0;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  margin-bottom: 1rem;
+}
+
+.diagnose-cores {
+  display: grid;
+  gap: 1rem;
+}
+
+.conflict-core {
+  background: #fff8f0;
+  border: 1px solid #f0d0a0;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.conflict-core h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  color: #8b5e00;
+}
+
+.conflict-rules {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.conflict-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.conflict-rule-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.conflict-rule-type {
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--page);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+
+.conflict-rule-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.conflict-rule-actions button {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.diagnose-done {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 @media (max-width: 900px) {
   .config-top-bar {
     flex-direction: column;
