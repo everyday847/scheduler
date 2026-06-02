@@ -109,6 +109,15 @@ def _num_weeks_for(start_dow: int, num_days: int) -> int:
     return (start_dow + num_days - 1) // 7 + 1
 
 
+def _date_to_day_index(date_str: str | date, horizon_start: date) -> int:
+    """Convert a date string (or date object) to absolute day index from horizon start."""
+    if isinstance(date_str, str):
+        d = date.fromisoformat(date_str)
+    else:
+        d = date_str
+    return (d - horizon_start).days
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -131,6 +140,7 @@ class ScheduleSolverConfig:
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
+    call_rules: list[dict] = field(default_factory=list)
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
@@ -294,6 +304,13 @@ def build_full_schedule_opb(
     _encode_night_constraints(
         opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
     )
+
+    # -------------------------------------------------------------------
+    # 7b. Annual call rules (pin/block night/weekend)
+    # -------------------------------------------------------------------
+    if config.call_rules:
+        opb.add_comment("Annual call rules (pin/block night/weekend)")
+        _encode_call_rules(opb, xn, wr, config, fellow_names)
 
     # -------------------------------------------------------------------
     # 8. Soft penalty bound
@@ -2162,6 +2179,71 @@ def _encode_balance_constraint(
             max_diff + n1 + big_m,
         )
         soft_violations.append((v, weight))
+
+
+# ---------------------------------------------------------------------------
+# Annual call rules (pin/block night/weekend)
+# ---------------------------------------------------------------------------
+
+def _encode_call_rules(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+) -> None:
+    """Encode annual call rules (night/weekend pin/block assignments).
+
+    These are NOT palette rules — they produce unit constraints directly
+    on the ``xn`` (night) and ``wr`` (weekend) variable layers.
+    """
+    start_dow = config.start_dow
+    num_days = config.num_days
+    num_weeks = config.num_weeks
+    horizon_start = config.night_config.horizon_start_date
+
+    for rule in config.call_rules:
+        if not rule.get("active", True):
+            continue
+        rule_type = rule.get("type")
+        fellow_name = rule.get("fellow")
+        if fellow_name not in fellow_names:
+            continue
+        fi = fellow_names.index(fellow_name)
+
+        if rule_type == "specific_night_assignment":
+            for date_str in rule.get("dates", []):
+                d = _date_to_day_index(date_str, horizon_start)
+                if 0 <= d < num_days and xn[d][fi] != 0:
+                    opb.add_unit(xn[d][fi])
+
+        elif rule_type == "blocked_night":
+            for date_str in rule.get("dates", []):
+                d = _date_to_day_index(date_str, horizon_start)
+                if 0 <= d < num_days and xn[d][fi] != 0:
+                    opb.add_unit(-xn[d][fi])
+
+        elif rule_type == "specific_weekend_assignment":
+            role_name = rule.get("role", "")
+            role_idx = {"NCC1": 0, "NCC2": 1, "Stroke": 2}.get(role_name)
+            if role_idx is None:
+                continue
+            for w in rule.get("weeks", []):
+                if 0 <= w < num_weeks and fi in wr[w][role_idx]:
+                    opb.add_unit(wr[w][role_idx][fi])
+
+        elif rule_type == "blocked_weekend":
+            for w in rule.get("weeks", []):
+                if 0 <= w < num_weeks:
+                    for role_idx in range(3):
+                        if fi in wr[w][role_idx]:
+                            opb.add_unit(-wr[w][role_idx][fi])
+
+        elif rule_type == "friday_call_assignment":
+            for w in rule.get("weeks", []):
+                friday_d = _week_day(w, 4, start_dow)
+                if 0 <= friday_d < num_days and xn[friday_d][fi] != 0:
+                    opb.add_unit(xn[friday_d][fi])
 
 
 # ---------------------------------------------------------------------------

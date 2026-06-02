@@ -95,6 +95,7 @@ def build_solver_config_from_request(
     weekend_config = _build_weekend_config(raw_request, fellow_groups)
 
     locked_assignments = raw_request.get("locked_assignments", {})
+    call_rules = raw_request.get("call_rules", [])
 
     # Compute calendar model from horizon_start
     horizon_start_str = raw_request.get("horizon_start", "2026-07-01")
@@ -116,6 +117,7 @@ def build_solver_config_from_request(
         night_config=night_config,
         weekend_config=weekend_config,
         locked_assignments=locked_assignments,
+        call_rules=call_rules,
         start_dow=start_dow,
         num_days=num_days,
     )
