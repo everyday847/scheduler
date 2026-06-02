@@ -2362,8 +2362,6 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
     num_fellows = kw["num_fellows"]
     config = kw["config"]
     is_soft = constraint.strength == ConstraintStrength.SOFT
-    if not is_soft and config.locked_assignments and constraint.params["relation"] in ("at_most", "exactly"):
-        is_soft = True
     weight = config.weekly_soft_weight
     soft_violations = kw["soft_violations"]
 
@@ -2371,6 +2369,16 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
     count = constraint.params["count"]
     target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
     s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+
+    # Precompute locked contribution per week for at_most/exactly checks
+    locked_count_per_week: dict[int, int] | None = None
+    if not is_soft and config.locked_assignments and relation in ("at_most", "exactly"):
+        locked_count_per_week = {}
+        target_shift_set = set(target_shifts)
+        for fellow_name, weekly_shifts in config.locked_assignments.items():
+            for w, shift_name in enumerate(weekly_shifts):
+                if shift_name and shift_name in target_shift_set:
+                    locked_count_per_week[w] = locked_count_per_week.get(w, 0) + 1
 
     if constraint.weeks:
         w_start, w_end = constraint.weeks.start, constraint.weeks.end
@@ -2387,9 +2395,15 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
         if not week_vars:
             continue
 
+        # Soften weeks where locked fellows already fill or exceed the cap
+        week_is_soft = is_soft
+        if not week_is_soft and locked_count_per_week is not None:
+            if locked_count_per_week.get(w, 0) >= count:
+                week_is_soft = True
+
         _add_cardinality_constraint(
             opb, week_vars, relation, count,
-            is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+            is_soft=week_is_soft, weight=weight, soft_violations=soft_violations,
         )
 
 
