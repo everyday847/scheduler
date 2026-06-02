@@ -82,6 +82,34 @@ DEFAULT_SWING_UNCOVERED_WEIGHT = 100
 
 
 # ---------------------------------------------------------------------------
+# Calendar helpers
+# ---------------------------------------------------------------------------
+
+def _day_of_week(d: int, start_dow: int) -> int:
+    """Return the day-of-week (Mon=0 ... Sun=6) for absolute day *d*."""
+    return (start_dow + d) % 7
+
+
+def _day_to_week(d: int, start_dow: int) -> int:
+    """Return the ISO-style week index for absolute day *d*."""
+    return (start_dow + d) // 7
+
+
+def _week_day(w: int, dow_target: int, start_dow: int) -> int:
+    """Return absolute day *d* for weekday *dow_target* in week *w*.
+
+    May return a negative value (before the academic year) or a value
+    >= num_days (after the academic year); callers must bounds-check.
+    """
+    return w * 7 - start_dow + dow_target
+
+
+def _num_weeks_for(start_dow: int, num_days: int) -> int:
+    """Number of (possibly partial) weeks that span *num_days* starting on *start_dow*."""
+    return (start_dow + num_days - 1) // 7 + 1
+
+
+# ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 
@@ -97,6 +125,8 @@ class ScheduleSolverConfig:
         {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
     )
     num_weeks: int = 52
+    start_dow: int = 0  # weekday of day 0 (0=Mon ... 6=Sun)
+    num_days: int = 365  # total days in the academic year
     weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
@@ -120,6 +150,8 @@ class ScheduleVarMap:
     num_weeks: int
     num_fellows: int
     num_shifts: int
+    start_dow: int
+    num_days: int
 
     # xs[f][w][s] = OPB variable index (or 0 if forbidden)
     xs: list[list[list[int]]]
@@ -147,7 +179,9 @@ def build_full_schedule_opb(
         fellow_mapping.get_fellow_name(i) for i in range(fellow_mapping.total_fellows)
     ]
     shifts = config.shifts
-    num_weeks = config.num_weeks
+    num_days = config.num_days
+    start_dow = config.start_dow
+    num_weeks = _num_weeks_for(start_dow, num_days)
     num_fellows = len(fellow_names)
     num_shifts = len(shifts)
     shift_idx = {s: i for i, s in enumerate(shifts)}
@@ -242,7 +276,6 @@ def build_full_schedule_opb(
     # 6. Night variables: xn[d][f]
     # -------------------------------------------------------------------
     opb.add_comment("Night assignment variables")
-    num_days = num_weeks * 7
     xn: list[list[int]] = []
     for d in range(num_days):
         xn.append([])
@@ -273,6 +306,8 @@ def build_full_schedule_opb(
         num_weeks=num_weeks,
         num_fellows=num_fellows,
         num_shifts=num_shifts,
+        start_dow=start_dow,
+        num_days=num_days,
         xs=xs,
         wr=wr,
         xn=xn,
@@ -1391,8 +1426,9 @@ def _encode_night_constraints(
     soft_violations: list[tuple[int, int]],
 ) -> None:
     """Encode all night assignment constraints."""
-    num_weeks = config.num_weeks
-    num_days = num_weeks * 7
+    num_days = config.num_days
+    start_dow = config.start_dow
+    num_weeks = _num_weeks_for(start_dow, num_days)
     num_fellows = len(fellow_names)
     night_config = config.night_config
     weights = config.night_weights
@@ -1412,7 +1448,8 @@ def _encode_night_constraints(
     blocked_shift_indices = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx]
 
     for d in range(num_days):
-        week_idx, day_of_week = divmod(d, 7)
+        week_idx = _day_to_week(d, start_dow)
+        dow = _day_of_week(d, start_dow)
         for f in range(num_fellows):
             if xn[d][f] == 0:
                 continue
@@ -1422,9 +1459,9 @@ def _encode_night_constraints(
                     # xs[f][w][blocked] + xn[d][f] <= 1
                     opb.at_most_k([xs[f][week_idx][si], xn[d][f]], 1)
 
-            # ISC: blocked Tue-Fri (day_of_week 1-4)
+            # ISC: blocked Tue-Fri (dow 1-4)
             s_isc = shift_idx.get("ISC")
-            if s_isc is not None and 1 <= day_of_week <= 4:
+            if s_isc is not None and 1 <= dow <= 4:
                 if xs[f][week_idx][s_isc] != 0:
                     opb.at_most_k([xs[f][week_idx][s_isc], xn[d][f]], 1)
 
@@ -1474,7 +1511,7 @@ def _encode_night_constraints(
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
-        friday_vars = [xn[d][fi] for d in range(4, num_days, 7) if xn[d][fi] != 0]
+        friday_vars = [xn[d][fi] for d in range(num_days) if _day_of_week(d, start_dow) == 4 and xn[d][fi] != 0]
         if friday_vars:
             _add_cardinality_constraint(
                 opb, friday_vars, "exactly", total,
@@ -1484,9 +1521,9 @@ def _encode_night_constraints(
     # Multiset constraints
     opb.add_comment("Night: multiset constraints")
     for multiset in night_config.total_night_multisets:
-        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, friday_only=False)
+        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow, friday_only=False)
     for multiset in night_config.friday_night_multisets:
-        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, friday_only=True)
+        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow, friday_only=True)
 
 
 def _encode_night_policy_criteria(
@@ -1500,8 +1537,9 @@ def _encode_night_policy_criteria(
     soft_violations: list[tuple[int, int]],
 ) -> None:
     """Encode the night policy criteria as variable-gated constraints."""
-    num_weeks = config.num_weeks
-    num_days = num_weeks * 7
+    num_days = config.num_days
+    start_dow = config.start_dow
+    num_weeks = _num_weeks_for(start_dow, num_days)
     num_fellows = len(fellow_names)
     weights = config.night_weights
     hard_criteria = config.night_hard_criteria
@@ -1535,10 +1573,11 @@ def _encode_night_policy_criteria(
     else:
         dual_stroke_vars = [0] * num_weeks
 
-    # Anaesthesia criterion: weekday nights only (Mon-Fri, day_of_week 0-4)
+    # Anaesthesia criterion: weekday nights only (Mon-Fri, dow 0-4)
     for d in range(num_days):
-        week_idx, day_of_week = divmod(d, 7)
-        if day_of_week > 4:
+        week_idx = _day_to_week(d, start_dow)
+        dow = _day_of_week(d, start_dow)
+        if dow > 4:
             continue  # Weekend nights: no anaesthesia criterion
         for f in range(num_fellows):
             if xn[d][f] == 0:
@@ -1553,8 +1592,9 @@ def _encode_night_policy_criteria(
 
     # Clinic criterion: weekday nights only
     for d in range(num_days):
-        week_idx, day_of_week = divmod(d, 7)
-        if day_of_week > 4:
+        week_idx = _day_to_week(d, start_dow)
+        dow = _day_of_week(d, start_dow)
+        if dow > 4:
             continue
         for f in range(num_fellows):
             if xn[d][f] == 0:
@@ -1570,8 +1610,9 @@ def _encode_night_policy_criteria(
     # Stroke criterion: weekday nights only, exempt in dual-stroke weeks
     if stroke_idx is not None:
         for d in range(num_days):
-            week_idx, day_of_week = divmod(d, 7)
-            if day_of_week > 4:
+            week_idx = _day_to_week(d, start_dow)
+            dow = _day_of_week(d, start_dow)
+            if dow > 4:
                 continue
             ds_var = dual_stroke_vars[week_idx]
             for f in range(num_fellows):
@@ -1601,9 +1642,9 @@ def _encode_night_policy_criteria(
                 if f not in wr[w][_ROLE_STROKE]:
                     continue
                 wr_stroke = wr[w][_ROLE_STROKE][f]
-                for day_of_week in (5, 6):  # Sat, Sun
-                    d = w * 7 + day_of_week
-                    if d >= num_days or xn[d][f] == 0:
+                for dow_target in (5, 6):  # Sat, Sun
+                    d = _week_day(w, dow_target, start_dow)
+                    if d < 0 or d >= num_days or xn[d][f] == 0:
                         continue
                     if ds_var == 0:
                         _encode_night_criterion_pair(
@@ -1618,8 +1659,8 @@ def _encode_night_policy_criteria(
 
     # Friday/weekend NCC1 criterion
     for w in range(num_weeks):
-        friday_d = w * 7 + 4
-        if friday_d >= num_days:
+        friday_d = _week_day(w, 4, start_dow)
+        if friday_d < 0 or friday_d >= num_days:
             continue
         for f in range(num_fellows):
             if f not in wr[w][_ROLE_NCC1]:
@@ -1635,8 +1676,8 @@ def _encode_night_policy_criteria(
     # Sunday following criterion: Sunday night fellow's next-week service is non-preferred
     non_preferred_indices = [shift_idx[s] for s in NON_PREFERRED_SUNDAY_FOLLOWING if s in shift_idx]
     for w in range(num_weeks - 1):
-        sunday_d = w * 7 + 6
-        if sunday_d >= num_days:
+        sunday_d = _week_day(w, 6, start_dow)
+        if sunday_d < 0 or sunday_d >= num_days:
             continue
         for f in range(num_fellows):
             if xn[sunday_d][f] == 0:
@@ -1722,6 +1763,7 @@ def _encode_night_multiset(
     multiset: CountMultiset,
     fellow_names: list[str],
     num_days: int,
+    start_dow: int,
     *,
     friday_only: bool,
 ) -> None:
@@ -1737,7 +1779,7 @@ def _encode_night_multiset(
             return  # Can't encode if fellow not present
 
     if friday_only:
-        day_filter = lambda d: d % 7 == 4
+        day_filter = lambda d: _day_of_week(d, start_dow) == 4
     else:
         day_filter = lambda d: True
 
@@ -2269,11 +2311,15 @@ def decode_solution(
 
     # Night assignments
     night_by_week = []
-    num_days = num_weeks * 7
+    num_days = var_map.num_days
+    start_dow = var_map.start_dow
     for w in range(num_weeks):
         week_nights = {}
-        for day_of_week, role in enumerate(NIGHT_ROLES):
-            d = w * 7 + day_of_week
+        for dow_target, role in enumerate(NIGHT_ROLES):
+            d = _week_day(w, dow_target, start_dow)
+            if d < 0 or d >= num_days:
+                week_nights[role] = ""
+                continue
             for f in range(num_fellows):
                 var = var_map.xn[d][f]
                 if var != 0 and assignment.get(var, False):

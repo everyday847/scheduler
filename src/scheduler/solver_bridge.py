@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict
 
@@ -96,6 +96,22 @@ def build_solver_config_from_request(
 
     locked_assignments = raw_request.get("locked_assignments", {})
 
+    # Compute calendar model from horizon_start
+    horizon_start_str = raw_request.get("horizon_start", "2026-07-01")
+    if isinstance(horizon_start_str, str):
+        parts = horizon_start_str.split("-")
+        horizon_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
+    else:
+        horizon_date = date(2026, 7, 1)
+
+    start_dow = horizon_date.weekday()  # 0=Mon, 6=Sun
+
+    # Academic year: from horizon_start to one year later minus one day
+    horizon_end = date(horizon_date.year + 1, horizon_date.month, horizon_date.day) - timedelta(days=1)
+    num_days = (horizon_end - horizon_date).days + 1  # 365 or 366
+
+    num_weeks = (start_dow + num_days - 1) // 7 + 1
+
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
@@ -103,6 +119,9 @@ def build_solver_config_from_request(
         night_config=night_config,
         weekend_config=weekend_config,
         locked_assignments=locked_assignments,
+        start_dow=start_dow,
+        num_days=num_days,
+        num_weeks=num_weeks,
     )
 
 
