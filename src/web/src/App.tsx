@@ -110,6 +110,11 @@ function App() {
   const [feasibility, setFeasibility] = useState<Record<string, RuleFeasibility>>({});
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [showNightPalette, setShowNightPalette] = useState(false);
+  const [showWeekendPalette, setShowWeekendPalette] = useState(false);
+  const [editingNightRuleIdx, setEditingNightRuleIdx] = useState<number | null>(null);
+  const [editingWeekendRuleIdx, setEditingWeekendRuleIdx] = useState<number | null>(null);
+
   const W = config.num_weeks || 52;
 
   // Load config file list
@@ -277,6 +282,46 @@ function App() {
       return [...prev, rule];
     });
     setShowPalette(false);
+  };
+
+  const addNightRule = (rule: PaletteRule) => {
+    setNightRules(prev => {
+      setEditingNightRuleIdx(prev.length);
+      return [...prev, rule];
+    });
+    setShowNightPalette(false);
+  };
+
+  const addWeekendRule = (rule: PaletteRule) => {
+    setWeekendRules(prev => {
+      setEditingWeekendRuleIdx(prev.length);
+      return [...prev, rule];
+    });
+    setShowWeekendPalette(false);
+  };
+
+  const saveNightRule = (updated: PaletteRule) => {
+    if (editingNightRuleIdx !== null) {
+      setNightRules(prev => prev.map((r, i) => i === editingNightRuleIdx ? updated : r));
+    }
+    setEditingNightRuleIdx(null);
+  };
+
+  const saveWeekendRule = (updated: PaletteRule) => {
+    if (editingWeekendRuleIdx !== null) {
+      setWeekendRules(prev => prev.map((r, i) => i === editingWeekendRuleIdx ? updated : r));
+    }
+    setEditingWeekendRuleIdx(null);
+  };
+
+  const removeNightRule = (idx: number) => {
+    setNightRules(prev => prev.filter((_, i) => i !== idx));
+    setEditingNightRuleIdx(null);
+  };
+
+  const removeWeekendRule = (idx: number) => {
+    setWeekendRules(prev => prev.filter((_, i) => i !== idx));
+    setEditingWeekendRuleIdx(null);
   };
 
   // Feasibility checking
@@ -847,20 +892,43 @@ function App() {
           <section className="config-card">
             <h2>Night Call Rules</h2>
             <p className="hint">Configure spacing, blocked services, holiday eligibility, penalties, and Sunday-following preferences for night call.</p>
-            {nightRules.length > 0 ? (
-              <div className="rule-cards">
-                {nightRules.map((r, i) => (
-                  <RuleCard
-                    key={r.name || i}
-                    rule={r}
-                    onToggleActive={(name) => setNightRules(prev => prev.map(rr => rr.name === name ? { ...rr, active: !rr.active } : rr))}
-                    onToggleStrength={(name) => setNightRules(prev => prev.map(rr => rr.name === name ? { ...rr, strength: rr.strength === 'hard' ? 'soft' : 'hard' } : rr))}
-                    onEdit={() => setEditingRuleIdx(-1)}
-                  />
-                ))}
-              </div>
+
+            {editingNightRuleIdx !== null && nightRules[editingNightRuleIdx] ? (
+              <RuleEditor
+                rule={nightRules[editingNightRuleIdx]}
+                allShifts={config.shifts}
+                allGroups={groupNames}
+                onSave={saveNightRule}
+                onCancel={() => setEditingNightRuleIdx(null)}
+                onRemove={() => removeNightRule(editingNightRuleIdx)}
+              />
+            ) : showNightPalette ? (
+              <RulePalette
+                group="Night"
+                category="night"
+                onAdd={addNightRule}
+                onCancel={() => setShowNightPalette(false)}
+              />
             ) : (
-              <p className="hint">No night rules configured. Add them in the YAML config file.</p>
+              <>
+                {nightRules.length > 0 ? (
+                  <div className="rule-cards">
+                    {nightRules.map((r, i) => (
+                      <RuleCard
+                        key={r.name || i}
+                        rule={r}
+                        onToggleActive={(name) => setNightRules(prev => prev.map(rr => rr.name === name ? { ...rr, active: !rr.active } : rr))}
+                        onToggleStrength={(name) => setNightRules(prev => prev.map(rr => rr.name === name ? { ...rr, strength: rr.strength === 'hard' ? 'soft' : 'hard' } : rr))}
+                        onEdit={() => setEditingNightRuleIdx(i)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint">No night rules configured.</p>
+                )}
+                <button className="add-btn" style={{ marginTop: '1rem' }}
+                  onClick={() => setShowNightPalette(true)}>+ Add Night Rule</button>
+              </>
             )}
           </section>
         )}
@@ -869,20 +937,43 @@ function App() {
           <section className="config-card">
             <h2>Weekend Call Rules</h2>
             <p className="hint">Configure spacing, blocked services, stroke eligibility, and penalties for weekend call.</p>
-            {weekendRules.length > 0 ? (
-              <div className="rule-cards">
-                {weekendRules.map((r, i) => (
-                  <RuleCard
-                    key={r.name || i}
-                    rule={r}
-                    onToggleActive={(name) => setWeekendRules(prev => prev.map(rr => rr.name === name ? { ...rr, active: !rr.active } : rr))}
-                    onToggleStrength={(name) => setWeekendRules(prev => prev.map(rr => rr.name === name ? { ...rr, strength: rr.strength === 'hard' ? 'soft' : 'hard' } : rr))}
-                    onEdit={() => setEditingRuleIdx(-1)}
-                  />
-                ))}
-              </div>
+
+            {editingWeekendRuleIdx !== null && weekendRules[editingWeekendRuleIdx] ? (
+              <RuleEditor
+                rule={weekendRules[editingWeekendRuleIdx]}
+                allShifts={config.shifts}
+                allGroups={groupNames}
+                onSave={saveWeekendRule}
+                onCancel={() => setEditingWeekendRuleIdx(null)}
+                onRemove={() => removeWeekendRule(editingWeekendRuleIdx)}
+              />
+            ) : showWeekendPalette ? (
+              <RulePalette
+                group="Weekend"
+                category="weekend"
+                onAdd={addWeekendRule}
+                onCancel={() => setShowWeekendPalette(false)}
+              />
             ) : (
-              <p className="hint">No weekend rules configured. Add them in the YAML config file.</p>
+              <>
+                {weekendRules.length > 0 ? (
+                  <div className="rule-cards">
+                    {weekendRules.map((r, i) => (
+                      <RuleCard
+                        key={r.name || i}
+                        rule={r}
+                        onToggleActive={(name) => setWeekendRules(prev => prev.map(rr => rr.name === name ? { ...rr, active: !rr.active } : rr))}
+                        onToggleStrength={(name) => setWeekendRules(prev => prev.map(rr => rr.name === name ? { ...rr, strength: rr.strength === 'hard' ? 'soft' : 'hard' } : rr))}
+                        onEdit={() => setEditingWeekendRuleIdx(i)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint">No weekend rules configured.</p>
+                )}
+                <button className="add-btn" style={{ marginTop: '1rem' }}
+                  onClick={() => setShowWeekendPalette(true)}>+ Add Weekend Rule</button>
+              </>
             )}
           </section>
         )}
