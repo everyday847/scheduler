@@ -579,6 +579,7 @@ function App() {
     setConfig(prev => {
       return {
         ...prev,
+        num_weeks: importData.num_weeks,
         shifts: Array.from(new Set([...prev.shifts, ...importData.shifts_found])),
       };
     });
