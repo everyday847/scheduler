@@ -205,6 +205,19 @@ def build_full_schedule_opb(
     # Pre-compute forbidden assignments from hard constraints
     forbidden = _compute_forbidden(config.constraints, fellow_mapping, shifts, num_weeks)
 
+    # Locked fellows' empty weeks: forbid ALL shifts (no variables created).
+    # This prevents the solver from assigning them anything in unscheduled weeks.
+    if config.locked_assignments:
+        for fellow_name, weekly_shifts in config.locked_assignments.items():
+            try:
+                f = fellow_mapping.get_fellow_index(fellow_name)
+            except ValueError:
+                continue
+            for w in range(min(num_weeks, len(weekly_shifts))):
+                if not weekly_shifts[w]:
+                    for s in range(num_shifts):
+                        forbidden.add((f, w, s))
+
     # -------------------------------------------------------------------
     # 1. Weekly shift variables: xs[f][w][s]
     # -------------------------------------------------------------------
@@ -242,9 +255,7 @@ def build_full_schedule_opb(
                 f = fellow_mapping.get_fellow_index(fellow_name)
             except ValueError:
                 continue
-            assigned_count = sum(1 for s in weekly_shifts[:num_weeks] if s)
-            if assigned_count > num_weeks // 10:
-                fully_locked.add(f)
+            fully_locked.add(f)
             for w, shift_name in enumerate(weekly_shifts):
                 if w >= num_weeks or not shift_name:
                     continue
@@ -421,6 +432,7 @@ def _encode_weekly_rules(
             shift_idx=shift_idx,
             soft_violations=soft_violations,
             config=config,
+            locked_fellow_indices=locked_fellow_indices,
         )
 
 

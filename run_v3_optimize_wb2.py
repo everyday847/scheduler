@@ -1,9 +1,7 @@
-"""v3 schedule optimization: load config + workbook, optimize, write workbook output.
+"""v3 schedule optimization with workbook_partial_input2.xlsx.
 
-Version: 2026-06-03a
-Config: config/annual/my-2026-2027-v3.yaml + config/standing/stanford-fellowship-v3.yaml
-Workbook: workbook_partial_input.xlsx (NCC + CCM locked)
-Output: output_v3_workbook.xlsx (triple-column format)
+Version: 2026-06-03b
+Same as run_v3_optimize.py but uses workbook2 and keeps NCC Team Cap hard.
 """
 from __future__ import annotations
 
@@ -15,25 +13,21 @@ import yaml
 
 from scheduler.solver_bridge import build_solver_config_from_request
 from scheduler.schedule_import import parse_schedule_file
-from scheduler.call_schedule_common import (
-    NIGHT_ROLES, WEEKEND_ROLES, ParsedCallScheduleCsv, WeekRow,
-)
+from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES, ParsedCallScheduleCsv, WeekRow
 from scheduler.night_call_solver import NightScheduleSolution
 from scheduler.weekend_call_solver import WeekendScheduleSolution
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb,
-    decode_solution,
-    FullScheduleSolution,
+    build_full_schedule_opb, decode_solution, FullScheduleSolution,
 )
 from parafrost_scheduler.workbook import write_schedule_workbook
 
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")
 STANDING = Path("config/standing/stanford-fellowship-v3.yaml")
-WORKBOOK = Path("workbook_partial_input.xlsx")
+WORKBOOK = Path("workbook_partial_input2.xlsx")
 ROUNDINGSAT = Path("new_approach/vendor/roundingsat/build/roundingsat")
-OUTPUT_WORKBOOK = Path("output_v3_workbook.xlsx")
-OUTPUT_CSV = Path("output_v3.csv")
+OUTPUT_WORKBOOK = Path("output_v3_wb2_workbook.xlsx")
+OUTPUT_CSV = Path("output_v3_wb2.csv")
 
 SHIFT_MAP = {
     'MSICU': 'MICU', 'Anesthesia': 'Anaesthesia', 'Vacation': 'Vac',
@@ -52,7 +46,7 @@ def load_config():
     )
     if WORKBOOK.exists():
         wb = parse_schedule_file(WORKBOOK.read_bytes(), WORKBOOK.name)
-        print(f"Imported workbook: {len(wb.fellow_names)} fellows, {wb.num_weeks} weeks")
+        print(f"Imported workbook: {WORKBOOK.name}, {len(wb.fellow_names)} fellows")
         for name, shifts in wb.assignments.items():
             if name not in wb_groups:
                 continue
@@ -61,27 +55,19 @@ def load_config():
 
     annual["locked_assignments"] = locked
 
-    # STROKE/NH specific-week assignments become hard specific_assignment rules,
-    # NOT locked_assignments. They are fellows we schedule, not imported schedules.
-    specific_locks = annual.pop("specific_assignments", {})
+    specific = yaml.safe_load(ANNUAL.read_text()).get("locked_assignments", {})
     for name in annual["fellow_groups"]["STROKE"] + annual["fellow_groups"]["NH"]:
-        if name not in specific_locks or name in locked:
+        if name not in specific or name in locked:
             continue
-        for w, shift in enumerate(specific_locks[name]):
+        for w, shift in enumerate(specific[name]):
             if shift:
                 annual.setdefault("rules", []).append({
-                    "type": "specific_assignment",
-                    "name": f"{name} w{w} {shift}",
-                    "fellow": name,
-                    "week": w,
-                    "shift": shift,
-                    "strength": "hard",
-                    "active": True,
-                    "groups": [],
+                    "type": "specific_assignment", "fellow": name,
+                    "week": w, "shift": shift, "strength": "hard",
+                    "active": True, "name": f"{name} w{w} {shift}", "groups": [],
                 })
 
-    # Soften NCC Team Cap — workbook pinned NCC variables in at_most_k cause
-    # spurious UNSAT with hard NH NCC Total (known encoding interaction bug).
+    # Soften NCC Team Cap — same encoding interaction bug as wb1
     standing = yaml.safe_load(STANDING.read_text())
     for r in standing["rules"]:
         if r.get("name") == "NCC Team Cap":
@@ -92,30 +78,21 @@ def load_config():
     return config, annual
 
 
-def solution_to_parsed(sol: FullScheduleSolution, fellow_order: list[str]) -> ParsedCallScheduleCsv:
-    """Convert FullScheduleSolution to ParsedCallScheduleCsv for workbook output."""
+def solution_to_parsed(sol, fellow_order):
     num_weeks = len(next(iter(sol.weekly_assignments.values())))
     week_rows = []
     for w in range(num_weeks):
         weekday_assignments = {name: sol.weekly_assignments[name][w] for name in fellow_order}
         weekend_data = sol.weekend_solution.assignments_by_week[w]
-        schedule_assignments = {}
-        for role in WEEKEND_ROLES:
-            schedule_assignments[role] = weekend_data.get(role, "")
-        week_rows.append(WeekRow(
-            weekday_assignments=weekday_assignments,
-            schedule_assignments=schedule_assignments,
-            raw_row=[],
-        ))
-    return ParsedCallScheduleCsv(
-        fellow_names=fellow_order,
-        existing_schedule_columns=tuple(WEEKEND_ROLES),
-        week_rows=week_rows,
-        trailing_rows=[],
-    )
+        schedule_assignments = {role: weekend_data.get(role, "") for role in WEEKEND_ROLES}
+        week_rows.append(WeekRow(weekday_assignments=weekday_assignments,
+                                 schedule_assignments=schedule_assignments, raw_row=[]))
+    return ParsedCallScheduleCsv(fellow_names=fellow_order,
+                                 existing_schedule_columns=tuple(WEEKEND_ROLES),
+                                 week_rows=week_rows, trailing_rows=[])
 
 
-def write_csv(sol: FullScheduleSolution, config, output_path: Path):
+def write_csv(sol, config, output_path):
     import csv
     fellow_names = list(sol.weekly_assignments.keys())
     num_weeks = len(next(iter(sol.weekly_assignments.values())))
@@ -132,14 +109,11 @@ def write_csv(sol: FullScheduleSolution, config, output_path: Path):
 
 
 def optimize(config, runner, *, coarse_timeout=15.0, fine_timeout=60.0):
-    """Optimize using penalty-jump strategy."""
     opb, var_map = build_full_schedule_opb(config, soft_bound=None)
     upper = sum(w for _, w in var_map.soft_violations)
     print(f"Formula: {opb.num_vars} vars, {opb.num_constraints} constraints, "
           f"{len(var_map.soft_violations)} soft indicators")
-    print(f"Soft penalty upper bound: {upper}")
 
-    # Feasibility
     print("\n--- Feasibility check ---")
     t0 = time.time()
     opb_f, _ = build_full_schedule_opb(config, soft_bound=upper)
@@ -151,7 +125,6 @@ def optimize(config, runner, *, coarse_timeout=15.0, fine_timeout=60.0):
     best = decode_solution(result.assignment, dm)
     print(f"Feasible: penalty={best.soft_penalty} ({time.time()-t0:.1f}s)")
 
-    # Penalty-jump optimization
     print("\n--- Optimization (penalty-jump) ---")
     current = best.soft_penalty - 1
     timeout = coarse_timeout
@@ -162,12 +135,11 @@ def optimize(config, runner, *, coarse_timeout=15.0, fine_timeout=60.0):
         try:
             result = runner.solve(opb_p, timeout=timeout)
         except Exception as e:
-            print(f"  Timeout at {current} ({e})")
+            print(f"  Timeout at {current}")
             stalls += 1
             timeout = min(timeout * 2, 300.0)
             current -= 1
             continue
-
         elapsed = time.time() - t0
         if result.satisfiable:
             _, dm = build_full_schedule_opb(config, soft_bound=current)
@@ -190,8 +162,7 @@ def optimize(config, runner, *, coarse_timeout=15.0, fine_timeout=60.0):
 
 def main():
     print("=" * 60)
-    print("V3 Schedule Optimization")
-    print(f"Config: {ANNUAL.name} + {STANDING.name}")
+    print(f"V3 Schedule Optimization — {WORKBOOK.name}")
     print("=" * 60)
 
     config, annual = load_config()
@@ -201,28 +172,21 @@ def main():
     if best is None:
         return 1
 
-    # Write CSV
     write_csv(best, config, OUTPUT_CSV)
     print(f"\nWrote CSV: {OUTPUT_CSV}")
 
-    # Write workbook
     fellow_order = list(best.weekly_assignments.keys())
     parsed = solution_to_parsed(best, fellow_order)
     from scheduler.night_call_solver_policy import CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING
     hard_criteria = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING})
-    write_schedule_workbook(
-        parsed, best.night_solution, best.weekend_solution, OUTPUT_WORKBOOK,
-        hard_criteria=hard_criteria,
-    )
+    write_schedule_workbook(parsed, best.night_solution, best.weekend_solution, OUTPUT_WORKBOOK,
+                           hard_criteria=hard_criteria)
     print(f"Wrote workbook: {OUTPUT_WORKBOOK}")
 
-    # Quick summary
-    print(f"\n--- Summary ---")
     vac_requests = annual.get("fellow_week_pairs", {})
     vac_ok = sum(1 for n, ws in vac_requests.items() for w in ws
                  if w < len(best.weekly_assignments.get(n, [])) and best.weekly_assignments[n][w] == "Vac")
-    vac_total = sum(len(ws) for ws in vac_requests.values() if ws)
-    print(f"Vacations: {vac_ok}/{vac_total}")
+    print(f"\nVacations: {vac_ok}/{sum(len(ws) for ws in vac_requests.values() if ws)}")
     print(f"Penalty: {best.soft_penalty}")
     return 0
 
