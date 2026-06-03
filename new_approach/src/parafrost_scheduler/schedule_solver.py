@@ -235,14 +235,16 @@ def build_full_schedule_opb(
     # -------------------------------------------------------------------
     locked_fellow_indices: frozenset[int] = frozenset()
     if config.locked_assignments:
-        locked_indices = set()
+        fully_locked = set()
         opb.add_comment("Locked fellow assignments (pinned)")
         for fellow_name, weekly_shifts in config.locked_assignments.items():
             try:
                 f = fellow_mapping.get_fellow_index(fellow_name)
             except ValueError:
                 continue
-            locked_indices.add(f)
+            assigned_count = sum(1 for s in weekly_shifts[:num_weeks] if s)
+            if assigned_count > num_weeks // 10:
+                fully_locked.add(f)
             for w, shift_name in enumerate(weekly_shifts):
                 if w >= num_weeks or not shift_name:
                     continue
@@ -252,7 +254,7 @@ def build_full_schedule_opb(
                 var = xs[f][w][si]
                 if var != 0:
                     opb.add_unit(var)
-        locked_fellow_indices = frozenset(locked_indices)
+        locked_fellow_indices = frozenset(fully_locked)
 
     # -------------------------------------------------------------------
     # 3. Encode weekly shift rules from YAML config
@@ -310,7 +312,12 @@ def build_full_schedule_opb(
     # -------------------------------------------------------------------
     if config.call_rules:
         opb.add_comment("Annual call rules (pin/block night/weekend)")
-        _encode_call_rules(opb, xn, wr, config, fellow_names)
+        _encode_call_rules(opb, xn, wr, config, fellow_names,
+                           xs=xs, shift_idx=shift_idx, soft_violations=soft_violations)
+
+        opb.add_comment("Dual Stroke window (from call_rules)")
+        _encode_dual_stroke_window(opb, xs, config, fellow_names, shift_idx,
+                                   soft_violations=soft_violations)
 
     # -------------------------------------------------------------------
     # 8. Soft penalty bound
@@ -1320,6 +1327,11 @@ def _encode_weekend_constraints(
             if len(window) > 2:
                 opb.at_most_k([v for _, v in window], 2)
 
+    # Weekend role prerequisites (must have done weekday service before weekend role)
+    opb.add_comment("Weekend: role prerequisites (Stroke/NCC)")
+    _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx,
+                                  soft_violations=soft_violations)
+
     # Weekend role matches weekday service (soft bonus for matching)
     opb.add_comment("Weekend: prefer role matches weekday service (soft)")
     _encode_weekend_mismatch_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
@@ -1567,6 +1579,10 @@ def _encode_night_constraints(
             for fi in restricted_fellows:
                 if xn[d][fi] != 0:
                     opb.add_unit(-xn[d][fi])
+
+    # Night requires weekly shift for fellows without full_assignment (NH)
+    # TODO: re-enable once feasibility with workbook is resolved
+    # Currently disabled to avoid over-constraining NH night call
 
     # Night policy criteria (soft/hard depending on config)
     opb.add_comment("Night: policy criteria (anaesthesia, clinic, stroke, sunday_following)")
@@ -1878,6 +1894,158 @@ def _encode_weekend_night_linking(
                         "weekend_night_sunday", frozenset(),
                         _SoftWeightProxy(weight), soft_violations,
                     )
+
+
+def _encode_weekend_prerequisites(
+    opb: OpbBuilder,
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]] | None = None,
+) -> None:
+    """Require prior weekday service before weekend role assignment.
+
+    weekend_stroke_prerequisite: wr[w][STROKE][f] <= sum(xs[f][w'][stroke] for w' < w)
+    weekend_ncc_prerequisite: wr[w][NCC][f] <= sum(xs[f][w'][ncc1]+xs[f][w'][ncc2] for w' < w)
+    """
+    num_weeks = config.num_weeks
+    stroke_si = shift_idx.get("Stroke")
+    ncc1_si = shift_idx.get("NCC1")
+    ncc2_si = shift_idx.get("NCC2")
+
+    for rule in config.call_rules:
+        if not rule.get("active", True):
+            continue
+        rule_type = rule.get("type")
+
+        if rule_type == "weekend_stroke_prerequisite":
+            if stroke_si is None:
+                continue
+            exempt = set(rule.get("exempt_fellows", []))
+            exempt_groups = rule.get("exempt_groups", [])
+            for g in exempt_groups:
+                exempt.update(config.fellow_groups.get(g, []))
+            for fi, name in enumerate(fellow_names):
+                if name in exempt:
+                    continue
+                for w in range(num_weeks):
+                    if fi not in wr[w][_ROLE_STROKE]:
+                        continue
+                    prior_stroke = [xs[fi][wp][stroke_si] for wp in range(w)
+                                    if xs[fi][wp][stroke_si] != 0]
+                    if not prior_stroke:
+                        if soft_violations is not None:
+                            v = opb.new_var()
+                            opb.at_most_k([wr[w][_ROLE_STROKE][fi], v], 1)
+                            soft_violations.append((v, config.weekly_soft_weight))
+                        else:
+                            opb.add_unit(-wr[w][_ROLE_STROKE][fi])
+                    else:
+                        # wr[w][STROKE][f] <= sum(prior_stroke)
+                        opb.weighted_sum_at_least(
+                            [(v, 1) for v in prior_stroke] + [(-wr[w][_ROLE_STROKE][fi], 1)],
+                            0,
+                        )
+
+        elif rule_type == "weekend_ncc_prerequisite":
+            if ncc1_si is None and ncc2_si is None:
+                continue
+            exempt = set(rule.get("exempt_fellows", []))
+            exempt_groups = rule.get("exempt_groups", [])
+            for g in exempt_groups:
+                exempt.update(config.fellow_groups.get(g, []))
+            for fi, name in enumerate(fellow_names):
+                if name in exempt:
+                    continue
+                for w in range(num_weeks):
+                    for role_idx in (_ROLE_NCC1, _ROLE_NCC2):
+                        if fi not in wr[w][role_idx]:
+                            continue
+                        prior_ncc = []
+                        for wp in range(w):
+                            if ncc1_si is not None and xs[fi][wp][ncc1_si] != 0:
+                                prior_ncc.append(xs[fi][wp][ncc1_si])
+                            if ncc2_si is not None and xs[fi][wp][ncc2_si] != 0:
+                                prior_ncc.append(xs[fi][wp][ncc2_si])
+                        if not prior_ncc:
+                            if soft_violations is not None:
+                                v = opb.new_var()
+                                opb.at_most_k([wr[w][role_idx][fi], v], 1)
+                                soft_violations.append((v, config.weekly_soft_weight))
+                            else:
+                                opb.add_unit(-wr[w][role_idx][fi])
+                        else:
+                            opb.weighted_sum_at_least(
+                                [(v, 1) for v in prior_ncc] + [(-wr[w][role_idx][fi], 1)],
+                                0,
+                            )
+
+
+def _encode_dual_stroke_window(
+    opb: OpbBuilder,
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]] | None = None,
+) -> None:
+    """Encode dual-Stroke window: allow 2 fellows on Stroke in a week range.
+
+    Within the window: at_most 2 total, at_most 1 non-supervisor.
+    Outside the window: at_most 1 total.
+    Weeks where locked fellows already exceed the cap are softened.
+    """
+    num_weeks = config.num_weeks
+    stroke_si = shift_idx.get("Stroke")
+    if stroke_si is None:
+        return
+
+    for rule in config.call_rules:
+        if not rule.get("active", True):
+            continue
+        if rule.get("type") != "dual_stroke_window":
+            continue
+
+        window = rule.get("window", [0, 0])
+        w_start, w_end = window[0], window[1]
+        supervisors = set(rule.get("supervisors", []))
+
+        supervisor_indices = {fi for fi, name in enumerate(fellow_names) if name in supervisors}
+        non_supervisor_indices = {fi for fi in range(len(fellow_names)) if fi not in supervisor_indices}
+
+        locked_stroke_per_week: dict[int, int] = {}
+        if config.locked_assignments:
+            for fellow_name, weekly_shifts in config.locked_assignments.items():
+                for w, s in enumerate(weekly_shifts):
+                    if s == "Stroke":
+                        locked_stroke_per_week[w] = locked_stroke_per_week.get(w, 0) + 1
+
+        weight = config.weekly_soft_weight
+
+        for w in range(num_weeks):
+            locked_here = locked_stroke_per_week.get(w, 0)
+            sup_vars = [xs[fi][w][stroke_si] for fi in supervisor_indices
+                        if xs[fi][w][stroke_si] != 0]
+            non_sup_vars = [xs[fi][w][stroke_si] for fi in non_supervisor_indices
+                           if xs[fi][w][stroke_si] != 0]
+            all_stroke_vars = sup_vars + non_sup_vars
+            if not all_stroke_vars:
+                continue
+
+            if locked_here >= 1:
+                continue
+
+            if w_start <= w < w_end:
+                # Window: at most 1 supervisor, at most 1 non-supervisor
+                if sup_vars:
+                    opb.at_most_k(sup_vars, 1)
+                if non_sup_vars:
+                    opb.at_most_k(non_sup_vars, 1)
+            else:
+                # Outside window: at most 1 total
+                opb.at_most_k(all_stroke_vars, 1)
 
 
 class _SoftWeightProxy:
@@ -2262,6 +2430,9 @@ def _encode_call_rules(
     wr: list[list[dict[int, int]]],
     config: ScheduleSolverConfig,
     fellow_names: list[str],
+    xs: list[list[list[int]]] | None = None,
+    shift_idx: dict[str, int] | None = None,
+    soft_violations: list[tuple[int, int]] | None = None,
 ) -> None:
     """Encode annual call rules (night/weekend pin/block assignments).
 
@@ -2273,10 +2444,58 @@ def _encode_call_rules(
     num_weeks = config.num_weeks
     horizon_start = config.night_config.horizon_start_date
 
+    _NON_FELLOW_TYPES = {"group_night_requirement", "weekend_stroke_prerequisite",
+                         "weekend_ncc_prerequisite", "dual_stroke_window"}
+
     for rule in config.call_rules:
         if not rule.get("active", True):
             continue
         rule_type = rule.get("type")
+
+        # --- Non-fellow-specific rule types ---
+        if rule_type == "group_night_requirement":
+            allowed_groups = rule.get("groups", [])
+            allowed_fellows: set[str] = set()
+            for g in allowed_groups:
+                allowed_fellows.update(config.fellow_groups.get(g, []))
+            for date_str in rule.get("dates", []):
+                d = _date_to_day_index(date_str, horizon_start)
+                if d < 0 or d >= num_days:
+                    continue
+                for fi, name in enumerate(fellow_names):
+                    if name not in allowed_fellows and xn[d][fi] != 0:
+                        opb.add_unit(-xn[d][fi])
+            continue
+
+        if rule_type == "per_fellow_shift_total":
+            if xs is None or shift_idx is None or soft_violations is None:
+                continue
+            fellow_name = rule.get("fellow")
+            if fellow_name not in fellow_names:
+                continue
+            fi = fellow_names.index(fellow_name)
+            shifts_list = rule.get("shifts", [])
+            s_indices = [shift_idx[s] for s in shifts_list if s in shift_idx]
+            relation = rule.get("relation", "exactly")
+            count = rule.get("count", 0)
+            is_soft = rule.get("strength", "hard") == "soft"
+            weight = config.weekly_soft_weight
+            fellow_vars = []
+            for w in range(num_weeks):
+                for si in s_indices:
+                    if xs[fi][w][si] != 0:
+                        fellow_vars.append(xs[fi][w][si])
+            if fellow_vars:
+                _add_cardinality_constraint(
+                    opb, fellow_vars, relation, count,
+                    is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+                )
+            continue
+
+        if rule_type in _NON_FELLOW_TYPES:
+            continue
+
+        # --- Fellow-specific rule types ---
         fellow_name = rule.get("fellow")
         if fellow_name not in fellow_names:
             continue
@@ -2328,6 +2547,7 @@ def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
     is_soft = constraint.strength == ConstraintStrength.SOFT
     weight = kw["config"].weekly_soft_weight
     soft_violations = kw["soft_violations"]
+    locked_fellow_indices = kw.get("locked_fellow_indices", frozenset())
 
     relation = constraint.params["relation"]
     count = constraint.params["count"]
@@ -2349,9 +2569,10 @@ def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
         if not all_vars:
             continue
 
+        fellow_is_soft = is_soft or f in locked_fellow_indices
         _add_cardinality_constraint(
             opb, all_vars, relation, count,
-            is_soft=is_soft, weight=weight, soft_violations=soft_violations,
+            is_soft=fellow_is_soft, weight=weight, soft_violations=soft_violations,
         )
 
 
@@ -2395,7 +2616,7 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
         if not week_vars:
             continue
 
-        # Soften weeks where locked fellows already fill or exceed the cap
+        # Soften only weeks where locked fellows already fill/exceed the cap
         week_is_soft = is_soft
         if not week_is_soft and locked_count_per_week is not None:
             if locked_count_per_week.get(w, 0) >= count:
