@@ -303,6 +303,51 @@ Constraints NOT in this set are **ALWAYS enforced** regardless of locked status:
 
 ---
 
+## 9. The rhs=0 Tautology in One-Directional Implications
+
+### What happened
+
+An implication `indicator -> OR(vars)` (equivalently `indicator <= sum(vars)`)
+was repeatedly encoded as:
+
+```python
+opb.weighted_sum_at_least([(v, 1) for v in vars] + [(-indicator, 1)], 0)
+```
+
+A negated literal `-indicator` becomes `~x = 1 - indicator` in OPB, so this is
+`sum(vars) + (1 - indicator) >= 0` — **always true. A tautology that encodes
+nothing.** The constraint silently does not exist.
+
+The correct encoding has **rhs = 1**:
+`sum(vars) + (1 - indicator) >= 1` ⟺ `sum(vars) >= indicator`.
+
+### Why it was dangerous
+
+- **Unpaired implications became no-ops.** The weekend Stroke eligibility gate
+  (NCC_SR/NH only eligible when on Stroke/Telestroke) and the holiday night
+  eligibility gate (`night -> NCC1/NCC2/Stroke`) were tautologies — the
+  restrictions were never enforced. This silently inflated the feasible set and
+  made every UNSAT diagnosis untrustworthy.
+- **Paired OR-indicators (with a forcing `indicator >= each var`) were usually
+  harmless** because the solver drives the indicator the "safe" way for the
+  downstream constraint — BUT not always: an indicator feeding an `at_least`
+  coverage target can be spuriously set to 1, satisfying coverage without real
+  coverage.
+
+### How to avoid it
+
+- An OR-indicator needs BOTH directions: `indicator >= each var` (rhs=1, forcing)
+  AND `indicator <= sum(vars)` (rhs=1, the `... + [(-indicator, 1)], 1` form).
+- **Any `weighted_sum_at_least([...] + [(-x, 1)], 0)` is suspect** — grep for it.
+  A negated literal with rhs=0 is a tautology unless there are other negative
+  terms. `night/service blocking` correctly uses `at_most_k([shift, night], 1)`
+  instead — prefer that pattern for "A and B can't both be true."
+- The Phase-1a verification harness (`tests/test_constraint_semantics.py`) is
+  the durable guard: every eligibility/coupling gate has an `assert_forbids`
+  test that fails loudly if the gate goes tautological again.
+
+---
+
 ## Quick Diagnostic Flowchart
 
 ```
