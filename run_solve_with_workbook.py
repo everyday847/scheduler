@@ -48,14 +48,26 @@ def load_config_with_workbook():
                 mapped.append(SHIFT_MAP.get(s, s) if s else "")
             locked[name] = mapped
         print(f"Locked {len(locked)} fellows from workbook (NCC + CCM)")
-    # Add STROKE/NH sparse locks from annual config
-    stroke_nh_locks = annual.get("locked_assignments", {})
+    annual["locked_assignments"] = locked
+
+    # STROKE/NH specific-week assignments become specific_assignment rules
+    specific_locks = annual.get("locked_assignments", {})
     for group in ("STROKE", "NH"):
         for name in annual.get("fellow_groups", {}).get(group, []):
-            if name in stroke_nh_locks:
-                locked[name] = stroke_nh_locks[name]
-
-    annual["locked_assignments"] = locked
+            if name not in specific_locks or name in locked:
+                continue
+            for w, shift in enumerate(specific_locks[name]):
+                if shift:
+                    annual.setdefault("rules", []).append({
+                        "type": "specific_assignment",
+                        "name": f"{name} w{w} {shift}",
+                        "fellow": name,
+                        "week": w,
+                        "shift": shift,
+                        "strength": "hard",
+                        "active": True,
+                        "groups": [],
+                    })
     config = build_solver_config_from_request(annual, standing_path=STANDING)
     return config
 

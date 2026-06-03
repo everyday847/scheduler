@@ -197,13 +197,24 @@ def _build_palette_constraints(
                 hard_request_count=rule.get("hard_request_count", 3),
             ))
             continue
+        if rule.get("type") == "specific_assignment" and rule.get("fellow"):
+            from .annual_rules import named_assignment
+            constraints.append(named_assignment(
+                rule["fellow"],
+                week=rule["week"],
+                shift=rule["shift"],
+                hard=rule.get("strength", "hard") == "hard",
+                params={"name": rule.get("name", "specific_assignment")},
+            ))
+            continue
         constraints.extend(palette_rule_to_constraints(
             rule, lifecycle=ConstraintLifecycle.ANNUAL_RULE,
         ))
 
-    # Derive forbidden shifts from shift_total rules
+    # Derive forbidden shifts from shift_total rules (+ per_fellow call_rules)
     all_rules = standing_config.get("rules", []) + annual_rules
-    constraints.extend(derive_forbidden_shifts(all_rules, shifts, fellow_groups))
+    constraints.extend(derive_forbidden_shifts(all_rules, shifts, fellow_groups,
+                                               call_rules=request.get("call_rules", [])))
 
     return constraints
 

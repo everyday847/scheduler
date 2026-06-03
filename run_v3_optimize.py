@@ -59,10 +59,26 @@ def load_config():
             locked[name] = [SHIFT_MAP.get(s, s) if s else "" for s in shifts]
         print(f"Locked {len(locked)} fellows from workbook (NCC + CCM)")
 
-    for name in annual["fellow_groups"]["STROKE"] + annual["fellow_groups"]["NH"]:
-        if name in annual.get("locked_assignments", {}):
-            locked[name] = annual["locked_assignments"][name]
     annual["locked_assignments"] = locked
+
+    # STROKE/NH specific-week assignments become hard specific_assignment rules,
+    # NOT locked_assignments. They are fellows we schedule, not imported schedules.
+    specific_locks = annual.pop("locked_assignments_internal", annual.get("locked_assignments", {}))
+    for name in annual["fellow_groups"]["STROKE"] + annual["fellow_groups"]["NH"]:
+        if name not in specific_locks or name in locked:
+            continue
+        for w, shift in enumerate(specific_locks[name]):
+            if shift:
+                annual.setdefault("rules", []).append({
+                    "type": "specific_assignment",
+                    "name": f"{name} w{w} {shift}",
+                    "fellow": name,
+                    "week": w,
+                    "shift": shift,
+                    "strength": "hard",
+                    "active": True,
+                    "groups": [],
+                })
 
     config = build_solver_config_from_request(annual, standing_path=STANDING)
     return config, annual
