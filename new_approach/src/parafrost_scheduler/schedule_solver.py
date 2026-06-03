@@ -516,10 +516,9 @@ def _encode_ncc_coverage(opb, xs, constraint, fellow_indices, **kw):
             swing_vars_w = [xs[f][w][s_swing] for f in fellow_indices if xs[f][w][s_swing] != 0]
             if swing_vars_w:
                 covered = opb.new_var()
-                # covered=1 iff any fellow on swing: covered <= sum(swing), covered + ~all >= 1
-                # Forward: sum(swing) >= covered
+                # covered <= sum(swing): sum(swing) + (1 - covered) >= 1
                 opb.weighted_sum_at_least(
-                    [(v, 1) for v in swing_vars_w] + [(-covered, 1)], 0
+                    [(v, 1) for v in swing_vars_w] + [(-covered, 1)], 1
                 )
                 # Backward: covered >= 1 - (N-1)*(1 - any_swing)... complex
                 # Simpler: covered + sum(~swing) >= 1 if only 1 swing var... but multiple
@@ -615,9 +614,9 @@ def _encode_max_consecutive(opb, xs, constraint, fellow_indices, **kw):
                     # aux >= each: aux + ~shift_i >= 1
                     for sv in week_shift_vars:
                         opb.weighted_sum_at_least([(aux, 1), (-sv, 1)], 1)
-                    # aux <= sum(shifts): sum(shifts) - aux >= 0
+                    # aux <= sum(shifts): sum(shifts) + (1 - aux) >= 1
                     opb.weighted_sum_at_least(
-                        [(v, 1) for v in week_shift_vars] + [(-aux, 1)], 0
+                        [(v, 1) for v in week_shift_vars] + [(-aux, 1)], 1
                     )
                     in_set_vars.append(aux)
 
@@ -965,8 +964,9 @@ def _encode_service_profile(opb, xs, constraint, fellow_indices, **kw):
                 trigger = opb.new_var()
                 for tv in trigger_vars:
                     opb.weighted_sum_at_least([(trigger, 1), (-tv, 1)], 1)
+                # trigger <= sum(trigger_vars): sum + (1 - trigger) >= 1
                 opb.weighted_sum_at_least(
-                    [(v, 1) for v in trigger_vars] + [(-trigger, 1)], 0
+                    [(v, 1) for v in trigger_vars] + [(-trigger, 1)], 1
                 )
 
                 # If trigger=1, enforce count constraints
@@ -1324,7 +1324,8 @@ def _encode_weekend_constraints(
                 aux = opb.new_var()
                 for rv in roles_for_f:
                     opb.weighted_sum_at_least([(aux, 1), (-rv, 1)], 1)
-                opb.weighted_sum_at_least([(v, 1) for v in roles_for_f] + [(-aux, 1)], 0)
+                # aux <= sum(roles): sum(roles) + (1 - aux) >= 1
+                opb.weighted_sum_at_least([(v, 1) for v in roles_for_f] + [(-aux, 1)], 1)
                 work_vars.append((w, aux))
 
         # No two consecutive (soft — distribution constraint)
@@ -1582,9 +1583,9 @@ def _encode_night_constraints(
                 holiday_shifts = [shift_idx[s] for s in HOLIDAY_ELIGIBLE_SHIFTS if s in shift_idx]
                 eligible_vars = [xs[f][week_idx][si] for si in holiday_shifts if xs[f][week_idx][si] != 0]
                 if eligible_vars:
-                    # xn[d][f] → OR(eligible_shifts)
+                    # xn[d][f] -> OR(eligible): sum(eligible) + (1 - xn) >= 1
                     opb.weighted_sum_at_least(
-                        [(v, 1) for v in eligible_vars] + [(-xn[d][f], 1)], 0
+                        [(v, 1) for v in eligible_vars] + [(-xn[d][f], 1)], 1
                     )
                 else:
                     opb.add_unit(-xn[d][f])
@@ -1864,8 +1865,9 @@ def _encode_night_policy_criteria(
                 non_pref_var = opb.new_var()
                 for npv in next_week_non_pref:
                     opb.weighted_sum_at_least([(non_pref_var, 1), (-npv, 1)], 1)
+                # non_pref <= sum(non_pref shifts): sum + (1 - non_pref) >= 1
                 opb.weighted_sum_at_least(
-                    [(v, 1) for v in next_week_non_pref] + [(-non_pref_var, 1)], 0
+                    [(v, 1) for v in next_week_non_pref] + [(-non_pref_var, 1)], 1
                 )
             _encode_night_criterion_pair(
                 opb, non_pref_var, xn[sunday_d][f],
@@ -2733,8 +2735,9 @@ def _encode_coverage_target(opb, xs, constraint, fellow_indices, **kw):
             covered = opb.new_var()
             for wv in week_vars:
                 opb.weighted_sum_at_least([(covered, 1), (-wv, 1)], 1)
+            # covered <= sum(week_vars): sum + (1 - covered) >= 1
             opb.weighted_sum_at_least(
-                [(v, 1) for v in week_vars] + [(-covered, 1)], 0
+                [(v, 1) for v in week_vars] + [(-covered, 1)], 1
             )
             covered_vars.append(covered)
 
