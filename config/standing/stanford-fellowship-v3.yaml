@@ -1,0 +1,278 @@
+# Standing Rules — palette format (v2)
+#
+# These are inter-program commitments and structural invariants that
+# rarely change. They define how the fellowship program works, not how
+# a particular year is configured.
+
+rules:
+
+  - name: Full Assignment for NCC/Stroke
+    description: "Every NCC and Stroke fellow must be assigned exactly one service every week. We are responsible for their schedules."
+    type: full_assignment
+    groups: [NCC_JR, NCC_SR, STROKE]
+    strength: hard
+    active: true
+
+  - name: NCC1 Coverage
+    description: "The NCC1 team must be staffed every week. At least one fellow is always on NCC1."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1]
+    relation: at_least
+    count: 1
+    strength: soft
+    active: true
+
+  - name: NCC1 Cap
+    description: "No more than 2 fellows on NCC1 in any week (service can't support more)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: NCC2 Coverage
+    description: "The NCC2 team must be staffed every week. At least one fellow is always on NCC2."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC2]
+    relation: at_least
+    count: 1
+    strength: soft
+    active: true
+
+  - name: NCC2 Cap
+    description: "No more than 2 fellows on NCC2 in any week."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC2]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: NCC Team Cap
+    description: "Total NCC team (NCC1 + NCC2) can't exceed 3 fellows. The service doesn't have enough patients for more."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1, NCC2]
+    relation: at_most
+    count: 3
+    strength: hard
+    active: true
+
+  - name: NCC+Swing Cap
+    description: "NCC1 + NCC2 + Swing combined can't exceed 4 fellows in any week."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1, NCC2, Swing]
+    relation: at_most
+    count: 4
+    strength: hard
+    active: true
+
+  - name: Swing Cap
+    description: "At most 1 fellow on Swing per week (it's a single-person role)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [Swing]
+    relation: at_most
+    count: 1
+    strength: hard
+    active: true
+
+  - name: MICU 4-Week Blocks
+    description: "MICU rotations come in 4-week blocks. Coordinated with the MICU program — can't split."
+    type: block_rotation
+    groups: [NCC_JR, NCC_SR]
+    shifts: [MICU]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: SICU 4-Week Blocks
+    description: "SICU rotations come in 4-week blocks. Coordinated with the surgical ICU program."
+    type: block_rotation
+    groups: [NCC_JR]
+    shifts: [SICU]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: Anaesthesia 4-Week Blocks
+    description: "Anaesthesia rotations come in 4-week blocks. Coordinated with the anaesthesia fellowship — we would sacrifice a lot before breaking this."
+    type: block_rotation
+    groups: [NCC_JR]
+    shifts: [Anaesthesia]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: NS 2-Week Blocks
+    description: "Neurosurgery rotations come in 2-week blocks. Coordinated with the NS team."
+    type: block_rotation
+    groups: [NCC_SR]
+    shifts: [NS]
+    block_size: 2
+    strength: hard
+    active: true
+
+  - name: NCC/Stroke Oversight
+    description: "At least one NCC fellow (junior, senior, or stroke) must be on NCC1 or NCC2 each week. Ensures experienced oversight of the NCC service."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 1
+    strength: soft
+    active: true
+
+  - name: Stroke Service Coverage
+    description: "At least one fellow covers the inpatient Stroke service each week. Must always be staffed."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Stroke]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: Telestroke Coverage
+    description: "At least one fellow on Telestroke/Clinic each week. Required for telestroke call coverage."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Telestroke/Clinic]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: "Stroke: No NCC in First Block"
+    description: "Stroke fellows don't start on NCC in their first 4 weeks. They need orientation to the stroke service first."
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NCC1, NCC2, Swing]
+    relation: exactly
+    count: 0
+    window: [0, 4]
+    strength: soft
+    active: true
+
+  - name: NCC Junior Orientation MICU
+    description: "NCC juniors spend their first 4 weeks on MICU. This is the orientation block before any NCC service."
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [MICU]
+    relation: exactly
+    count: 4
+    window: [0, 4]
+    strength: hard
+    active: true
+
+  - name: NCC Junior Early NCC Exposure
+    description: "NCC juniors must get at least 1 week of NCC between weeks 5-19 (after orientation, before mid-year)."
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 1
+    window: [4, 19]
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: NCC Before Swing"
+    description: "NCC juniors must complete 4 weeks of NCC1/NCC2 before they can do Swing. They need to learn the service before taking the more independent swing role."
+    type: prerequisite
+    groups: [NCC_JR]
+    prerequisite_shifts: [NCC1, NCC2]
+    target_shifts: [Swing]
+    min_prerequisite_weeks: 4
+    strength: hard
+    active: true
+
+night_rules:
+  - name: Night spacing
+    type: night_spacing
+    description: "Max 1 night in any 3-consecutive-day window"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    max_nights: 1
+    window_days: 3
+    active: true
+
+  - name: Night blocked services
+    type: night_blocked_services
+    description: "Weekday services that preclude night call"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    exact_services: [Vacation, "NS SCVMC", "AAN", "Elective/NCS 2026"]
+    substring_services: [SICU, MSICU]
+    active: true
+
+  - name: Holiday eligibility
+    type: night_holiday_eligibility
+    description: "Only NCC1/NCC2/Stroke fellows can do night call on holidays"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    allowed_services: [NCC1, NCC2, Stroke]
+    active: true
+
+  - name: Night soft penalties
+    type: night_penalties
+    description: "Weights for undesirable night call patterns"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      stroke: 5
+      friday_weekend_ncc1: 1
+      sunday_following: 1
+    active: true
+
+  - name: Sunday following preference
+    type: night_sunday_following
+    description: "Preferred weekday service after Sunday night call"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    preferred_services:
+      - Elec
+      - Telestroke/Clinic
+      - Clinic/Elective
+      - SCVMC Rehab
+      - NIR
+      - ISC
+      - Vac
+    active: true
+
+weekend_rules:
+  - name: Weekend spacing
+    type: weekend_spacing
+    description: "Max 1 weekend in any 2-consecutive-week window"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    max_weekends: 1
+    window_weeks: 2
+    active: true
+
+  - name: Weekend blocked services
+    type: weekend_blocked_services
+    description: "Weekday services that preclude weekend call"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    exact_services: [Vacation, "Elective/NCS 2026"]
+    substring_services: [SICU, MSICU]
+    active: true
+
+  - name: Weekend Stroke eligibility
+    type: weekend_stroke_eligibility
+    description: "Which services make a fellow eligible for Weekend Stroke"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    eligible_services: [Stroke, Telestroke/Clinic]
+    active: true
+
+  - name: Weekend soft penalties
+    type: weekend_penalties
+    description: "Weights for undesirable weekend call patterns"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      stroke: 5
+      friday_weekend_ncc1: 1
+    active: true

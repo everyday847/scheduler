@@ -61,7 +61,8 @@ from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 # Configuration
 # ---------------------------------------------------------------------------
 
-NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "Vac", "NS", "SCVMC Rehab"})
+NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "Vac", "NS", "SCVMC Rehab"})
+NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac"})
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 CLINIC_SHIFTS = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
 STROKE_SHIFTS = frozenset({"Stroke"})
@@ -1242,12 +1243,16 @@ def _encode_weekend_constraints(
     num_fellows = len(fellow_names)
     wk_config = config.weekend_config
 
-    opb.add_comment("Weekend: exactly one fellow per role per week")
+    opb.add_comment("Weekend: one fellow per role per week (soft — diagnostic)")
     for w in range(num_weeks):
         for role_idx in range(3):
             role_vars = list(wr[w][role_idx].values())
             if role_vars:
-                opb.exactly_one(role_vars)
+                _add_cardinality_constraint(
+                    opb, role_vars, "exactly", 1,
+                    is_soft=True, weight=config.weekly_soft_weight,
+                    soft_violations=soft_violations,
+                )
 
     # All-different: no fellow fills two weekend roles in same week
     opb.add_comment("Weekend: distinct assignments per week")
@@ -1528,19 +1533,24 @@ def _encode_night_constraints(
 
     holiday_set = set(holiday_indices_for_config(night_config))
 
-    # Exactly one fellow per night
-    opb.add_comment("Night: exactly one fellow per night")
+    # One fellow per night (soft — diagnostic; same encoding interaction as weekends)
+    opb.add_comment("Night: one fellow per night (soft — diagnostic)")
     for d in range(num_days):
         active = [xn[d][f] for f in range(num_fellows) if xn[d][f] != 0]
         if active:
-            opb.exactly_one(active)
+            _add_cardinality_constraint(
+                opb, active, "exactly", 1,
+                is_soft=True, weight=config.weekly_soft_weight,
+                soft_violations=soft_violations,
+            )
 
     # Night blocking based on weekly shift (dynamic)
     # Vacation blocks ALL 7 nights; other blocked services only block Sun-Thu
     # (nights where the fellow works the next morning).
     opb.add_comment("Night: service-based blocking (vacation = all nights)")
     vac_idx = shift_idx.get("Vac")
-    non_vac_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx and s != "Vac"]
+    all_week_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_ALL_WEEK if s in shift_idx]
+    weekday_only_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx and s not in NIGHT_BLOCKED_ALL_WEEK]
     s_isc = shift_idx.get("ISC")
 
     for d in range(num_days):
@@ -1551,13 +1561,14 @@ def _encode_night_constraints(
             if xn[d][f] == 0:
                 continue
 
-            # Vacation blocks all nights of the vacation week
-            if vac_idx is not None and xs[f][week_idx][vac_idx] != 0:
-                opb.at_most_k([xs[f][week_idx][vac_idx], xn[d][f]], 1)
+            # MICU/SICU/Vac block ALL 7 nights of the week
+            for si in all_week_blocked:
+                if xs[f][week_idx][si] != 0:
+                    opb.at_most_k([xs[f][week_idx][si], xn[d][f]], 1)
 
             # Other blocked services: only Sun-Thu nights (next morning is a workday)
             if dow not in (4, 5):  # Skip Fri/Sat nights
-                for si in non_vac_blocked:
+                for si in weekday_only_blocked:
                     if xs[f][next_day_week][si] != 0:
                         opb.at_most_k([xs[f][next_day_week][si], xn[d][f]], 1)
 

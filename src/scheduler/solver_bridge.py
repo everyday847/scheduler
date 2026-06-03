@@ -343,6 +343,13 @@ def _build_weekend_config(
     weekend_rules_config = _apply_weekend_rules(request)
     _validate_weekend_config(weekend_rules_config)
 
+    # STROKE group fellows are always eligible for Weekend Stroke (they're
+    # Stroke specialists). Other fellows with stroke_totals (NCC_SR, NH) are
+    # only eligible when on weekday Stroke or Telestroke that week.
+    stroke_group = set(fellow_groups.get("STROKE", []))
+    always_eligible = stroke_eligible & stroke_group
+    conditionally_eligible = stroke_eligible - stroke_group
+
     return WeekendSolverConfig(
         ncc_totals=ncc_totals or None,
         stroke_totals=stroke_totals or None,
@@ -351,8 +358,8 @@ def _build_weekend_config(
         stroke_cohort_min=0,
         stroke_cohort_max=52,
         ccm_fellows=frozenset(fellow_groups.get("CCM", [])),
-        always_stroke_eligible=frozenset(stroke_eligible),
-        telestroke_stroke_eligible=frozenset(),
+        always_stroke_eligible=frozenset(always_eligible),
+        telestroke_stroke_eligible=frozenset(conditionally_eligible),
         stroke_only_eligible=frozenset(),
         **weekend_rules_config,
     )
