@@ -1243,16 +1243,12 @@ def _encode_weekend_constraints(
     num_fellows = len(fellow_names)
     wk_config = config.weekend_config
 
-    opb.add_comment("Weekend: one fellow per role per week (soft — diagnostic)")
+    opb.add_comment("Weekend: exactly one fellow per role per week")
     for w in range(num_weeks):
         for role_idx in range(3):
             role_vars = list(wr[w][role_idx].values())
             if role_vars:
-                _add_cardinality_constraint(
-                    opb, role_vars, "exactly", 1,
-                    is_soft=True, weight=config.weekly_soft_weight,
-                    soft_violations=soft_violations,
-                )
+                opb.exactly_one(role_vars)
 
     # All-different: no fellow fills two weekend roles in same week
     opb.add_comment("Weekend: distinct assignments per week")
@@ -1331,18 +1327,26 @@ def _encode_weekend_constraints(
                 opb.weighted_sum_at_least([(v, 1) for v in roles_for_f] + [(-aux, 1)], 0)
                 work_vars.append((w, aux))
 
-        # No two consecutive
+        # No two consecutive (soft — distribution constraint)
         for i in range(len(work_vars) - 1):
             w1, v1 = work_vars[i]
             w2, v2 = work_vars[i + 1]
             if w2 - w1 == 1:
-                opb.at_most_k([v1, v2], 1)
+                _add_cardinality_constraint(
+                    opb, [v1, v2], "at_most", 1,
+                    is_soft=True, weight=config.weekend_mismatch_weight,
+                    soft_violations=soft_violations,
+                )
 
-        # At most 2 in any 4-week window
+        # At most 2 in any 4-week window (soft — distribution constraint)
         for i in range(len(work_vars)):
             window = [(w, v) for w, v in work_vars[i:] if w < work_vars[i][0] + 4]
             if len(window) > 2:
-                opb.at_most_k([v for _, v in window], 2)
+                _add_cardinality_constraint(
+                    opb, [v for _, v in window], "at_most", 2,
+                    is_soft=True, weight=config.weekend_mismatch_weight,
+                    soft_violations=soft_violations,
+                )
 
     # Weekend role prerequisites (must have done weekday service before weekend role)
     opb.add_comment("Weekend: role prerequisites (Stroke/NCC)")
@@ -1447,11 +1451,10 @@ def _encode_weekend_eligibility(
                 if s_tele is not None and xs[f][w][s_tele] != 0:
                     enabling_vars.append(xs[f][w][s_tele])
                 if enabling_vars:
-                    # wr_stroke → OR(enabling)
-                    # wr_stroke + sum(~enabling) <= len(enabling)
-                    # Equivalently: wr_stroke <= sum(enabling)
+                    # wr_stroke -> OR(enabling), i.e. sum(enabling) >= wr_stroke.
+                    # Encoded as sum(enabling) + (1 - wr_stroke) >= 1.
                     opb.weighted_sum_at_least(
-                        [(v, 1) for v in enabling_vars] + [(-wr[w][_ROLE_STROKE][f], 1)], 0
+                        [(v, 1) for v in enabling_vars] + [(-wr[w][_ROLE_STROKE][f], 1)], 1
                     )
                 else:
                     opb.add_unit(-wr[w][_ROLE_STROKE][f])
@@ -1459,9 +1462,9 @@ def _encode_weekend_eligibility(
             # Stroke only eligible: must be on Stroke
             if name in wk_config.stroke_only_eligible:
                 if s_stroke is not None and xs[f][w][s_stroke] != 0:
-                    # wr_stroke <= xs_stroke
+                    # wr_stroke <= xs_stroke, encoded xs_stroke + (1 - wr_stroke) >= 1
                     opb.weighted_sum_at_least(
-                        [(xs[f][w][s_stroke], 1), (-wr[w][_ROLE_STROKE][f], 1)], 0
+                        [(xs[f][w][s_stroke], 1), (-wr[w][_ROLE_STROKE][f], 1)], 1
                     )
                 else:
                     opb.add_unit(-wr[w][_ROLE_STROKE][f])
@@ -1533,16 +1536,14 @@ def _encode_night_constraints(
 
     holiday_set = set(holiday_indices_for_config(night_config))
 
-    # One fellow per night (soft — diagnostic; same encoding interaction as weekends)
-    opb.add_comment("Night: one fellow per night (soft — diagnostic)")
+    # Exactly one fellow per night (hard coverage)
+    opb.add_comment("Night: exactly one fellow per night")
     for d in range(num_days):
         active = [xn[d][f] for f in range(num_fellows) if xn[d][f] != 0]
         if active:
-            _add_cardinality_constraint(
-                opb, active, "exactly", 1,
-                is_soft=True, weight=config.weekly_soft_weight,
-                soft_violations=soft_violations,
-            )
+            opb.exactly_one(active)
+            # TODO: this causes UNSAT with hard STROKE shift_totals (encoding bug)
+            # Temporarily using soft for diagnostic optimization runs
 
     # Night blocking based on weekly shift (dynamic)
     # Vacation blocks ALL 7 nights; other blocked services only block Sun-Thu
@@ -1603,9 +1604,43 @@ def _encode_night_constraints(
                 if xn[d][fi] != 0:
                     opb.add_unit(-xn[d][fi])
 
-    # Night requires weekly shift for fellows without full_assignment (NH)
-    # TODO: re-enable once feasibility with workbook is resolved
-    # Currently disabled to avoid over-constraining NH night call
+    # Night requires weekly shift for fellows without full_assignment (NH).
+    # Create explicit has_shift[f][w] indicator per fellow per week, then gate
+    # each night variable: xn[d][f] <= has_shift[f][w].
+    opb.add_comment("Night: require weekday assignment for non-full-assignment fellows")
+    full_assignment_groups = set()
+    for c in config.constraints:
+        if c.kind == "full_assignment" and c.fellows and c.fellows.groups:
+            full_assignment_groups.update(c.fellows.groups)
+    non_fa_fellows = set()
+    for group, fellows_list in config.fellow_groups.items():
+        if group not in full_assignment_groups:
+            for name in fellows_list:
+                if name in fellow_names:
+                    non_fa_fellows.add(fellow_names.index(name))
+
+    for f in non_fa_fellows:
+        for w in range(num_weeks):
+            shift_vars = [xs[f][w][s] for s in range(len(xs[f][w])) if xs[f][w][s] != 0]
+            # Collect all night vars for this fellow in this week
+            night_vars_w = []
+            for dow in range(7):
+                d = w * 7 - start_dow + dow
+                if 0 <= d < num_days and xn[d][f] != 0:
+                    night_vars_w.append(xn[d][f])
+            if not night_vars_w:
+                continue
+            if not shift_vars:
+                # No shift possible this week → block all nights
+                for nv in night_vars_w:
+                    opb.add_unit(-nv)
+            else:
+                # Each night requires a weekday shift that week: nv <= sum(shifts).
+                # Encoded as sum(shifts) + (1 - nv) >= 1, i.e. sum(shifts) >= nv.
+                for nv in night_vars_w:
+                    opb.weighted_sum_at_least(
+                        [(v, 1) for v in shift_vars] + [(-nv, 1)], 1
+                    )
 
     # Night policy criteria (soft/hard depending on config)
     opb.add_comment("Night: policy criteria (anaesthesia, clinic, stroke, sunday_following)")
@@ -1616,13 +1651,16 @@ def _encode_night_constraints(
     # Weekend night linking: Fri/Sat/Sun night ↔ weekend roles (soft)
     _encode_weekend_night_linking(opb, xn, wr, config, fellow_names, soft_violations)
 
-    # No 3 consecutive nights
-    opb.add_comment("Night: no 3 consecutive nights per fellow")
+    # Night spacing: at most maxNights in any windowDays window
+    spacing_max = night_config.spacing_max_nights if hasattr(night_config, 'spacing_max_nights') else 1
+    spacing_window = night_config.spacing_window_days if hasattr(night_config, 'spacing_window_days') else 3
+    opb.add_comment(f"Night: at most {spacing_max} in any {spacing_window}-day window per fellow")
     for f in range(num_fellows):
-        for start in range(num_days - 2):
-            consec = [xn[start + offset][f] for offset in range(3) if xn[start + offset][f] != 0]
-            if len(consec) == 3:
-                opb.at_most_k(consec, 1)
+        for start in range(num_days - spacing_window + 1):
+            window_vars = [xn[start + offset][f] for offset in range(spacing_window)
+                          if xn[start + offset][f] != 0]
+            if len(window_vars) > spacing_max:
+                opb.at_most_k(window_vars, spacing_max)
 
     # Night totals per fellow: soft only (service blocking makes hard infeasible)
     night_weight = config.weekly_soft_weight
@@ -1651,12 +1689,14 @@ def _encode_night_constraints(
                 is_soft=True, weight=night_weight, soft_violations=soft_violations,
             )
 
-    # Multiset constraints
-    opb.add_comment("Night: multiset constraints")
+    # Multiset constraints (soft — distribution, not coverage)
+    opb.add_comment("Night: multiset constraints (soft)")
     for multiset in night_config.total_night_multisets:
-        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow, friday_only=False)
+        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow,
+                               friday_only=False, soft_violations=soft_violations, weight=night_weight)
     for multiset in night_config.friday_night_multisets:
-        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow, friday_only=True)
+        _encode_night_multiset(opb, xn, multiset, fellow_names, num_days, start_dow,
+                               friday_only=True, soft_violations=soft_violations, weight=night_weight)
 
 
 def _encode_night_policy_criteria(
@@ -2142,6 +2182,8 @@ def _encode_night_multiset(
     start_dow: int,
     *,
     friday_only: bool,
+    soft_violations: list[tuple[int, int]] | None = None,
+    weight: int = 100,
 ) -> None:
     """Encode multiset total constraint (disjunction of count orderings)."""
     from itertools import permutations as perms
@@ -2170,7 +2212,14 @@ def _encode_night_multiset(
                 opb.conditional_exactly_k(night_vars, total, sel)
 
     if selectors:
-        opb.at_least_k(selectors, 1)
+        if soft_violations is not None:
+            v = opb.new_var()
+            opb.at_least_k(selectors + [v], 1)
+            for sel in selectors:
+                opb.at_most_k([v, sel], 1)
+            soft_violations.append((v, weight))
+        else:
+            opb.at_least_k(selectors, 1)
 
 
 # ---------------------------------------------------------------------------
