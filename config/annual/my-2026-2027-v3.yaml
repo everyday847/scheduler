@@ -51,12 +51,30 @@ fellow_week_pairs:
   Alex Hanson: []
   Raya Aliakbar: []
   Joseph Conovaloff: []
-  Jinyuan Liu: [25, 26, 42]
-  Sokena Zaidi: [25, 31, 32]
-  Aditya Srivatsan: [6, 39, 48]
-  Cameron Schmidt: [16, 35, 36]
-  Harneet Dhillon: [17, 34, 49]
-  Helena Xeros: [10, 25, 44]
+  Jinyuan Liu:
+  - 25
+  - 26
+  - 42
+  Sokena Zaidi:
+  - 25
+  - 31
+  - 32
+  Aditya Srivatsan:
+  - 6
+  - 39
+  - 48
+  Cameron Schmidt:
+  - 16
+  - 35
+  - 36
+  Harneet Dhillon:
+  - 17
+  - 34
+  - 49
+  Helena Xeros:
+  - 10
+  - 25
+  - 44
 night_call:
 - friday_nights: 32
   group: STROKE
@@ -101,25 +119,330 @@ num_weeks: 53
 _has_draft: false
 horizon_start: '2026-07-01'
 locked_assignments:
-  Aditya Srivatsan: ['', '', '', '', '', '', '', '', '', '', '', 'Elec/APBN', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'ISC',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
-  Cameron Schmidt: ['', '', '', '', '', '', '', '', '', '', '', 'Elec/APBN', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'ISC',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
-  Helena Xeros: ['', '', '', '', '', '', '', '', '', '', '', 'Elec/APBN', '', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'ISC',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
-  Harneet Dhillon: ['', '', '', '', '', '', '', '', '', '', 'Elec/APBN', '', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
-  Jinyuan Liu: ['Elec', '', '', '', '', '', '', '', '', '', '', '', '', 'NHS', '',
-    '', 'Elec/APBN', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-    '', '', '', '', '', '', '', '', '', '', '', 'AAN', '', '', '', '', '', '', '', '']
-  Sokena Zaidi: ['Elec', '', '', '', '', '', '', '', '', '', '', 'Elec/APBN', '',
-    'NHS', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', 'AAN', '', '', '', '', '', '',
-    '', '']
+  Aditya Srivatsan:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Elec/APBN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Cameron Schmidt:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Elec/APBN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Helena Xeros:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Elec/APBN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Harneet Dhillon:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Elec/APBN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Jinyuan Liu:
+  - Elec
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - NHS
+  - ''
+  - ''
+  - Elec/APBN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - AAN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Sokena Zaidi:
+  - Elec
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - Elec/APBN
+  - ''
+  - NHS
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - AAN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
 night_rules:
 - name: Night spacing
   groups:
@@ -442,7 +765,17 @@ rules:
   - NCC1
   - NCC2
   - Swing
-  strength: hard
+  strength: soft
+  type: shift_total
+- active: true
+  count: 3
+  groups:
+  - NH
+  name: 'NH: Vacation Total'
+  relation: at_least
+  shifts:
+  - Vac
+  strength: soft
   type: shift_total
 - active: true
   count: 3
@@ -640,7 +973,7 @@ rules:
   strength: hard
   type: block_rotation
 - active: true
-  hard_request_count: 0
+  hard_request_count: 3
   name: vacation_requests
   type: vacation_request_policy
 - active: true
@@ -686,7 +1019,7 @@ rules:
   relation: exactly
   shifts:
   - Telestroke/Clinic
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 1
@@ -696,7 +1029,7 @@ rules:
   relation: exactly
   shifts:
   - NHS
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 1
@@ -706,7 +1039,7 @@ rules:
   relation: exactly
   shifts:
   - AAN
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 1
@@ -716,7 +1049,7 @@ rules:
   relation: at_least
   shifts:
   - Elec/APBN
-  strength: hard
+  strength: soft
   type: shift_total
 - active: true
   count: 1
@@ -815,12 +1148,14 @@ call_rules:
   active: true
 - type: dual_stroke_window
   name: Supervised dual Stroke weeks 1-10
-  window: [0, 10]
+  window:
+  - 0
+  - 10
   supervisors:
   - Aditya Srivatsan
   - Cameron Schmidt
   - Harneet Dhillon
-  active: true
+  active: false
 - type: group_night_requirement
   name: NCC night call June 2027
   groups:
