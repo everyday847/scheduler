@@ -2591,12 +2591,22 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
     target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
     s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
 
-    # Precompute locked contribution per week for at_most/exactly checks
+    # Precompute locked contribution per week for at_most/exactly checks.
+    # Only count locked fellows who are in the constraint's target groups (fellow_indices).
     locked_count_per_week: dict[int, int] | None = None
     if not is_soft and config.locked_assignments and relation in ("at_most", "exactly"):
         locked_count_per_week = {}
         target_shift_set = set(target_shifts)
+        fellow_index_set = frozenset(fellow_indices)
+        all_fellow_names = []
+        for g, fellows in config.fellow_groups.items():
+            all_fellow_names.extend(fellows)
         for fellow_name, weekly_shifts in config.locked_assignments.items():
+            if fellow_name not in all_fellow_names:
+                continue
+            fi = all_fellow_names.index(fellow_name)
+            if fi not in fellow_index_set:
+                continue
             for w, shift_name in enumerate(weekly_shifts):
                 if shift_name and shift_name in target_shift_set:
                     locked_count_per_week[w] = locked_count_per_week.get(w, 0) + 1
