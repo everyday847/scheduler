@@ -1474,13 +1474,14 @@ def _encode_weekend_constraints(
                     soft_violations=soft_violations,
                 )
 
-        # At most 2 in any 4-week window (soft — distribution constraint)
+        # At most 2 in any 4-week window (hard — a fellow should never work 3+
+        # weekends within 4 weeks).
         for i in range(len(work_vars)):
             window = [(w, v) for w, v in work_vars[i:] if w < work_vars[i][0] + 4]
             if len(window) > 2:
                 _add_cardinality_constraint(
                     opb, [v for _, v in window], "at_most", 2,
-                    is_soft=True, weight=config.weekend_mismatch_weight,
+                    is_soft=False, weight=config.weekend_mismatch_weight,
                     soft_violations=soft_violations,
                 )
 
