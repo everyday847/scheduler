@@ -32,6 +32,12 @@ from scheduler.night_call_solver_policy import (
     CRITERION_STROKE,
     NightPolicyWeights,
 )
+from scheduler.semantic_constraints import (
+    ConstraintLifecycle,
+    ConstraintStrength,
+    FellowSelector,
+    SemanticConstraint,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +50,16 @@ def _make_config(
     start_dow: int = 0,
     num_days: int = 14,
     night_hard_criteria: frozenset[str] | None = None,
+    full_assignment: bool = False,
 ) -> ScheduleSolverConfig:
-    """Build a minimal ScheduleSolverConfig for testing."""
+    """Build a minimal ScheduleSolverConfig for testing.
+
+    Set full_assignment=True to model NCC/STROKE fellows (who are full_assignment
+    in production): this suppresses the NH night-requires-weekday-shift gate, so
+    blocking/first-week assertions aren't confounded by the gate's
+    ``+1 x{shift} +1 ~x{night} >= 1`` constraint (whose tail substring-matches a
+    bare night unit clause).
+    """
     if fellow_groups is None:
         fellow_groups = {"NCC_SR": ["Alice", "Bob"]}
     night_config = NightSolverConfig(
@@ -72,10 +86,18 @@ def _make_config(
     )
     if night_hard_criteria is None:
         night_hard_criteria = frozenset()
+    constraints = []
+    if full_assignment:
+        constraints.append(SemanticConstraint(
+            kind="full_assignment", lifecycle=ConstraintLifecycle.STANDING_RULE,
+            strength=ConstraintStrength.HARD,
+            fellows=FellowSelector.by_groups(*fellow_groups.keys()),
+            params={"name": "full_assignment"},
+        ))
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
-        constraints=[],
+        constraints=constraints,
         night_config=night_config,
         weekend_config=weekend_config,
         night_hard_criteria=night_hard_criteria,
@@ -126,35 +148,37 @@ def _get_constraints_containing(opb: OpbBuilder, var_id: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 class TestNightBlockingSunThu:
-    """Non-vacation night-blocking services (SICU, NS, SCVMC Rehab)
-    should only block Sun-Thu nights, NOT Fri/Sat."""
+    """Weekday-only night-blocking services (NS, SCVMC Rehab) block only Sun-Thu
+    nights, NOT Fri/Sat, and check the NEXT day's week (the morning-after workday).
 
-    def test_sicu_blocks_wednesday_night(self):
-        """SICU in next-day's week should block a Wednesday night (dow=2)."""
-        # start_dow=0 (Monday). Day 2 = Wednesday.
-        # Next day = Thursday (day 3), week 0. SICU in week 0 should block.
-        shifts = ["NCC1", "SICU"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+    NOTE: SICU/MICU/Vac block ALL 7 nights (see TestAllWeekBlockedServices) — they
+    are NOT Sun-Thu-only. This class uses NS, which is genuinely weekday-only.
+    full_assignment=True suppresses the NH gate so greps aren't confounded.
+    """
+
+    def test_ns_blocks_wednesday_night(self):
+        """NS in next-day's week should block a Wednesday night (dow=2)."""
+        # start_dow=0 (Monday). Day 2 = Wednesday. Next day = Thursday (week 0).
+        shifts = ["NCC1", "NS"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
         xs, xn, wr = _make_vars(opb, 1, 14, len(shifts), num_weeks)
         soft = []
-        baseline = opb.num_constraints
 
         _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
 
-        # Day 2 (Wed) should have a blocking constraint involving SICU
-        sicu_var_week0 = xs[0][0][shift_idx["SICU"]]
+        ns_var_week0 = xs[0][0][shift_idx["NS"]]
         night_var_day2 = xn[2][0]
         constraints = _get_constraints_containing(opb, night_var_day2)
-        sicu_constraints = [c for c in constraints if f"x{sicu_var_week0} " in c]
-        assert len(sicu_constraints) > 0, "SICU should block Wednesday night"
+        ns_constraints = [c for c in constraints if f"x{ns_var_week0} " in c]
+        assert len(ns_constraints) > 0, "NS should block Wednesday night"
 
-    def test_sicu_does_not_block_friday_night(self):
-        """SICU should NOT block Friday night (dow=4)."""
-        shifts = ["NCC1", "SICU"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+    def test_ns_does_not_block_friday_night(self):
+        """NS should NOT block Friday night (dow=4) — next morning is Saturday."""
+        shifts = ["NCC1", "NS"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -163,19 +187,18 @@ class TestNightBlockingSunThu:
 
         _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
 
-        # Day 4 = Friday. Should NOT have SICU blocking constraint.
-        sicu_var_week0 = xs[0][0][shift_idx["SICU"]]
-        sicu_var_week1 = xs[0][1][shift_idx["SICU"]]
+        ns_var_week0 = xs[0][0][shift_idx["NS"]]
+        ns_var_week1 = xs[0][1][shift_idx["NS"]]
         night_var_day4 = xn[4][0]
         constraints = _get_constraints_containing(opb, night_var_day4)
-        sicu_constraints = [c for c in constraints
-                           if f"x{sicu_var_week0} " in c or f"x{sicu_var_week1} " in c]
-        assert len(sicu_constraints) == 0, "SICU should NOT block Friday night"
+        ns_constraints = [c for c in constraints
+                          if f"x{ns_var_week0} " in c or f"x{ns_var_week1} " in c]
+        assert len(ns_constraints) == 0, "NS should NOT block Friday night"
 
-    def test_sicu_does_not_block_saturday_night(self):
-        """SICU should NOT block Saturday night (dow=5)."""
-        shifts = ["NCC1", "SICU"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+    def test_ns_does_not_block_saturday_night(self):
+        """NS should NOT block Saturday night (dow=5)."""
+        shifts = ["NCC1", "NS"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -184,19 +207,18 @@ class TestNightBlockingSunThu:
 
         _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
 
-        # Day 5 = Saturday. Should NOT have SICU blocking.
-        sicu_var_week0 = xs[0][0][shift_idx["SICU"]]
-        sicu_var_week1 = xs[0][1][shift_idx["SICU"]]
+        ns_var_week0 = xs[0][0][shift_idx["NS"]]
+        ns_var_week1 = xs[0][1][shift_idx["NS"]]
         night_var_day5 = xn[5][0]
         constraints = _get_constraints_containing(opb, night_var_day5)
-        sicu_constraints = [c for c in constraints
-                           if f"x{sicu_var_week0} " in c or f"x{sicu_var_week1} " in c]
-        assert len(sicu_constraints) == 0, "SICU should NOT block Saturday night"
+        ns_constraints = [c for c in constraints
+                          if f"x{ns_var_week0} " in c or f"x{ns_var_week1} " in c]
+        assert len(ns_constraints) == 0, "NS should NOT block Saturday night"
 
-    def test_sicu_blocks_sunday_night(self):
-        """SICU should block Sunday night (dow=6) since next morning is Monday."""
-        shifts = ["NCC1", "SICU"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+    def test_ns_blocks_sunday_night(self):
+        """NS should block Sunday night (dow=6) since next morning is Monday."""
+        shifts = ["NCC1", "NS"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -205,19 +227,18 @@ class TestNightBlockingSunThu:
 
         _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
 
-        # Day 6 = Sunday. Next day (Monday) is in week 1.
-        # SICU in week 1 should block.
-        sicu_var_week1 = xs[0][1][shift_idx["SICU"]]
+        # Day 6 = Sunday. Next day (Monday) is in week 1. NS in week 1 should block.
+        ns_var_week1 = xs[0][1][shift_idx["NS"]]
         night_var_day6 = xn[6][0]
         constraints = _get_constraints_containing(opb, night_var_day6)
-        sicu_constraints = [c for c in constraints if f"x{sicu_var_week1} " in c]
-        assert len(sicu_constraints) > 0, "SICU should block Sunday night"
+        ns_constraints = [c for c in constraints if f"x{ns_var_week1} " in c]
+        assert len(ns_constraints) > 0, "NS should block Sunday night"
 
     def test_blocking_checks_next_day_week(self):
-        """When night is Sunday, blocking should check the NEXT day's week (Monday's week)."""
+        """When night is Sunday, weekday-only blocking checks the NEXT day's week."""
         # start_dow=0 (Monday). Day 6 = Sunday. Next day = Monday day 7 = week 1.
-        shifts = ["NCC1", "SICU"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+        shifts = ["NCC1", "NS"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -227,18 +248,40 @@ class TestNightBlockingSunThu:
         _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
 
         # Sunday night (day 6): should check week 1 (next day), NOT week 0 (same day)
-        sicu_var_week0 = xs[0][0][shift_idx["SICU"]]
-        sicu_var_week1 = xs[0][1][shift_idx["SICU"]]
+        ns_var_week0 = xs[0][0][shift_idx["NS"]]
+        ns_var_week1 = xs[0][1][shift_idx["NS"]]
         night_var_day6 = xn[6][0]
         constraints = _get_constraints_containing(opb, night_var_day6)
 
-        # Should reference week 1's SICU, not week 0's
-        week1_refs = [c for c in constraints if f"x{sicu_var_week1} " in c]
-        week0_refs = [c for c in constraints if f"x{sicu_var_week0} " in c]
+        week1_refs = [c for c in constraints if f"x{ns_var_week1} " in c]
+        week0_refs = [c for c in constraints if f"x{ns_var_week0} " in c]
         assert len(week1_refs) > 0, "Sunday night should check next day's week (week 1)"
-        # Week 0 should not be referenced for SICU blocking (it IS referenced for vacation)
-        assert len(week0_refs) == 0 or all("Vac" in c for c in week0_refs), \
-            "Sunday night should NOT check same-day's week for SICU"
+        assert len(week0_refs) == 0, "Sunday night should NOT check same-day's week for NS"
+
+
+class TestAllWeekBlockedServices:
+    """SICU, MICU, and Vac block ALL 7 nights (via the current week), including
+    Fri/Sat — the all-week policy, distinct from the Sun-Thu-only services."""
+
+    @pytest.mark.parametrize("service", ["SICU", "MICU", "Vac"])
+    @pytest.mark.parametrize("day", list(range(7)))
+    def test_blocks_every_night(self, service, day):
+        shifts = ["NCC1", service]
+        config = _make_config(shifts, start_dow=0, num_days=7, full_assignment=True)
+        shift_idx = {s: i for i, s in enumerate(shifts)}
+        num_weeks = config.num_weeks
+        opb = OpbBuilder()
+        xs, xn, wr = _make_vars(opb, 1, 7, len(shifts), num_weeks)
+        soft = []
+
+        _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
+
+        # All-week services block via the CURRENT week (week 0 for all 7 days).
+        svc_var_week0 = xs[0][0][shift_idx[service]]
+        night_var = xn[day][0]
+        constraints = _get_constraints_containing(opb, night_var)
+        block = [c for c in constraints if f"x{svc_var_week0} " in c and "<= 1" in c]
+        assert len(block) > 0, f"{service} should block night day {day} (all-week)"
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +560,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,
             num_days=14,
+            full_assignment=True,
         )
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
@@ -541,6 +585,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"STROKE": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,
             num_days=14,
+            full_assignment=True,
         )
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
@@ -564,6 +609,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,
             num_days=14,
+            full_assignment=True,
         )
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
@@ -588,6 +634,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=2,  # Wednesday
             num_days=14,
+            full_assignment=True,
         )
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
@@ -623,7 +670,7 @@ class TestScvmcRehabBlocked:
         assert "SCVMC Rehab" in NIGHT_BLOCKED_SHIFTS
 
     def test_all_expected_shifts_present(self):
-        expected = {"SICU", "Vac", "NS", "SCVMC Rehab"}
+        expected = {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab"}
         assert NIGHT_BLOCKED_SHIFTS == expected
 
     def test_scvmc_rehab_generates_blocking_constraint(self):
@@ -655,7 +702,7 @@ class TestIscBlocking:
 
     def test_isc_does_not_block_friday_night(self):
         shifts = ["NCC1", "ISC"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -674,7 +721,7 @@ class TestIscBlocking:
 
     def test_isc_does_not_block_saturday_night(self):
         shifts = ["NCC1", "ISC"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -693,7 +740,7 @@ class TestIscBlocking:
 
     def test_isc_blocks_wednesday_night(self):
         shifts = ["NCC1", "ISC"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -712,7 +759,7 @@ class TestIscBlocking:
     def test_isc_blocks_monday_night(self):
         """ISC should block Monday night (dow=0) — next day is Tuesday (workday)."""
         shifts = ["NCC1", "ISC"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -731,7 +778,7 @@ class TestIscBlocking:
     def test_isc_blocks_sunday_night(self):
         """ISC should block Sunday night (dow=6) — next day is Monday (workday)."""
         shifts = ["NCC1", "ISC"]
-        config = _make_config(shifts, start_dow=0, num_days=14)
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()

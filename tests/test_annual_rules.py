@@ -17,7 +17,9 @@ def test_vacation_request_constraints_make_top_requests_hard_vacation():
     assert all(constraint.shifts.shifts == ("Vac",) for constraint in hard)
 
 
-def test_vacation_request_constraints_make_later_requests_soft_elective():
+def test_vacation_request_constraints_make_later_requests_soft_vacation():
+    # Requests beyond hard_request_count stay as Vac but become SOFT — the solver
+    # still tries to honor the vacation, rather than substituting an elective.
     constraints = vacation_request_constraints(
         {"NCC Raya": [1, 7, 25, 30]},
         hard_request_count=3,
@@ -28,7 +30,7 @@ def test_vacation_request_constraints_make_later_requests_soft_elective():
     assert soft.lifecycle is ConstraintLifecycle.ANNUAL_RULE
     assert soft.strength is ConstraintStrength.SOFT
     assert soft.weeks.start == 30
-    assert soft.shifts.shifts == ("Elec",)
+    assert soft.shifts.shifts == ("Vac",)
     assert soft.params["request_rank"] == 4
 
 

@@ -58,7 +58,7 @@ def vacation_request_constraints(
                 named_assignment(
                     fellow_name,
                     week=week,
-                    shift="Vac" if is_hard else "Elec",
+                    shift="Vac",
                     hard=is_hard,
                     params={"request_rank": index + 1},
                 )
