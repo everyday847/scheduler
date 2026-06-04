@@ -1378,8 +1378,11 @@ def _encode_weekend_constraints(
     # weekends onto a few always-eligible STROKE fellows and left NCC fellows at ~0.
     # A hard band guarantees the intended distribution; the targets sum to slightly
     # more than the weekend-role demand, so the band has room to satisfy coverage.
+    # plus a small deviation-scaled soft penalty toward the exact target inside
+    # the band (capped at tol slacks, since the hard band already bounds the count).
     tol = config.weekend_total_tolerance
-    opb.add_comment(f"Weekend: NCC totals per fellow (hard, within {tol})")
+    wknd_weight = config.weekly_soft_weight
+    opb.add_comment(f"Weekend: NCC totals per fellow (hard within {tol}, scaled toward target)")
     for fellow_name, total in wk_config.ncc_totals.items():
         if fellow_name not in fellow_names:
             continue
@@ -1395,8 +1398,12 @@ def _encode_weekend_constraints(
             if lo > 0:
                 opb.at_least_k(ncc_vars, min(lo, len(ncc_vars)))
             opb.at_most_k(ncc_vars, total + tol)
+            _add_cardinality_constraint(
+                opb, ncc_vars, "exactly", total, is_soft=True, weight=wknd_weight,
+                soft_violations=soft_violations, max_violation=tol,
+            )
 
-    opb.add_comment(f"Weekend: Stroke totals per fellow (hard, within {tol})")
+    opb.add_comment(f"Weekend: Stroke totals per fellow (hard within {tol}, scaled toward target)")
     for fellow_name, total in wk_config.stroke_totals.items():
         if fellow_name not in fellow_names:
             continue
@@ -1407,6 +1414,10 @@ def _encode_weekend_constraints(
             if lo > 0:
                 opb.at_least_k(stroke_vars, min(lo, len(stroke_vars)))
             opb.at_most_k(stroke_vars, total + tol)
+            _add_cardinality_constraint(
+                opb, stroke_vars, "exactly", total, is_soft=True, weight=wknd_weight,
+                soft_violations=soft_violations, max_violation=tol,
+            )
 
     # Stroke cohort bounds
     if wk_config.stroke_cohort:
@@ -2471,8 +2482,23 @@ def _add_cardinality_constraint(
     is_soft: bool,
     weight: int,
     soft_violations: list[tuple[int, int]],
+    max_violation: int | None = None,
 ) -> None:
-    """Add a cardinality constraint (exactly/at_least/at_most) with soft support."""
+    """Add a cardinality constraint (exactly/at_least/at_most).
+
+    Soft constraints use a DEVIATION-SCALED penalty: the cost is
+    ``weight * |count - target|`` (proportional to how far the count is from the
+    target), not a flat per-constraint penalty. This is encoded with unary slack
+    variables — one penalized slack per unit of allowed deviation — so the
+    optimizer is pulled toward the target rather than paying the same price for
+    being off by 1 or by 30.
+
+    ``max_violation`` caps the number of slacks per direction. Leave it None for a
+    pure soft penalty (slacks span the full possible deviation, so the constraint
+    can never become infeasible). Set it only when an OUTER hard bound already
+    limits the count (e.g. the weekend hard band), so the bounded slacks just
+    measure the within-band deviation without adding a second hard restriction.
+    """
     if not vars:
         return
 
@@ -2484,41 +2510,49 @@ def _add_cardinality_constraint(
                 opb.at_least_k(vars, target)
         elif relation == "at_most":
             opb.at_most_k(vars, target)
-    else:
-        n = len(vars)
-        # Skip trivially-satisfied soft constraints
-        if relation == "at_most" and n <= target:
-            return
-        if relation == "at_least" and n < target:
-            # Inherently unsatisfiable — always violated
-            v = opb.new_var()
-            opb.add_unit(v)
-            soft_violations.append((v, weight))
-            return
+        return
 
-        v = opb.new_var()
-        if relation == "exactly":
-            # Lower bound: sum >= target (bypassed when v=1)
-            # sum + target*v >= target → v=1: sum >= 0 (trivial)
+    n = len(vars)
+
+    def _slacks(k: int) -> list[int]:
+        s = [opb.new_var() for _ in range(max(0, k))]
+        for v in s:
+            soft_violations.append((v, weight))
+        return s
+
+    if relation == "at_least":
+        if target <= 0:
+            return
+        # shortfall = max(0, target - count); sum(vars) + sum(slacks) >= target
+        k = target if max_violation is None else min(target, max_violation)
+        slacks = _slacks(k)
+        if slacks or target <= n:
             opb.weighted_sum_at_least(
-                [(x, 1) for x in vars] + [(v, max(target, 1))], target
+                [(x, 1) for x in vars] + [(s, 1) for s in slacks], target
             )
-            # Upper bound: sum <= target (bypassed when v=1)
-            if n > target:
-                opb.weighted_sum_at_least(
-                    [(-x, 1) for x in vars] + [(v, n - target)], n - target
-                )
-        elif relation == "at_least":
-            # sum + target*v >= target
+    elif relation == "at_most":
+        if n <= target:
+            return  # trivially satisfied
+        # excess = max(0, count - target); sum(~vars) + sum(slacks) >= n - target
+        k = (n - target) if max_violation is None else min(n - target, max_violation)
+        slacks = _slacks(k)
+        opb.weighted_sum_at_least(
+            [(-x, 1) for x in vars] + [(s, 1) for s in slacks], n - target
+        )
+    elif relation == "exactly":
+        # Penalize both directions: shortfall (under) and excess (over).
+        if target > 0:
+            ku = target if max_violation is None else min(target, max_violation)
+            under = _slacks(ku)
             opb.weighted_sum_at_least(
-                [(x, 1) for x in vars] + [(v, target)], target
+                [(x, 1) for x in vars] + [(s, 1) for s in under], target
             )
-        elif relation == "at_most":
-            # sum(~vars) + (n-target)*v >= (n-target)
+        if n > target:
+            ko = (n - target) if max_violation is None else min(n - target, max_violation)
+            over = _slacks(ko)
             opb.weighted_sum_at_least(
-                [(-x, 1) for x in vars] + [(v, n - target)], n - target
+                [(-x, 1) for x in vars] + [(s, 1) for s in over], n - target
             )
-        soft_violations.append((v, weight))
 
 
 def _add_conditional_cardinality(
