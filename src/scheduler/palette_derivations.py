@@ -15,6 +15,7 @@ def derive_forbidden_shifts(
     rules: list[dict[str, Any]],
     all_shifts: list[str],
     fellow_groups: dict[str, list[str]],
+    call_rules: list[dict[str, Any]] | None = None,
 ) -> list[SemanticConstraint]:
     """Compute forbidden shift constraints from shift_total rules.
 
@@ -25,6 +26,11 @@ def derive_forbidden_shifts(
     "owned" groups — e.g., rotating fellows whose schedule isn't fully
     managed by this system).
     """
+    fellow_to_group: dict[str, str] = {}
+    for group, fellows in fellow_groups.items():
+        for f in fellows:
+            fellow_to_group[f] = group
+
     # Collect mentioned shifts per group from active shift_total rules
     mentioned: dict[str, set[str]] = {}
     for rule in rules:
@@ -35,6 +41,17 @@ def derive_forbidden_shifts(
         for group in rule.get("groups", []):
             if group not in mentioned:
                 mentioned[group] = set()
+            mentioned[group].update(rule.get("shifts", []))
+
+    # Also include shifts from per_fellow_shift_total call_rules
+    for rule in (call_rules or []):
+        if rule.get("type") != "per_fellow_shift_total":
+            continue
+        if not rule.get("active", True):
+            continue
+        fellow_name = rule.get("fellow", "")
+        group = fellow_to_group.get(fellow_name)
+        if group and group in mentioned:
             mentioned[group].update(rule.get("shifts", []))
 
     all_shifts_set = set(all_shifts)
