@@ -157,6 +157,9 @@ class ScheduleSolverConfig:
     num_weeks: int = field(init=False)
     weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
+    # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
+    # of the target (so the distribution can't collapse onto a few fellows).
+    weekend_total_tolerance: int = 1
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
     call_rules: list[dict] = field(default_factory=list)
@@ -1364,9 +1367,15 @@ def _encode_weekend_constraints(
     opb.add_comment("Weekend: dynamic eligibility based on weekly shift")
     _encode_weekend_eligibility(opb, wr, xs, config, fellow_names, shift_idx)
 
-    # Weekend totals: soft (hard floor makes feasibility too tight with spacing)
-    wknd_weight = config.weekly_soft_weight
-    opb.add_comment("Weekend: NCC totals per fellow (soft)")
+    # Weekend totals per fellow: HARD within a tolerance band [N-tol, N+tol].
+    # Previously these were soft "exactly N", but the soft-exactly encoding uses a
+    # single flat violation indicator (off-by-1 costs the same as off-by-32), so it
+    # provided no gradient toward the target — the optimizer dumped nearly all
+    # weekends onto a few always-eligible STROKE fellows and left NCC fellows at ~0.
+    # A hard band guarantees the intended distribution; the targets sum to slightly
+    # more than the weekend-role demand, so the band has room to satisfy coverage.
+    tol = config.weekend_total_tolerance
+    opb.add_comment(f"Weekend: NCC totals per fellow (hard, within {tol})")
     for fellow_name, total in wk_config.ncc_totals.items():
         if fellow_name not in fellow_names:
             continue
@@ -1378,22 +1387,22 @@ def _encode_weekend_constraints(
             if fi in wr[w][_ROLE_NCC2]:
                 ncc_vars.append(wr[w][_ROLE_NCC2][fi])
         if ncc_vars:
-            _add_cardinality_constraint(
-                opb, ncc_vars, "exactly", total,
-                is_soft=True, weight=wknd_weight, soft_violations=soft_violations,
-            )
+            lo = max(0, total - tol)
+            if lo > 0:
+                opb.at_least_k(ncc_vars, min(lo, len(ncc_vars)))
+            opb.at_most_k(ncc_vars, total + tol)
 
-    opb.add_comment("Weekend: Stroke totals per fellow (soft)")
+    opb.add_comment(f"Weekend: Stroke totals per fellow (hard, within {tol})")
     for fellow_name, total in wk_config.stroke_totals.items():
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
         stroke_vars = [wr[w][_ROLE_STROKE][fi] for w in range(num_weeks) if fi in wr[w][_ROLE_STROKE]]
         if stroke_vars:
-            _add_cardinality_constraint(
-                opb, stroke_vars, "exactly", total,
-                is_soft=True, weight=wknd_weight, soft_violations=soft_violations,
-            )
+            lo = max(0, total - tol)
+            if lo > 0:
+                opb.at_least_k(stroke_vars, min(lo, len(stroke_vars)))
+            opb.at_most_k(stroke_vars, total + tol)
 
     # Stroke cohort bounds
     if wk_config.stroke_cohort:
