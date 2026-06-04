@@ -19,8 +19,8 @@ from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
-STANDING_RULE_CONFIG = CONFIG_DIR / "standing" / "stanford-fellowship.yaml"
-DEFAULT_ANNUAL_CONFIG = CONFIG_DIR / "annual" / "my-2025-2026.yaml"
+STANDING_RULE_CONFIG = CONFIG_DIR / "standing" / "stanford-fellowship-v3.yaml"
+DEFAULT_ANNUAL_CONFIG = CONFIG_DIR / "annual" / "my-2026-2027-v3.yaml"
 ROUNDINGSAT_BINARY = Path(__file__).resolve().parents[2] / "new_approach" / "vendor" / "roundingsat" / "build" / "roundingsat"
 
 
