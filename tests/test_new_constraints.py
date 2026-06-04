@@ -22,6 +22,7 @@ from parafrost_scheduler.schedule_solver import (
     _ROLE_STROKE,
     _encode_call_rules,
     _encode_dual_stroke_window,
+    _encode_weekend_eligibility,
     _encode_weekend_prerequisites,
 )
 from scheduler.night_call_types import NightSolverConfig
@@ -613,3 +614,55 @@ class TestPerFellowShiftTotal:
         _encode_call_rules(opb, xn, wr, config, fellow_names,
                            xs=xs, shift_idx=shift_idx, soft_violations=soft_violations)
         assert len(soft_violations) > 0, "Soft constraint should add soft violations"
+
+
+# ---------------------------------------------------------------------------
+# Tests: No weekend role without a weekday shift (NH bug)
+# ---------------------------------------------------------------------------
+
+class TestWeekendRequiresWeekdayShift:
+    """A fellow must never get a weekend role in a week where they have NO
+    weekday shift (the wb2 NH bug)."""
+
+    def test_empty_weekday_week_blocks_all_weekend_roles(self):
+        """A week with zero weekday shift vars hard-forbids every weekend role."""
+        config = _make_config(num_weeks=4, fellow_groups={"NH": ["Jinyuan"]})
+        opb = OpbBuilder()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        fellow_names = ["Jinyuan"]
+        xs = _make_xs(opb, 1, 4, len(config.shifts))
+        wr = _make_wr(opb, 4, 1)
+        # Week 2: fellow has no possible weekday shift (all forbidden).
+        xs[0][2] = [0] * len(config.shifts)
+
+        _encode_weekend_eligibility(opb, wr, xs, config, fellow_names, shift_idx)
+
+        units = _get_units(opb)
+        for role_idx in (_ROLE_NCC1, _ROLE_NCC2, _ROLE_STROKE):
+            wr_var = wr[2][role_idx][0]
+            assert -wr_var in units, (
+                f"Empty weekday week must hard-block weekend role {role_idx}"
+            )
+
+    def test_weekend_role_implies_some_weekday_shift(self):
+        """With weekday shifts available, a weekend role implies one is taken
+        (an implication constraint, not a unit block)."""
+        config = _make_config(num_weeks=4, fellow_groups={"NH": ["Jinyuan"]})
+        opb = OpbBuilder()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        fellow_names = ["Jinyuan"]
+        xs = _make_xs(opb, 1, 4, len(config.shifts))
+        wr = _make_wr(opb, 4, 1)
+
+        _encode_weekend_eligibility(opb, wr, xs, config, fellow_names, shift_idx)
+
+        # Week 1 has weekday shift vars, so the NCC1 role is NOT unit-blocked.
+        units = _get_units(opb)
+        wr_ncc1 = wr[1][_ROLE_NCC1][0]
+        assert -wr_ncc1 not in units, "Role must not be hard-blocked when weekday shifts exist"
+        # And an implication constraint referencing the role exists.
+        role_constraints = [
+            c for c in opb._constraints
+            if f"~x{wr_ncc1} " in c and ">= 1" in c and "+1 x" in c
+        ]
+        assert role_constraints, "Expected wr -> OR(weekday shifts) implication"

@@ -1554,6 +1554,7 @@ def _encode_weekend_eligibility(
     num_weeks = config.num_weeks
 
     blocked_indices = [shift_idx[s] for s in WEEKEND_BLOCKED_SHIFTS if s in shift_idx]
+    num_shifts = len(shift_idx)
 
     for w in range(num_weeks):
         for f in range(len(fellow_names)):
@@ -1565,6 +1566,23 @@ def _encode_weekend_eligibility(
                     if f in wr[w][role_idx]:
                         # xs[f][w][blocked_shift] + wr[w][role][f] <= 1
                         opb.at_most_k([xs[f][w][si], wr[w][role_idx][f]], 1)
+
+            # A weekend role requires SOME weekday shift that week (hard). NH
+            # fellows have no full_assignment rule, so without this they could be
+            # given a weekend role in a week with an entirely empty weekday
+            # schedule — which can never happen in reality.
+            weekday_vars = [xs[f][w][si] for si in range(num_shifts) if xs[f][w][si] != 0]
+            for role_idx in range(3):
+                if f not in wr[w][role_idx]:
+                    continue
+                wr_var = wr[w][role_idx][f]
+                if not weekday_vars:
+                    opb.add_unit(-wr_var)
+                else:
+                    # wr_var -> OR(weekday_vars): sum(weekday) + (1 - wr_var) >= 1
+                    opb.weighted_sum_at_least(
+                        [(v, 1) for v in weekday_vars] + [(-wr_var, 1)], 1
+                    )
 
     # Stroke eligibility: depends on fellow classification and weekday shift
     wk_config = config.weekend_config
