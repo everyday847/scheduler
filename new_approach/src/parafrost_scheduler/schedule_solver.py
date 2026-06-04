@@ -370,9 +370,13 @@ def build_full_schedule_opb(
     wr: list[list[dict[int, int]]] = []
     for w in range(num_weeks):
         wr.append([])
+        # A partial final (or first) week may have no weekend day inside the
+        # horizon; skip it so coverage/totals don't force a phantom weekend.
+        sat_day = _week_day(w, 5, start_dow)
+        week_has_weekend = 0 <= sat_day < num_days
         for role_idx in range(3):
             role_vars: dict[int, int] = {}
-            if not _diag_disable_weekends:
+            if week_has_weekend and not _diag_disable_weekends:
                 for f in range(num_fellows):
                     if _is_weekend_eligible_static(
                         fellow_names[f], role_idx, config.weekend_config
