@@ -180,6 +180,11 @@ class ScheduleSolverConfig:
     weekend_night_friday_weight: int = DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT
     weekend_night_saturday_weight: int = DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT
     weekend_night_sunday_weight: int = DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT
+    # Saturday night fellow must be Weekend NCC1/NCC2, Sunday night fellow must be
+    # Weekend Stroke. Hard by default (verified feasible: a k=0 bound on these
+    # mismatches is SAT). Set False to fall back to the scaled soft penalty above.
+    weekend_night_saturday_hard: bool = True
+    weekend_night_sunday_hard: bool = True
     # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
     # of the target (so the distribution can't collapse onto a few fellows).
     weekend_total_tolerance: int = 1
@@ -2066,15 +2071,18 @@ def _encode_weekend_night_linking(
     fellow_names: list[str],
     soft_violations: list[tuple[int, int]],
 ) -> None:
-    """Link weekend night call assignments to weekend role assignments (soft).
+    """Link weekend night call assignments to weekend role assignments.
 
-    Per-occurrence preferences (one penalty per offending fellow-week):
-    - Friday night (weight 40): fellow should NOT have a weekend role that week.
-      The Friday + Weekend-NCC1 case is owned by the (hard-by-default) policy
-      criterion ``friday_weekend_ncc1`` (see _encode_night_policy_criteria), so
-      this loop covers only NCC2/Stroke to avoid double-encoding it.
-    - Saturday night (weight 10): fellow should be Weekend NCC1 or NCC2.
-    - Sunday night (weight 10): fellow should be Weekend Stroke.
+    Per-occurrence rules (one penalty/forbid per offending fellow-week):
+    - Friday night (soft, weight 40): fellow should NOT have a weekend role that
+      week. The Friday + Weekend-NCC1 case is owned by the (hard-by-default)
+      policy criterion ``friday_weekend_ncc1`` (see _encode_night_policy_criteria),
+      so this loop covers only NCC2/Stroke to avoid double-encoding it.
+    - Saturday night: fellow must be Weekend NCC1 or NCC2.
+    - Sunday night: fellow must be Weekend Stroke.
+    Saturday/Sunday are HARD by default (config flags), having verified a k=0
+    mismatch bound is feasible; they fall back to scaled soft penalties if the
+    flags are cleared.
     """
     num_days = config.num_days
     num_weeks = config.num_weeks
@@ -2083,8 +2091,12 @@ def _encode_weekend_night_linking(
     friday_weight = config.weekend_night_friday_weight
     saturday_weight = config.weekend_night_saturday_weight
     sunday_weight = config.weekend_night_sunday_weight
+    # Pass the criterion name in hard_criteria to make _encode_night_criterion_pair
+    # emit a hard at-most-1 instead of a penalized indicator.
+    sat_hard = frozenset({"weekend_night_saturday"}) if config.weekend_night_saturday_hard else frozenset()
+    sun_hard = frozenset({"weekend_night_sunday"}) if config.weekend_night_sunday_hard else frozenset()
 
-    opb.add_comment("Night: weekend night linking (Fri/Sat/Sun ↔ weekend roles, soft)")
+    opb.add_comment("Night: weekend night linking (Fri soft; Sat/Sun hard by default)")
 
     for w in range(num_weeks):
         # --- Friday night: penalize having a weekend role (NCC1 handled by the
@@ -2127,7 +2139,7 @@ def _encode_weekend_night_linking(
                         opb.at_most_k([nv, not_ncc], 1)
                     _encode_night_criterion_pair(
                         opb, xn[sat_d][f], not_ncc,
-                        "weekend_night_saturday", frozenset(),
+                        "weekend_night_saturday", sat_hard,
                         _SoftWeightProxy(saturday_weight), soft_violations,
                     )
 
@@ -2145,7 +2157,7 @@ def _encode_weekend_night_linking(
                     opb.at_most_k([stroke_var, not_stroke], 1)
                     _encode_night_criterion_pair(
                         opb, xn[sun_d][f], not_stroke,
-                        "weekend_night_sunday", frozenset(),
+                        "weekend_night_sunday", sun_hard,
                         _SoftWeightProxy(sunday_weight), soft_violations,
                     )
 

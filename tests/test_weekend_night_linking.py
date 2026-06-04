@@ -41,6 +41,7 @@ def _make_config(
     num_days: int = 14,
     fellow_groups: dict[str, list[str]] | None = None,
     stroke_eligible: frozenset[str] = frozenset(),
+    weekend_night_hard: bool = True,
 ) -> ScheduleSolverConfig:
     """Build a minimal ScheduleSolverConfig for testing."""
     if fellow_groups is None:
@@ -76,6 +77,8 @@ def _make_config(
         night_hard_criteria=frozenset(),
         start_dow=start_dow,
         num_days=num_days,
+        weekend_night_saturday_hard=weekend_night_hard,
+        weekend_night_sunday_hard=weekend_night_hard,
     )
 
 
@@ -132,6 +135,34 @@ def _constraints_containing(opb: OpbBuilder, var_id: int) -> list[str]:
         if pos in c or neg in c:
             results.append(c)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Default-value guard: asserts the SHIPPED default, separate from the
+# behavioral tests (which pin their own config). If someone flips the default,
+# THIS test fails loudly — the behavioral tests keep working either way.
+# ---------------------------------------------------------------------------
+
+class TestWeekendNightDefaults:
+    def test_saturday_and_sunday_hard_by_default(self):
+        from scheduler.night_call_types import NightSolverConfig as _NC
+        from scheduler.weekend_call_types import WeekendSolverConfig as _WC
+        cfg = ScheduleSolverConfig(
+            fellow_groups={"NCC_SR": ["A"]}, shifts=["NCC1"], constraints=[],
+            night_config=_NC(total_nights={}, friday_nights={},
+                             total_night_multisets=(), friday_night_multisets=(),
+                             ccm_fellows=frozenset(), holiday_dates=(),
+                             horizon_start_date=date(2026, 7, 1)),
+            weekend_config=_WC(ncc_totals={}, stroke_totals={}, stroke_cohort=(),
+                               stroke_cohort_total=None, ccm_fellows=frozenset(),
+                               always_stroke_eligible=frozenset(),
+                               telestroke_stroke_eligible=frozenset(),
+                               stroke_only_eligible=frozenset(), total_weekends={},
+                               weekend_options=None, friday_weekend_options=None),
+            num_days=14,
+        )
+        assert cfg.weekend_night_saturday_hard is True
+        assert cfg.weekend_night_sunday_hard is True
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +248,11 @@ class TestFridayNightBlocksWeekendRoles:
         ncc1_constraints = [c for c in constraints if f"x{wr_ncc1} " in c]
         assert len(ncc1_constraints) == 0, "Friday night must not touch Weekend NCC1"
 
-    def test_weekend_night_linking_weights(self):
-        """Friday penalties weigh 40, Saturday/Sunday weigh 10 (per occurrence)."""
-        config = _make_config(start_dow=0, num_days=7)
+    def test_weekend_night_hard_mode_no_soft_penalties(self):
+        """With Sat/Sun configured HARD, no weight-10 soft penalties are emitted;
+        only the Friday weight-40 soft penalties remain. (Config pinned here, not
+        relying on the shipped default — the default is guarded separately.)"""
+        config = _make_config(start_dow=0, num_days=7, weekend_night_hard=True)
         opb = OpbBuilder()
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
@@ -228,12 +261,25 @@ class TestFridayNightBlocksWeekendRoles:
         _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
 
         weights = sorted({w for _, w in soft})
-        # Friday: NCC2 + Stroke at 40; Saturday: NCC at 10; Sunday: Stroke at 10.
         assert 40 in weights, "Friday linking should contribute weight-40 penalties"
-        assert 10 in weights, "Saturday/Sunday linking should contribute weight-10 penalties"
+        assert 10 not in weights, "Sat/Sun are hard by default — no weight-10 soft penalties"
         assert 20 not in weights, "Old shared weight 20 should no longer appear"
         friday_count = sum(1 for _, w in soft if w == 40)
         assert friday_count == 2, "One Friday penalty each for NCC2 and Stroke"
+
+    def test_weekend_night_soft_mode_restores_weight_10(self):
+        """With the hard flags cleared, Sat/Sun fall back to weight-10 soft."""
+        config = _make_config(start_dow=0, num_days=7, weekend_night_hard=False)
+        opb = OpbBuilder()
+        xn = _make_xn(opb, 7, 1)
+        wr = _make_wr(opb, config.num_weeks, 1)
+
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
+
+        weights = sorted({w for _, w in soft})
+        assert 10 in weights, "Soft mode should restore weight-10 Sat/Sun penalties"
+        assert 40 in weights, "Friday stays weight-40 soft"
 
 
 # ---------------------------------------------------------------------------
