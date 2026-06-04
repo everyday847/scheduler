@@ -63,7 +63,16 @@ from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 # Configuration
 # ---------------------------------------------------------------------------
 
-NIGHT_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "Vac", "NS", "SCVMC Rehab"})
+# Weekday services that preclude night call. These are CANONICAL (post-SHIFT_MAP)
+# shift names, curated here rather than derived from the config's
+# night_blocked_services rule because SHIFT_MAP is lossy (e.g. it collapses
+# several raw elective names to "Elec"), so round-tripping raw->canonical would
+# over-block. NHS/AAN/RWC/NCS 2026 were previously missing, which let NH fellows
+# take call during NHS/AAN weeks. Members NOT also in NIGHT_BLOCKED_ALL_WEEK
+# block only Sun(prev)-Thu nights; the all-week set blocks all 7 nights.
+NIGHT_BLOCKED_SHIFTS = frozenset(
+    {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "NHS", "AAN", "RWC", "NCS 2026"}
+)
 NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac"})
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 CLINIC_SHIFTS = frozenset({"Clinic/Elective", "Telestroke/Clinic"})

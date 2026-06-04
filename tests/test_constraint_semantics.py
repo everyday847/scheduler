@@ -534,6 +534,37 @@ class TestNightBlocking:
                   "NCC1 (non-blocking) permits a Monday night")
 
 
+class TestWeekdayOnlyNightBlocking:
+    """NHS / AAN / RWC / NCS 2026 block weekday nights (Sun-of-prev-week
+    through Thu of the service week) but allow Fri/Sat (weekend) nights.
+
+    Uses a 2-week horizon so 'the Sunday before week 1' (day 6 of week 0)
+    exists and can be tested. For a week-1 service, the blocked nights are
+    days 6 (Sun ending wk0),7(Mon),8(Tue),9(Wed),10(Thu); allowed are days
+    11(Fri),12(Sat) of week 1.
+    """
+    SHIFTS = ["NCC1", "Elec", "NHS", "AAN", "RWC", "NCS 2026"]
+
+    def _harness(self):
+        # 8 cover fellows over 2 weeks keeps the base SAT under spacing.
+        return NightHarness(["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"],
+                            [], self.SHIFTS, 2)
+
+    BLOCKED_WEEKDAY_NIGHTS = [6, 7, 8, 9, 10]   # Sun(prev), Mon, Tue, Wed, Thu
+    ALLOWED_WEEKEND_NIGHTS = [11, 12]           # Fri, Sat of the service week
+
+    def test_weekday_services_block_weekday_nights_allow_weekend(self):
+        for service in ("NHS", "AAN", "RWC", "NCS 2026"):
+            h = self._harness()
+            h.encode()
+            for d in self.BLOCKED_WEEKDAY_NIGHTS:
+                h.forbids({("C1", 1, service): True}, {("C1", d): True},
+                          f"{service} (week 1) must block weekday night day {d}")
+            for d in self.ALLOWED_WEEKEND_NIGHTS:
+                h.permits({("C1", 1, service): True}, {("C1", d): True},
+                          f"{service} (week 1) must ALLOW weekend night day {d}")
+
+
 class TestNHNightGate:
     SHIFTS = ["NCC1", "Stroke", "Elec"]
 
