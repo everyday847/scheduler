@@ -39,12 +39,17 @@ _Avoid_: one-off rule, contingent rule
 A set of interchangeable outside fellows who contribute coverage blocks without needing individualized schedule semantics.
 _Avoid_: named fellow cohort
 
+**Management Mode**:
+How a **Fellow**'s weekly schedule is determined. A fellow is **Imported** when their weekly schedule is frozen exactly as supplied by an external workbook (empty weeks stay empty; their per-fellow weekly **Constraints** are skipped because the schedule is managed elsewhere), or **Managed** when the solver assigns their weekly schedule and **Annual Rules** may pin specific weeks (vacation, exam, conference). Nights and weekends are solver-assigned for both modes. The mode is set from provenance (a workbook import makes a fellow Imported) and resolved in exactly one place, never re-inferred per call site.
+_Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
+
 ## Relationships
 
 - A **Schedule** assigns each **Fellow** to zero or one **Shift** per week unless a specific **Constraint** allows an exception.
 - A **Fellow Group** selects cohorts of **Fellows** for **Standing Rules** and **Annual Rules**.
 - An **External Coverage Pool** may be represented by placeholder **Fellows** when the individual identities do not matter to the **Schedule**.
 - A **Block** contains one or more consecutive weeks.
+- Each **Fellow** has a **Management Mode** (Imported or Managed) that governs how their weekly schedule is produced.
 - A **Solver Invariant** is independent of **Fellow Group** policy.
 - A **Standing Rule** may mention **Fellow Groups**, **Shifts**, and **Blocks**.
 - An **Annual Rule** may mention specific **Fellows**, dates, vacation requests, supervision requirements, or exam weeks.

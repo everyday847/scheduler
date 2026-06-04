@@ -18,6 +18,7 @@ import pytest
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.schedule_solver import (
+    ManagementMode,
     ScheduleSolverConfig,
     _encode_shift_total,
     _encode_staffing_per_week,
@@ -105,6 +106,7 @@ class WeeklyHarness:
             self.opb, self.xs, constraint, fellow_indices,
             num_weeks=self.num_weeks, num_fellows=len(self.fellow_names),
             shifts=self.shifts, shift_idx=self.shift_idx,
+            fellow_names=self.fellow_names,
             soft_violations=self.soft_violations, config=config,
             locked_fellow_indices=locked_fellow_indices,
         )
@@ -637,3 +639,53 @@ class TestWeekendStrokeServiceEligibility:
         all_elig = (wk.always_stroke_eligible | wk.telestroke_stroke_eligible
                     | wk.stroke_only_eligible)
         assert "NoStroke" not in all_elig
+
+
+# ---------------------------------------------------------------------------
+# Management mode (single source of truth for IMPORTED vs MANAGED)
+# ---------------------------------------------------------------------------
+
+class TestManagementMode:
+    """The IMPORTED/MANAGED distinction must be resolved in exactly one place
+    (ScheduleSolverConfig), so the four sites that used to re-derive 'is this
+    fellow locked?' can never drift apart."""
+
+    def _config(self):
+        return ScheduleSolverConfig(
+            fellow_groups={"NCC": ["Imp1"], "NH": ["Man1", "Man2"]},
+            shifts=["NCC1", "Stroke", "Elec"], constraints=[],
+            night_config=NightSolverConfig(), weekend_config=WeekendSolverConfig(),
+            num_days=21,
+            locked_assignments={"Imp1": ["NCC1", "Stroke", ""]},
+        )
+
+    def test_imported_vs_managed_classification(self):
+        cfg = self._config()
+        assert cfg.management_mode("Imp1") is ManagementMode.IMPORTED
+        assert cfg.management_mode("Man1") is ManagementMode.MANAGED
+        assert cfg.imported_fellow_names == frozenset({"Imp1"})
+
+    def test_imported_indices_follow_canonical_order(self):
+        cfg = self._config()
+        fellow_names = ["Imp1", "Man1", "Man2"]  # canonical (group concat) order
+        assert cfg.imported_fellow_indices(fellow_names) == frozenset({0})
+
+    def test_imported_shift_counts_per_week(self):
+        cfg = self._config()
+        fellow_names = ["Imp1", "Man1", "Man2"]
+        # Imp1 frozen NCC1 in wk0, Stroke in wk1, empty wk2.
+        assert cfg.imported_shift_counts(fellow_names, {"NCC1"}) == {0: 1}
+        assert cfg.imported_shift_counts(fellow_names, {"Stroke"}) == {1: 1}
+        # restrict_to excluding the imported fellow → no counts
+        assert cfg.imported_shift_counts(fellow_names, {"NCC1"},
+                                         restrict_to=frozenset({1, 2})) == {}
+
+    def test_no_imports_is_all_managed(self):
+        cfg = ScheduleSolverConfig(
+            fellow_groups={"G": ["A", "B"]}, shifts=["X"], constraints=[],
+            night_config=NightSolverConfig(), weekend_config=WeekendSolverConfig(),
+            num_days=7,
+        )
+        assert cfg.imported_fellow_names == frozenset()
+        assert cfg.management_mode("A") is ManagementMode.MANAGED
+        assert cfg.imported_fellow_indices(["A", "B"]) == frozenset()

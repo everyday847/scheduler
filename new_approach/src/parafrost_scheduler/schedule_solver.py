@@ -16,10 +16,12 @@ weighted penalty is bounded by a single PB constraint and scanned downward.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +125,22 @@ def _date_to_day_index(date_str: str | date, horizon_start: date) -> int:
 # Data classes
 # ---------------------------------------------------------------------------
 
+class ManagementMode(Enum):
+    """How a fellow's WEEKLY schedule is determined (the single source of truth
+    for the "locked vs. pinned" distinction that used to be re-derived ad hoc).
+
+    IMPORTED  — weekly schedule frozen exactly as given (an external workbook
+                import); empty weeks stay empty; per-fellow weekly rules are
+                skipped because the schedule is managed elsewhere. Nights and
+                weekends are still solver-assigned.
+    MANAGED   — the solver assigns the weekly schedule; Annual Rules may pin
+                specific weeks (vacation / exam / conference) via
+                specific_assignment, but all per-fellow rules stay enforced.
+    """
+    IMPORTED = "imported"
+    MANAGED = "managed"
+
+
 @dataclass(frozen=True)
 class ScheduleSolverConfig:
     fellow_groups: dict[str, list[str]]
@@ -145,6 +163,51 @@ class ScheduleSolverConfig:
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
+
+    # -- Management mode: the single source of truth for IMPORTED vs MANAGED ---
+    # A fellow is IMPORTED iff their weekly schedule was frozen from an external
+    # import (recorded in locked_assignments). Everything that used to ask "is
+    # this fellow locked?" must route through these helpers so the answer is
+    # derived in exactly one place.
+
+    @property
+    def imported_fellow_names(self) -> frozenset[str]:
+        """Fellows whose weekly schedule is frozen (IMPORTED)."""
+        return frozenset(self.locked_assignments)
+
+    def management_mode(self, fellow_name: str) -> ManagementMode:
+        return (ManagementMode.IMPORTED if fellow_name in self.locked_assignments
+                else ManagementMode.MANAGED)
+
+    def imported_fellow_indices(self, fellow_names: list[str]) -> frozenset[int]:
+        """Indices (in canonical *fellow_names* order) of IMPORTED fellows."""
+        return frozenset(
+            i for i, name in enumerate(fellow_names)
+            if name in self.locked_assignments
+        )
+
+    def imported_shift_counts(
+        self,
+        fellow_names: list[str],
+        shift_names: set[str] | frozenset[str],
+        restrict_to: frozenset[int] | None = None,
+    ) -> dict[int, int]:
+        """Per-week count of IMPORTED fellows whose frozen weekly shift is one of
+        *shift_names*. Optionally restricted to fellow indices in *restrict_to*
+        (e.g. a constraint's target group). Single source for the locked-fill
+        softening used by staffing caps and the dual-stroke window."""
+        target = set(shift_names)
+        counts: dict[int, int] = {}
+        for i, name in enumerate(fellow_names):
+            if restrict_to is not None and i not in restrict_to:
+                continue
+            weekly = self.locked_assignments.get(name)
+            if not weekly:
+                continue
+            for w, shift in enumerate(weekly):
+                if shift and shift in target:
+                    counts[w] = counts.get(w, 0) + 1
+        return counts
 
 
 @dataclass(frozen=True)
@@ -245,18 +308,19 @@ def build_full_schedule_opb(
                 opb.at_most_k(active_vars, 1)
 
     # -------------------------------------------------------------------
-    # 2b. Pin locked fellows' assignments
+    # 2b. Pin IMPORTED fellows' frozen weekly assignments
     # -------------------------------------------------------------------
-    locked_fellow_indices: frozenset[int] = frozenset()
+    # IMPORTED fellows (single source of truth: config.imported_fellow_*) have
+    # their weekly schedule frozen here; their per-fellow weekly rules are then
+    # skipped downstream via locked_fellow_indices.
+    locked_fellow_indices = config.imported_fellow_indices(fellow_names)
     if config.locked_assignments:
-        fully_locked = set()
         opb.add_comment("Locked fellow assignments (pinned)")
         for fellow_name, weekly_shifts in config.locked_assignments.items():
             try:
                 f = fellow_mapping.get_fellow_index(fellow_name)
             except ValueError:
                 continue
-            fully_locked.add(f)
             for w, shift_name in enumerate(weekly_shifts):
                 if w >= num_weeks or not shift_name:
                     continue
@@ -266,7 +330,6 @@ def build_full_schedule_opb(
                 var = xs[f][w][si]
                 if var != 0:
                     opb.add_unit(var)
-        locked_fellow_indices = frozenset(fully_locked)
 
     # -------------------------------------------------------------------
     # 3. Encode weekly shift rules from YAML config
@@ -385,6 +448,7 @@ def _encode_weekly_rules(
     num_weeks = config.num_weeks
     num_fellows = fellow_mapping.total_fellows
     shifts = config.shifts
+    fellow_names = [fellow_mapping.get_fellow_name(i) for i in range(num_fellows)]
 
     handlers = {
         "full_assignment": _encode_full_assignment,
@@ -431,6 +495,7 @@ def _encode_weekly_rules(
             num_fellows=num_fellows,
             shifts=shifts,
             shift_idx=shift_idx,
+            fellow_names=fellow_names,
             soft_violations=soft_violations,
             config=config,
             locked_fellow_indices=locked_fellow_indices,
@@ -2080,12 +2145,8 @@ def _encode_dual_stroke_window(
         supervisor_indices = {fi for fi, name in enumerate(fellow_names) if name in supervisors}
         non_supervisor_indices = {fi for fi in range(len(fellow_names)) if fi not in supervisor_indices}
 
-        locked_stroke_per_week: dict[int, int] = {}
-        if config.locked_assignments:
-            for fellow_name, weekly_shifts in config.locked_assignments.items():
-                for w, s in enumerate(weekly_shifts):
-                    if s == "Stroke":
-                        locked_stroke_per_week[w] = locked_stroke_per_week.get(w, 0) + 1
+        # IMPORTED fellows already on Stroke that week (single source of truth).
+        locked_stroke_per_week = config.imported_shift_counts(fellow_names, {"Stroke"})
 
         weight = config.weekly_soft_weight
 
@@ -2665,25 +2726,15 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
     target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
     s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
 
-    # Precompute locked contribution per week for at_most/exactly checks.
-    # Only count locked fellows who are in the constraint's target groups (fellow_indices).
+    # Precompute IMPORTED contribution per week for at_most/exactly checks.
+    # Only count IMPORTED fellows in the constraint's target groups (single
+    # source of truth: config.imported_shift_counts).
     locked_count_per_week: dict[int, int] | None = None
     if not is_soft and config.locked_assignments and relation in ("at_most", "exactly"):
-        locked_count_per_week = {}
-        target_shift_set = set(target_shifts)
-        fellow_index_set = frozenset(fellow_indices)
-        all_fellow_names = []
-        for g, fellows in config.fellow_groups.items():
-            all_fellow_names.extend(fellows)
-        for fellow_name, weekly_shifts in config.locked_assignments.items():
-            if fellow_name not in all_fellow_names:
-                continue
-            fi = all_fellow_names.index(fellow_name)
-            if fi not in fellow_index_set:
-                continue
-            for w, shift_name in enumerate(weekly_shifts):
-                if shift_name and shift_name in target_shift_set:
-                    locked_count_per_week[w] = locked_count_per_week.get(w, 0) + 1
+        locked_count_per_week = config.imported_shift_counts(
+            kw["fellow_names"], set(target_shifts),
+            restrict_to=frozenset(fellow_indices),
+        )
 
     if constraint.weeks:
         w_start, w_end = constraint.weeks.start, constraint.weeks.end
