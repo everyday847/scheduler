@@ -227,8 +227,8 @@ class TestScheduleSolverConfigDerivedNumWeeks:
     def test_num_weeks_derived_from_start_dow_and_num_days(self):
         """num_weeks is always consistent with _num_weeks_for(start_dow, num_days)."""
         from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
-        from scheduler.night_call_solver import NightSolverConfig
-        from scheduler.weekend_call_solver import WeekendSolverConfig
+        from scheduler.night_call_types import NightSolverConfig
+        from scheduler.weekend_call_types import WeekendSolverConfig
 
         config = ScheduleSolverConfig(
             fellow_groups={"PGY5": ["Alice"]},
@@ -245,8 +245,8 @@ class TestScheduleSolverConfigDerivedNumWeeks:
     def test_num_weeks_default_365_monday(self):
         """Default config (start_dow=0, num_days=365) gives 53 weeks."""
         from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
-        from scheduler.night_call_solver import NightSolverConfig
-        from scheduler.weekend_call_solver import WeekendSolverConfig
+        from scheduler.night_call_types import NightSolverConfig
+        from scheduler.weekend_call_types import WeekendSolverConfig
 
         config = ScheduleSolverConfig(
             fellow_groups={"PGY5": ["Alice"]},
@@ -267,8 +267,8 @@ class TestBuildFullScheduleOpbNonMondayStart:
             ScheduleSolverConfig,
             build_full_schedule_opb,
         )
-        from scheduler.night_call_solver import NightSolverConfig
-        from scheduler.weekend_call_solver import WeekendSolverConfig
+        from scheduler.night_call_types import NightSolverConfig
+        from scheduler.weekend_call_types import WeekendSolverConfig
 
         num_days = 21  # 3 weeks of days
         start_dow = 2  # Wednesday

@@ -23,9 +23,9 @@ from scheduler.call_schedule_common import (
     is_preferred_sunday_following_service,
     parse_call_schedule_csv,
 )
-from scheduler.night_call_solver import NightScheduleSolution
-from scheduler.weekend_call_solver import WeekendScheduleSolution
-from scheduler.night_call_solver_policy import (
+from scheduler.night_call_types import NightScheduleSolution
+from scheduler.weekend_call_types import WeekendScheduleSolution
+from scheduler.night_policy_types import (
     CRITERION_ANAESTHESIA,
     CRITERION_CLINIC,
     CRITERION_FRIDAY_WEEKEND_NCC1,

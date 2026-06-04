@@ -19,8 +19,8 @@ from .semantic_constraints import (
     FellowSelector,
     SemanticConstraint,
 )
-from .night_call_solver import NightSolverConfig
-from .weekend_call_solver import WeekendSolverConfig
+from .night_call_types import NightSolverConfig
+from .weekend_call_types import WeekendSolverConfig
 
 from parafrost_scheduler.schedule_solver import ScheduleSolverConfig, build_full_schedule_opb
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner

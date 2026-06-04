@@ -32,14 +32,14 @@ from scheduler.call_schedule_common import (
     is_clinic_service,
     is_preferred_sunday_following_service,
 )
-from scheduler.night_call_solver import (
+from scheduler.night_call_types import (
     NightScheduleSolution,
     NightSolverConfig,
     CountMultiset,
     absolute_day_index,
     holiday_indices_for_config,
 )
-from scheduler.night_call_solver_policy import (
+from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     CRITERION_ANAESTHESIA,
     CRITERION_CLINIC,
@@ -397,7 +397,7 @@ def solve_night_schedule_roundingsat_at_limit(
         optimized=False,
     )
     if emit_summary:
-        from scheduler.night_call_solver_policy import print_policy_summary
+        from scheduler.night_policy_types import print_policy_summary
         print_policy_summary(parsed, policy_result)
     return policy_result
 
@@ -454,6 +454,6 @@ def solve_night_schedule_roundingsat_incremental(
         optimized=True,
     )
     if emit_summary:
-        from scheduler.night_call_solver_policy import print_policy_summary
+        from scheduler.night_policy_types import print_policy_summary
         print_policy_summary(parsed, policy_result)
     return policy_result

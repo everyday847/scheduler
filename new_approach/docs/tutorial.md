@@ -237,7 +237,7 @@ The `strength` field in the YAML controls this. A practical workflow:
 ## 5. Night call configuration
 
 Night call parameters are currently specified in code
-(`NightSolverConfig` in `scheduler/night_call_solver.py`):
+(`NightSolverConfig` in `scheduler/night_call_types.py`):
 
 ```python
 NightSolverConfig(

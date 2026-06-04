@@ -25,9 +25,9 @@ from parafrost_scheduler.schedule_solver import (
     _encode_night_policy_criteria,
     _num_weeks_for,
 )
-from scheduler.night_call_solver import NightSolverConfig, CountMultiset
-from scheduler.weekend_call_solver import WeekendSolverConfig
-from scheduler.night_call_solver_policy import (
+from scheduler.night_call_types import NightSolverConfig, CountMultiset
+from scheduler.weekend_call_types import WeekendSolverConfig
+from scheduler.night_policy_types import (
     CRITERION_CLINIC,
     CRITERION_STROKE,
     NightPolicyWeights,

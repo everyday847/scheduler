@@ -34,8 +34,8 @@ from scheduler.semantic_constraints import (
     ShiftSet,
     WeekSpan,
 )
-from scheduler.night_call_solver import NightSolverConfig
-from scheduler.weekend_call_solver import WeekendSolverConfig
+from scheduler.night_call_types import NightSolverConfig
+from scheduler.weekend_call_types import WeekendSolverConfig
 
 ROUNDINGSAT = (
     Path(__file__).resolve().parents[1]
