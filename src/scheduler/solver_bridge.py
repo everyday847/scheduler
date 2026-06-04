@@ -301,6 +301,43 @@ def _build_night_config(
 # Weekend config builder
 # ---------------------------------------------------------------------------
 
+_STROKE_SERVICE_SHIFTS = frozenset({"Stroke", "Telestroke/Clinic"})
+
+
+def _stroke_service_fellows(
+    request: Dict[str, Any],
+    fellow_groups: Dict[str, list[str]],
+) -> set[str]:
+    """Fellows who can be assigned weekday Stroke/Telestroke service.
+
+    Derived from the service rules (group shift_total + per-fellow call rules)
+    that grant Stroke or Telestroke with a positive at_least/exactly count.
+    This is the basis for conditional Weekend-Stroke eligibility — distinct from
+    the weekend stroke_total *target* (which is 0 for NH yet they take Stroke).
+    """
+    result: set[str] = set()
+
+    def grants_stroke(rule: dict) -> bool:
+        if not rule.get("active", True):
+            return False
+        if not (_STROKE_SERVICE_SHIFTS & set(rule.get("shifts", []))):
+            return False
+        return rule.get("relation") in ("at_least", "exactly") and rule.get("count", 0) > 0
+
+    for rule in request.get("rules", []):
+        if rule.get("type") == "shift_total" and grants_stroke(rule):
+            for g in rule.get("groups", []):
+                result.update(fellow_groups.get(g, []))
+
+    for rule in request.get("call_rules", []):
+        if rule.get("type") == "per_fellow_shift_total" and grants_stroke(rule):
+            fellow = rule.get("fellow")
+            if fellow:
+                result.add(fellow)
+
+    return result
+
+
 def _build_weekend_config(
     request: Dict[str, Any],
     fellow_groups: Dict[str, list[str]],
@@ -344,11 +381,16 @@ def _build_weekend_config(
     _validate_weekend_config(weekend_rules_config)
 
     # STROKE group fellows are always eligible for Weekend Stroke (they're
-    # Stroke specialists). Other fellows with stroke_totals (NCC_SR, NH) are
-    # only eligible when on weekday Stroke or Telestroke that week.
+    # Stroke specialists). Other fellows who can be on weekday Stroke or
+    # Telestroke that week (NCC_SR, NH) are eligible only on those weeks.
+    #
+    # Eligibility follows Stroke-SERVICE capability, NOT the weekend stroke_total
+    # TARGET: NH have weekend stroke_total 0 but still take weekday Stroke
+    # service (per-fellow targets), so they must be conditionally eligible.
     stroke_group = set(fellow_groups.get("STROKE", []))
-    always_eligible = stroke_eligible & stroke_group
-    conditionally_eligible = stroke_eligible - stroke_group
+    service_eligible = _stroke_service_fellows(request, fellow_groups)
+    always_eligible = (stroke_eligible | service_eligible) & stroke_group
+    conditionally_eligible = (stroke_eligible | service_eligible) - stroke_group
 
     return WeekendSolverConfig(
         ncc_totals=ncc_totals or None,

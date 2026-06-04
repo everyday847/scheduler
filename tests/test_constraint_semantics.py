@@ -573,3 +573,67 @@ class TestSoftNightCriterionIsNotHard:
         h = self._harness()
         h.encode()
         h.permits({}, {}, "base night formula SAT")
+
+
+# ---------------------------------------------------------------------------
+# Bridge-level: weekend Stroke eligibility derivation
+# ---------------------------------------------------------------------------
+
+from scheduler.solver_bridge import _build_weekend_config
+
+
+class TestWeekendStrokeServiceEligibility:
+    """REGRESSION: weekend-Stroke eligibility must follow Stroke-SERVICE
+    capability, NOT the weekend stroke_total TARGET. NH have weekend
+    stroke_total 0 but take weekday Stroke service (per-fellow targets), so
+    they must be conditionally eligible. Deriving eligibility from the target
+    silently excluded NH — no Weekend-Stroke variable was ever created for them.
+    """
+
+    def _request(self):
+        return {
+            "weekend_call": [
+                {"group": "STROKE", "ncc_total": 22, "stroke_total": 51},
+                {"group": "NCC_SR", "ncc_total": 32, "stroke_total": 2},
+                {"group": "NH", "ncc_total": 6, "stroke_total": 0},
+            ],
+            "rules": [
+                {"type": "shift_total", "groups": ["NCC_SR"], "shifts": ["Stroke"],
+                 "relation": "exactly", "count": 2, "active": True},
+            ],
+            "call_rules": [
+                {"type": "per_fellow_shift_total", "fellow": "Sokena Zaidi",
+                 "shifts": ["Stroke"], "relation": "at_least", "count": 4, "active": True},
+            ],
+        }
+
+    def _groups(self):
+        return {
+            "STROKE": ["Aditya", "Cameron"],
+            "NCC_SR": ["Raya", "Joseph"],
+            "NH": ["Jinyuan Liu", "Sokena Zaidi"],
+        }
+
+    def test_nh_with_stroke_service_target_is_conditionally_eligible(self):
+        wk = _build_weekend_config(self._request(), self._groups())
+        assert "Sokena Zaidi" in wk.telestroke_stroke_eligible, \
+            "NH with a per-fellow Stroke target must be conditionally weekend-Stroke eligible"
+
+    def test_ncc_sr_with_group_stroke_rule_is_conditionally_eligible(self):
+        wk = _build_weekend_config(self._request(), self._groups())
+        assert "Joseph" in wk.telestroke_stroke_eligible
+        assert "Raya" in wk.telestroke_stroke_eligible
+
+    def test_stroke_group_is_always_eligible(self):
+        wk = _build_weekend_config(self._request(), self._groups())
+        assert "Aditya" in wk.always_stroke_eligible
+        assert "Cameron" in wk.always_stroke_eligible
+
+    def test_fellow_without_any_stroke_capability_is_not_eligible(self):
+        req = self._request()
+        groups = {"STROKE": ["Aditya"], "NCC_JR": ["NoStroke"]}
+        req["weekend_call"] = [{"group": "STROKE", "stroke_total": 10}]
+        wk = _build_weekend_config(req, groups)
+        all_elig = (wk.always_stroke_eligible | wk.telestroke_stroke_eligible
+                    | wk.stroke_only_eligible)
+        assert "NoStroke" not in all_elig
