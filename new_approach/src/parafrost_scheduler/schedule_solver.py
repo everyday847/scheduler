@@ -1396,13 +1396,13 @@ def _encode_prevacation_weekend_penalty(
                 opb.weighted_sum_at_most(
                     [(xs[f][w][vac_idx], 1), (wr_var, 1), (-ind, 1)], 2
                 )
-                # ind <= vac
+                # ind <= vac  (vac + ~ind >= 1)
                 opb.weighted_sum_at_least(
-                    [(-xs[f][w][vac_idx], 1), (-ind, 1)], 1
+                    [(xs[f][w][vac_idx], 1), (-ind, 1)], 1
                 )
-                # ind <= wr
+                # ind <= wr  (wr + ~ind >= 1)
                 opb.weighted_sum_at_least(
-                    [(-wr_var, 1), (-ind, 1)], 1
+                    [(wr_var, 1), (-ind, 1)], 1
                 )
                 soft_violations.append((ind, 1))  # weight = 1
 
@@ -1505,10 +1505,10 @@ def _encode_weekend_mismatch_penalty(
                     mismatch = opb.new_var()
                     # mismatch >= wr_var - weekday_var: wr + ~weekday + ~mismatch <= 2
                     opb.weighted_sum_at_most([(wr_var, 1), (-weekday_var, 1), (-mismatch, 1)], 2)
-                    # mismatch <= wr_var: ~wr + ~mismatch >= 1
-                    opb.weighted_sum_at_least([(-wr_var, 1), (-mismatch, 1)], 1)
-                    # mismatch <= ~weekday_var: weekday + ~mismatch >= 1
-                    opb.weighted_sum_at_least([(weekday_var, 1), (-mismatch, 1)], 1)
+                    # mismatch <= wr_var  (wr + ~mismatch >= 1)
+                    opb.weighted_sum_at_least([(wr_var, 1), (-mismatch, 1)], 1)
+                    # mismatch <= ~weekday_var  (~weekday + ~mismatch >= 1)
+                    opb.weighted_sum_at_least([(-weekday_var, 1), (-mismatch, 1)], 1)
                     soft_violations.append((mismatch, weight))
 
 
@@ -2137,10 +2137,10 @@ def _encode_night_criterion_pair(
         ind = opb.new_var()
         # ind >= condition + night - 1
         opb.weighted_sum_at_most([(condition_var, 1), (night_var, 1), (-ind, 1)], 2)
-        # ind <= condition
-        opb.weighted_sum_at_least([(-condition_var, 1), (-ind, 1)], 1)
-        # ind <= night
-        opb.weighted_sum_at_least([(-night_var, 1), (-ind, 1)], 1)
+        # ind <= condition  (ind implies condition: condition + ~ind >= 1)
+        opb.weighted_sum_at_least([(condition_var, 1), (-ind, 1)], 1)
+        # ind <= night  (ind implies night: night + ~ind >= 1)
+        opb.weighted_sum_at_least([(night_var, 1), (-ind, 1)], 1)
         soft_violations.append((ind, weights.for_criterion(criterion)))
 
 
@@ -2166,12 +2166,12 @@ def _encode_night_criterion_triple(
         opb.weighted_sum_at_most(
             [(condition_var, 1), (night_var, 1), (-exempt_var, 1), (-ind, 1)], 3
         )
-        # ind <= condition
-        opb.weighted_sum_at_least([(-condition_var, 1), (-ind, 1)], 1)
-        # ind <= night
-        opb.weighted_sum_at_least([(-night_var, 1), (-ind, 1)], 1)
-        # ind <= ~exempt
-        opb.weighted_sum_at_least([(exempt_var, 1), (-ind, 1)], 1)
+        # ind <= condition  (condition + ~ind >= 1)
+        opb.weighted_sum_at_least([(condition_var, 1), (-ind, 1)], 1)
+        # ind <= night  (night + ~ind >= 1)
+        opb.weighted_sum_at_least([(night_var, 1), (-ind, 1)], 1)
+        # ind <= ~exempt  (~exempt + ~ind >= 1)
+        opb.weighted_sum_at_least([(-exempt_var, 1), (-ind, 1)], 1)
         soft_violations.append((ind, weights.for_criterion(criterion)))
 
 

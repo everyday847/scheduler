@@ -544,3 +544,32 @@ class TestNHNightGate:
         h.encode()
         h.permits({("NH1", 0, "NCC1"): True}, {("NH1", 0): True},
                   "NH with a weekday shift CAN do a night")
+
+
+class TestSoftNightCriterionIsNotHard:
+    """REGRESSION: a SOFT night criterion must only PENALIZE its pattern, never
+    FORBID it. The conjunction-indicator 'ind <= X' implications were encoded
+    backwards (X + ind <= 1), turning every soft criterion into a hard forbid —
+    which silently blocked Telestroke/Clinic fellows from Sun/Tue/Wed nights and
+    was the true cause of the WB2 night UNSAT.
+    """
+    SHIFTS = ["MICU", "NCC1", "Stroke", "Telestroke/Clinic", "Elec"]
+
+    def _harness(self):
+        # 4 cover fellows over 1 week; clinic criterion is soft by default.
+        return NightHarness(["C1", "C2", "C3", "C4"], [], self.SHIFTS, 1)
+
+    def test_clinic_night_is_permitted_not_forbidden(self):
+        h = self._harness()
+        h.encode()
+        # Day 1 = Tuesday (start_dow=0). Clinic criterion fires for a Tue night
+        # when the fellow is on a clinic shift that week. It is SOFT, so the
+        # pairing must be PERMITTED (penalized), not forbidden.
+        h.permits({("C1", 0, "Telestroke/Clinic"): True}, {("C1", 1): True},
+                  "Telestroke/Clinic fellow CAN take a Tuesday night (soft penalty)")
+
+    def test_clinic_night_other_fellows_still_cover(self):
+        # Sanity: base SAT so the permit above isn't vacuous.
+        h = self._harness()
+        h.encode()
+        h.permits({}, {}, "base night formula SAT")
