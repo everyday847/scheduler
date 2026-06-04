@@ -3,9 +3,8 @@
 Supports three solver backends:
 - ``--solver parafrost`` (default): CNF/DIMACS encoding solved with ParaFROST.
 - ``--solver roundingsat``: OPB/pseudo-Boolean encoding solved with RoundingSat.
-- ``--solver joint``: Joint OPB encoding that solves weekend + night assignments
-  simultaneously via RoundingSat.  Requires ``--weekend-csv`` pointing at an
-  input CSV with NO pre-existing weekend columns (just weekday service data).
+- ``--solver schedule``: full joint solve of weekly shifts + weekends + nights
+  from YAML config via RoundingSat.
 
 The OPB path uses native pseudo-Boolean constraints — cardinality and weighted
 sum constraints are single lines instead of thousands of CNF clauses.
@@ -96,24 +95,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     # Solver selection
     parser.add_argument(
         "--solver",
-        choices=["parafrost", "roundingsat", "joint", "schedule"],
+        choices=["parafrost", "roundingsat", "schedule"],
         default="parafrost",
         help=(
             "Solver backend to use. 'parafrost' uses CNF/DIMACS with the ParaFROST SAT "
             "solver (default). 'roundingsat' uses OPB pseudo-Boolean format with the "
-            "RoundingSat PB solver. 'joint' solves weekend+night simultaneously via "
-            "RoundingSat (requires --weekend-csv). 'schedule' jointly solves weekly shifts "
+            "RoundingSat PB solver. 'schedule' jointly solves weekly shifts "
             "+ weekends + nights from YAML config (requires --annual-config and "
             "--standing-config)."
-        ),
-    )
-    parser.add_argument(
-        "--weekend-csv",
-        type=Path,
-        default=None,
-        help=(
-            "Path to input CSV with weekday service assignments but NO weekend columns. "
-            "Required when --solver joint is used."
         ),
     )
     parser.add_argument(
@@ -180,12 +169,6 @@ def main(argv: list[str] | None = None) -> int:
     # -----------------------------------------------------------------------
     if args.solver == "schedule":
         return _run_schedule_solver(args)
-
-    # -----------------------------------------------------------------------
-    # Joint solver: dedicated path that solves weekend+night simultaneously
-    # -----------------------------------------------------------------------
-    if args.solver == "joint":
-        return _run_joint_solver(args)
 
     # Build the appropriate runner and solver functions
     if args.solver == "roundingsat":
@@ -401,91 +384,6 @@ def _print_schedule_summary(solution, config):
     for name in sorted(wknd_counts.keys()):
         parts = ", ".join(f"{r}={c}" for r, c in sorted(wknd_counts[name].items()))
         print(f"  {name}: {parts}")
-
-
-def _run_joint_solver(args) -> int:
-    """Run the joint weekend+night solver via RoundingSat."""
-    from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-    from parafrost_scheduler.joint_solver import (
-        solve_joint_schedule,
-        solve_joint_schedule_incremental,
-    )
-    from scheduler.call_schedule_common import parse_call_schedule_csv
-    from scheduler.night_call_types import write_night_schedule_csv
-    from scheduler.weekend_call_types import WeekendSolverConfig, write_weekend_schedule_csv
-
-    # --weekend-csv is required for the joint solver
-    if args.weekend_csv is None:
-        print(
-            "Error: --solver joint requires --weekend-csv <path_to_input_csv>",
-            file=sys.stderr,
-        )
-        return 2
-
-    runner = RoundingSatRunner(args.roundingsat_path)
-    print(f"Using RoundingSat PB solver (joint mode): {args.roundingsat_path}", flush=True)
-
-    parsed = parse_call_schedule_csv(args.weekend_csv)
-    print(
-        f"Parsed {len(parsed.week_rows)} schedule weeks from {args.weekend_csv}.",
-        flush=True,
-    )
-
-    weights = NightPolicyWeights(
-        anaesthesia=args.anaesthesia_weight,
-        clinic=args.clinic_weight,
-        stroke=args.stroke_weight,
-        friday_weekend_ncc1=args.friday_weekend_ncc1_weight,
-        sunday_following=args.sunday_following_weight,
-    )
-    print(
-        "Policy weights: "
-        f"anaesthesia={weights.anaesthesia}, clinic={weights.clinic}, "
-        f"stroke={weights.stroke}, "
-        f"friday_weekend_ncc1={weights.friday_weekend_ncc1}, "
-        f"sunday_following={weights.sunday_following}.",
-        flush=True,
-    )
-
-    hard_criteria = _parse_hard_criteria(args.hard)
-    night_config = NightSolverConfig()
-    weekend_config = WeekendSolverConfig()
-    mode = "unoptimized bounded solve" if args.no_optimize else "optimized binary search"
-    print(
-        f"Launching joint solver with {mode}; "
-        f"hard={_format_hard_criteria(hard_criteria)}.",
-        flush=True,
-    )
-
-    solve_joint = solve_joint_schedule if args.no_optimize else solve_joint_schedule_incremental
-    result = solve_joint(
-        parsed,
-        night_config=night_config,
-        weekend_config=weekend_config,
-        hard_criteria=hard_criteria,
-        weights=weights,
-        max_violation_limit=args.max_soft,
-        runner=runner,
-    )
-
-    print(
-        f"Completed joint solver: weighted={result.night_policy_result.counts.weighted_total}.",
-        flush=True,
-    )
-
-    # Write night schedule to output path
-    output_path = Path(args.output)
-    print(f"Writing night schedule to {output_path}.", flush=True)
-    write_night_schedule_csv(parsed, result.night_solution, output_path)
-    print(f"Wrote {output_path}.", flush=True)
-
-    # Write weekend schedule alongside the night output
-    weekend_output = output_path.with_name(output_path.stem + ".weekend" + output_path.suffix)
-    print(f"Writing weekend schedule to {weekend_output}.", flush=True)
-    write_weekend_schedule_csv(parsed, result.weekend_solution, weekend_output)
-    print(f"Wrote {weekend_output}.", flush=True)
-
-    return 0
 
 
 if __name__ == "__main__":

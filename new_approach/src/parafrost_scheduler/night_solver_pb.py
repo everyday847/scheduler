@@ -97,7 +97,7 @@ def _criteria_for_assignment(
     day_of_week 0-4). Stroke criterion applies to weekday nights only when the
     fellow is on weekday Stroke service, and to weekend nights only when the
     fellow is on Weekend Stroke (handled via weekend_ncc1_fellow parameter for
-    friday_weekend_ncc1; weekend stroke is handled in the joint solver).
+    friday_weekend_ncc1).
     """
     week_row = parsed.week_rows[week_index]
     weekday_service = week_row.weekday_assignments[fellow_name]
@@ -114,7 +114,6 @@ def _criteria_for_assignment(
         if week_index not in dual_stroke_weeks:
             if is_weekday_night:
                 criteria.append(CRITERION_STROKE)
-    # Weekend stroke → weekend nights is handled in joint_solver via weekend variables
     if day_of_week == 4:
         # Use provided weekend_ncc1_fellow if available, else fall back to schedule_assignments
         ncc1 = weekend_ncc1_fellow if weekend_ncc1_fellow is not None else week_row.schedule_assignments.get("Weekend NCC1")
