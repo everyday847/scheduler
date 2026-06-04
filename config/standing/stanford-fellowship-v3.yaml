@@ -20,7 +20,7 @@ rules:
     shifts: [NCC1]
     relation: at_least
     count: 1
-    strength: soft
+    strength: hard
     active: true
 
   - name: NCC1 Cap
@@ -40,7 +40,7 @@ rules:
     shifts: [NCC2]
     relation: at_least
     count: 1
-    strength: soft
+    strength: hard
     active: true
 
   - name: NCC2 Cap
