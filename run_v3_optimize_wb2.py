@@ -25,19 +25,24 @@ from parafrost_scheduler.workbook import write_schedule_workbook
 
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")
 STANDING = Path("config/standing/stanford-fellowship-v3.yaml")
-WORKBOOK = Path("workbook_partial_input2.xlsx")
+WORKBOOK = Path("workbook_partial_input5.xlsx")
 ROUNDINGSAT = Path("new_approach/vendor/roundingsat/build/roundingsat")
-OUTPUT_WORKBOOK = Path("output_v3_wb2_workbook.xlsx")
-OUTPUT_CSV = Path("output_v3_wb2.csv")
+OUTPUT_WORKBOOK = Path("output_v3_wb5_workbook.xlsx")
+OUTPUT_CSV = Path("output_v3_wb5.csv")
 
 SHIFT_MAP = {
     'MSICU': 'MICU', 'Anesthesia': 'Anaesthesia', 'Vacation': 'Vac',
-    'Elective': 'Elec', 'Elective/SICU': 'SICU', 'Elective/NCS 2026': 'Elec',
-    'Elec/APBN': 'Elec', 'NS SCVMC': 'NS',
+    'Elective': 'Elec', 'Elective/SICU': 'SICU', 'NS SCVMC': 'NS',
 }
 
 
-def load_config():
+def assemble_config_dicts(*, verbose=True):
+    """Assemble the mutable request dicts WB2 solves with, without building the
+    ScheduleSolverConfig. Returns the ``annual`` request dict, which carries
+    ``locked_assignments``, the injected specific-assignment rules, and
+    ``standing_rules`` (with NCC Team Cap softened). Callers may mutate rule
+    dicts (e.g. flip strength) before calling build_solver_config_from_request.
+    """
     annual = yaml.safe_load(ANNUAL.read_text())
     locked = {}
     wb_groups = set(
@@ -47,12 +52,14 @@ def load_config():
     )
     if WORKBOOK.exists():
         wb = parse_schedule_file(WORKBOOK.read_bytes(), WORKBOOK.name)
-        print(f"Imported workbook: {WORKBOOK.name}, {len(wb.fellow_names)} fellows")
+        if verbose:
+            print(f"Imported workbook: {WORKBOOK.name}, {len(wb.fellow_names)} fellows")
         for name, shifts in wb.assignments.items():
             if name not in wb_groups:
                 continue
             locked[name] = [SHIFT_MAP.get(s, s) if s else "" for s in shifts]
-        print(f"Locked {len(locked)} fellows from workbook (NCC + CCM)")
+        if verbose:
+            print(f"Locked {len(locked)} fellows from workbook (NCC + CCM)")
 
     annual["locked_assignments"] = locked
 
@@ -75,6 +82,11 @@ def load_config():
             r["strength"] = "soft"
     annual["standing_rules"] = standing["rules"]
 
+    return annual
+
+
+def load_config():
+    annual = assemble_config_dicts()
     config = build_solver_config_from_request(annual, standing_path=STANDING)
     return config, annual
 

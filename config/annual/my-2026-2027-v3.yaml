@@ -38,8 +38,9 @@ shifts:
 - MSICU
 - NS SCVMC
 - Vacation
-- Elec/APBN
-- Elective/NCS 2026
+- APBN
+- NCS 2026
+- RWC
 - Elective/SICU
 - NHS
 - AAN
@@ -148,7 +149,7 @@ night_rules:
     - Vacation
     - NS SCVMC
     - AAN
-    - Elective/NCS 2026
+    - NCS 2026
     substringServices:
     - SICU
     - MSICU
@@ -723,7 +724,7 @@ rules:
   name: NH Elective/APBN
   relation: at_least
   shifts:
-  - Elec/APBN
+  - APBN
   strength: hard
   type: shift_total
 - active: true
@@ -743,7 +744,7 @@ rules:
   name: STROKE Elective/APBN
   relation: exactly
   shifts:
-  - Elec/APBN
+  - APBN
   strength: hard
   type: shift_total
 weekend_rules:
@@ -775,7 +776,7 @@ weekend_rules:
   params:
     exactServices:
     - Vacation
-    - Elective/NCS 2026
+    - NCS 2026
     substringServices:
     - SICU
     - MSICU
@@ -891,8 +892,8 @@ call_rules:
   - MSICU
   - NS SCVMC
   - Vacation
-  - Elec/APBN
-  - Elective/NCS 2026
+  - APBN
+  - NCS 2026
   - Elective/SICU
   - NHS
   - AAN
@@ -924,8 +925,8 @@ call_rules:
   - MSICU
   - NS SCVMC
   - Vacation
-  - Elec/APBN
-  - Elective/NCS 2026
+  - APBN
+  - NCS 2026
   - Elective/SICU
   - NHS
   - AAN
@@ -946,7 +947,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - Elec/APBN
+  - APBN
   - ''
   - ''
   - ''
@@ -1000,7 +1001,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - Elec/APBN
+  - APBN
   - ''
   - ''
   - ''
@@ -1054,7 +1055,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - Elec/APBN
+  - APBN
   - ''
   - ''
   - ''
@@ -1107,7 +1108,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - Elec/APBN
+  - APBN
   - ''
   - ''
   - ''
@@ -1167,7 +1168,7 @@ specific_assignments:
   - NHS
   - ''
   - ''
-  - Elec/APBN
+  - APBN
   - ''
   - ''
   - ''
@@ -1216,7 +1217,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - Elec/APBN
+  - APBN
   - ''
   - NHS
   - ''
