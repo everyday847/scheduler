@@ -57,7 +57,10 @@ class NightPolicyWeights:
     anaesthesia: int = 1
     clinic: int = 1
     stroke: int = 5
-    friday_weekend_ncc1: int = 1
+    # friday_weekend_ncc1 is hard by default, so this weight only applies when the
+    # criterion is toggled soft. It matches the weekend-night Friday linking weight
+    # (40) so a soft Friday rule keeps the same cost as the NCC2/Stroke Friday cases.
+    friday_weekend_ncc1: int = 40
     sunday_following: int = 1
 
     @classmethod
@@ -66,7 +69,7 @@ class NightPolicyWeights:
             anaesthesia=penalty_weights.get("anaesthesia", 1),
             clinic=penalty_weights.get("clinic", 1),
             stroke=penalty_weights.get("stroke", 5),
-            friday_weekend_ncc1=penalty_weights.get("friday_weekend_ncc1", 1),
+            friday_weekend_ncc1=penalty_weights.get("friday_weekend_ncc1", 40),
             sunday_following=penalty_weights.get("sunday_following", 1),
         )
 

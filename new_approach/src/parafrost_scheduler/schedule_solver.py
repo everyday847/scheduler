@@ -82,6 +82,12 @@ _WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
 DEFAULT_WEEKLY_SOFT_WEIGHT = 100
 DEFAULT_WEEKEND_MISMATCH_WEIGHT = 20
 DEFAULT_SWING_UNCOVERED_WEIGHT = 100
+# Weekend-night linking penalties (per fellow-week occurrence). Friday (a night
+# fellow also holding a weekend role) is the most disruptive, so it is weighted
+# higher than the Saturday/Sunday role-preference nudges.
+DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT = 40
+DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT = 10
+DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT = 10
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +163,9 @@ class ScheduleSolverConfig:
     num_weeks: int = field(init=False)
     weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
     weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
+    weekend_night_friday_weight: int = DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT
+    weekend_night_saturday_weight: int = DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT
+    weekend_night_sunday_weight: int = DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT
     # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
     # of the target (so the distribution can't collapse onto a few fellows).
     weekend_total_tolerance: int = 1
@@ -2026,32 +2035,38 @@ def _encode_weekend_night_linking(
 ) -> None:
     """Link weekend night call assignments to weekend role assignments (soft).
 
-    Preferences (soft weight 20 each):
-    - Friday night: fellow should NOT have any weekend role that week.
-    - Saturday night: fellow should be Weekend NCC1 or NCC2.
-    - Sunday night: fellow should be Weekend Stroke.
+    Per-occurrence preferences (one penalty per offending fellow-week):
+    - Friday night (weight 40): fellow should NOT have a weekend role that week.
+      The Friday + Weekend-NCC1 case is owned by the (hard-by-default) policy
+      criterion ``friday_weekend_ncc1`` (see _encode_night_policy_criteria), so
+      this loop covers only NCC2/Stroke to avoid double-encoding it.
+    - Saturday night (weight 10): fellow should be Weekend NCC1 or NCC2.
+    - Sunday night (weight 10): fellow should be Weekend Stroke.
     """
     num_days = config.num_days
     num_weeks = config.num_weeks
     start_dow = config.start_dow
     num_fellows = len(fellow_names)
-    weight = config.weekend_mismatch_weight
+    friday_weight = config.weekend_night_friday_weight
+    saturday_weight = config.weekend_night_saturday_weight
+    sunday_weight = config.weekend_night_sunday_weight
 
     opb.add_comment("Night: weekend night linking (Fri/Sat/Sun ↔ weekend roles, soft)")
 
     for w in range(num_weeks):
-        # --- Friday night: penalize having a weekend role ---
+        # --- Friday night: penalize having a weekend role (NCC1 handled by the
+        # hard friday_weekend_ncc1 criterion, so only NCC2/Stroke here) ---
         friday_d = _week_day(w, 4, start_dow)
         if 0 <= friday_d < num_days:
             for f in range(num_fellows):
                 if xn[friday_d][f] == 0:
                     continue
-                for role_idx in range(3):
+                for role_idx in (_ROLE_NCC2, _ROLE_STROKE):
                     if f in wr[w][role_idx]:
                         _encode_night_criterion_pair(
                             opb, xn[friday_d][f], wr[w][role_idx][f],
                             "weekend_night_friday", frozenset(),
-                            _SoftWeightProxy(weight), soft_violations,
+                            _SoftWeightProxy(friday_weight), soft_violations,
                         )
 
         # --- Saturday night: prefer Weekend NCC1 or NCC2 ---
@@ -2080,7 +2095,7 @@ def _encode_weekend_night_linking(
                     _encode_night_criterion_pair(
                         opb, xn[sat_d][f], not_ncc,
                         "weekend_night_saturday", frozenset(),
-                        _SoftWeightProxy(weight), soft_violations,
+                        _SoftWeightProxy(saturday_weight), soft_violations,
                     )
 
         # --- Sunday night: prefer Weekend Stroke ---
@@ -2098,7 +2113,7 @@ def _encode_weekend_night_linking(
                     _encode_night_criterion_pair(
                         opb, xn[sun_d][f], not_stroke,
                         "weekend_night_sunday", frozenset(),
-                        _SoftWeightProxy(weight), soft_violations,
+                        _SoftWeightProxy(sunday_weight), soft_violations,
                     )
 
 

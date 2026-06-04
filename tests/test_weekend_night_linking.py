@@ -1,11 +1,13 @@
 """Tests for weekend night linking constraints.
 
 Verifies:
-1. Friday night fellow is blocked from all weekend roles (NCC1, NCC2, Stroke)
+1. Friday night fellow is penalized for Weekend NCC2/Stroke (NCC1 is owned by the
+   hard friday_weekend_ncc1 policy criterion, not this linking encoder)
 2. Saturday night fellow must be Weekend NCC1 or NCC2
 3. Fellow not eligible for NCC is blocked from Saturday night
 4. Sunday night fellow must be Weekend Stroke
 5. Fellow not eligible for Weekend Stroke is blocked from Sunday night
+6. Per-occurrence weights: Friday=40, Saturday=10, Sunday=10
 """
 
 from __future__ import annotations
@@ -137,17 +139,18 @@ def _constraints_containing(opb: OpbBuilder, var_id: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 class TestFridayNightBlocksWeekendRoles:
-    """A fellow on Friday night call must NOT be assigned to any weekend
-    role (NCC1, NCC2, Stroke) for that week."""
+    """A fellow on Friday night call is penalized for Weekend NCC2/Stroke. The
+    NCC1 case is owned by the hard friday_weekend_ncc1 policy criterion, so this
+    linking encoder must NOT touch Weekend NCC1."""
 
-    def test_friday_night_blocks_ncc1(self):
-        """Friday night + Weekend NCC1 should have at-most-1 constraint."""
+    def test_friday_night_does_not_touch_ncc1(self):
+        """Friday night linking should NOT reference Weekend NCC1 (owned by the
+        hard friday_weekend_ncc1 criterion elsewhere)."""
         # start_dow=0 (Monday). Friday = dow 4 = day 4.
         config = _make_config(start_dow=0, num_days=7)
         opb = OpbBuilder()
         xn = _make_xn(opb, 7, 1)
         wr = _make_wr(opb, config.num_weeks, 1)
-        baseline = opb.num_constraints
 
         soft = []
         _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
@@ -155,10 +158,9 @@ class TestFridayNightBlocksWeekendRoles:
         friday_d = _week_day(0, 4, 0)  # day 4
         xn_friday = xn[friday_d][0]
         wr_ncc1 = wr[0][_ROLE_NCC1][0]
-        # Should have at_most_k([xn_friday, wr_ncc1], 1)
         constraints = _constraints_containing(opb, xn_friday)
-        ncc1_constraints = [c for c in constraints if f"x{wr_ncc1}" in c]
-        assert len(ncc1_constraints) > 0, "Friday night should block Weekend NCC1"
+        ncc1_constraints = [c for c in constraints if f"x{wr_ncc1} " in c]
+        assert len(ncc1_constraints) == 0, "Friday linking must not touch Weekend NCC1"
 
     def test_friday_night_blocks_ncc2(self):
         """Friday night + Weekend NCC2 should have at-most-1 constraint."""
@@ -194,8 +196,8 @@ class TestFridayNightBlocksWeekendRoles:
         stroke_constraints = [c for c in constraints if f"x{wr_stroke}" in c]
         assert len(stroke_constraints) > 0, "Friday night should block Weekend Stroke"
 
-    def test_friday_night_blocks_all_three_roles(self):
-        """Friday night should block all three weekend roles."""
+    def test_friday_night_blocks_ncc2_and_stroke_only(self):
+        """Friday night should penalize Weekend NCC2 and Stroke, but not NCC1."""
         config = _make_config(start_dow=0, num_days=7)
         opb = OpbBuilder()
         xn = _make_xn(opb, 7, 1)
@@ -207,15 +209,31 @@ class TestFridayNightBlocksWeekendRoles:
         friday_d = _week_day(0, 4, 0)
         xn_friday = xn[friday_d][0]
         constraints = _constraints_containing(opb, xn_friday)
-        # Should have constraints with each of NCC1, NCC2, Stroke
-        role_vars = [
-            wr[0][_ROLE_NCC1][0],
-            wr[0][_ROLE_NCC2][0],
-            wr[0][_ROLE_STROKE][0],
-        ]
-        for rv in role_vars:
-            role_constraints = [c for c in constraints if f"x{rv}" in c]
-            assert len(role_constraints) > 0, f"Friday night should block role var x{rv}"
+        # NCC2 and Stroke should be referenced; NCC1 should not.
+        for rv in (wr[0][_ROLE_NCC2][0], wr[0][_ROLE_STROKE][0]):
+            role_constraints = [c for c in constraints if f"x{rv} " in c]
+            assert len(role_constraints) > 0, f"Friday night should penalize role var x{rv}"
+        wr_ncc1 = wr[0][_ROLE_NCC1][0]
+        ncc1_constraints = [c for c in constraints if f"x{wr_ncc1} " in c]
+        assert len(ncc1_constraints) == 0, "Friday night must not touch Weekend NCC1"
+
+    def test_weekend_night_linking_weights(self):
+        """Friday penalties weigh 40, Saturday/Sunday weigh 10 (per occurrence)."""
+        config = _make_config(start_dow=0, num_days=7)
+        opb = OpbBuilder()
+        xn = _make_xn(opb, 7, 1)
+        wr = _make_wr(opb, config.num_weeks, 1)
+
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
+
+        weights = sorted({w for _, w in soft})
+        # Friday: NCC2 + Stroke at 40; Saturday: NCC at 10; Sunday: Stroke at 10.
+        assert 40 in weights, "Friday linking should contribute weight-40 penalties"
+        assert 10 in weights, "Saturday/Sunday linking should contribute weight-10 penalties"
+        assert 20 not in weights, "Old shared weight 20 should no longer appear"
+        friday_count = sum(1 for _, w in soft if w == 40)
+        assert friday_count == 2, "One Friday penalty each for NCC2 and Stroke"
 
 
 # ---------------------------------------------------------------------------

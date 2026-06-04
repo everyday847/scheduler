@@ -42,7 +42,11 @@ def test_policy_counts_use_configurable_stroke_weight():
         ]
     )
 
-    counts = criteria_counts_for_solution(parsed, solution, weights=NightPolicyWeights(stroke=5))
+    # Pin friday_weekend_ncc1 explicitly (its default is 40) so this test stays
+    # focused on the configurable stroke weight.
+    counts = criteria_counts_for_solution(
+        parsed, solution, weights=NightPolicyWeights(stroke=5, friday_weekend_ncc1=1)
+    )
 
     assert counts.by_criterion["clinic"] == 1
     assert counts.by_criterion["stroke"] == 1
