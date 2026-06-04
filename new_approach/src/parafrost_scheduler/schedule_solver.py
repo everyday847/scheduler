@@ -72,7 +72,12 @@ NON_PREFERRED_SUNDAY_FOLLOWING = frozenset(
     {"Anaesthesia", "Clinic/Elective", "Telestroke/Clinic", "Vac", "NS", "NIR", "SICU", "SCVMC Rehab"}
 )
 HOLIDAY_ELIGIBLE_SHIFTS = frozenset({"NCC1", "NCC2", "Stroke"})
-WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "Vac"})
+# A fellow on a core ICU rotation (MICU/SICU), Anaesthesia, or Vacation cannot
+# also take a weekend call role that week. MICU/Anaesthesia were historically
+# missing here: the legacy weekend-blocking used the raw-name substring "MSICU",
+# which never matched after the canonical rename MSICU->MICU, and Anaesthesia was
+# simply never listed. Mirror NIGHT_BLOCKED_ALL_WEEK, which correctly blocks MICU.
+WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "Anaesthesia", "Vac"})
 
 _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1

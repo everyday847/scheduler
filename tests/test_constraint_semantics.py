@@ -368,7 +368,7 @@ def _wc(*, always=(), telestroke=(), stroke_only=()):
 
 
 class TestWeekendEligibility:
-    SHIFTS = ["Stroke", "Telestroke/Clinic", "NCC1", "Elec", "Vac"]
+    SHIFTS = ["Stroke", "Telestroke/Clinic", "NCC1", "Elec", "Vac", "MICU", "SICU", "Anaesthesia"]
 
     def test_blocked_shift_forbids_all_weekend_roles(self):
         # On Vac (weekend-blocking) → cannot do any weekend role
@@ -379,6 +379,17 @@ class TestWeekendEligibility:
             h.assert_weekend_forbidden(
                 {(0,0,"Vac"): True}, {(0,0,role): True},
                 f"on Vac cannot do weekend role {role}")
+
+    def test_core_icu_and_anaesthesia_forbid_weekend_roles(self):
+        # On MICU, SICU, or Anaesthesia → cannot do any weekend role that week.
+        wc = _wc(always=["A"])
+        h = WeekendHarness(["A"], self.SHIFTS, 2, wc)
+        h.encode_eligibility(h.config({"STROKE": ["A"]}))
+        for weekday in ("MICU", "SICU", "Anaesthesia"):
+            for role in (_ROLE_NCC1, _ROLE_NCC2, _ROLE_STROKE):
+                h.assert_weekend_forbidden(
+                    {(0,0,weekday): True}, {(0,0,role): True},
+                    f"on {weekday} cannot do weekend role {role}")
 
     def test_always_eligible_can_stroke_off_stroke_service(self):
         # always_stroke_eligible (STROKE specialist): weekend Stroke even when
