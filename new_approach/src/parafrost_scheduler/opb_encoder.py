@@ -55,6 +55,7 @@ class OpbBuilder:
         self._next_var: int = 1
         self._constraints: list[str] = []
         self._comments: list[str] = []
+        self._objective: list[tuple[int, int]] | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -282,11 +283,34 @@ class OpbBuilder:
     # OPB output
     # ------------------------------------------------------------------
 
+    def set_objective(self, weighted_lits: list[tuple[int, int]]) -> None:
+        """Set a linear minimization objective ``min: sum_i weight_i * lit_i``.
+
+        Each element is a (signed_lit, weight) pair (same convention as the
+        weighted_sum_* methods). Pass an empty list or call with None-equivalent
+        to clear. When no objective is set, ``to_opb`` emits a pure decision
+        formula (backward compatible) and RoundingSat runs in SAT mode.
+        """
+        self._objective = list(weighted_lits) if weighted_lits else None
+
+    @property
+    def has_objective(self) -> bool:
+        return self._objective is not None
+
     def to_opb(self) -> str:
         """Return the formula as an OPB-format string."""
         lines: list[str] = []
         # Header (required by PB competition format)
         lines.append(f"* #variable= {self.num_vars} #constraint= {self.num_constraints}")
+        # Optimization objective — emit immediately after the header, BEFORE any
+        # comments. RoundingSat is sensitive to this: an objective placed after
+        # comment lines yields markedly worse incumbents at the same time budget.
+        if self._objective:
+            terms = " ".join(
+                f"{weight:+d} {_lit_str(*_encode_lit(lit))}"
+                for lit, weight in self._objective
+            )
+            lines.append(f"min: {terms} ;")
         # User comments
         lines.extend(self._comments)
         # Constraints

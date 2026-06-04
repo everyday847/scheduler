@@ -239,6 +239,10 @@ class ScheduleVarMap:
 
     # Auxiliary variables
     soft_violations: list[tuple[int, int]]  # (var, weight) pairs
+    # The first soft_weekly_count entries of soft_violations are WEEKLY-layer
+    # penalties; the remainder are weekend/night/call. Used to report the soft
+    # penalty broken down by layer.
+    soft_weekly_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +252,20 @@ class ScheduleVarMap:
 def build_full_schedule_opb(
     config: ScheduleSolverConfig,
     soft_bound: int | None = None,
+    *,
+    objective: bool = False,
 ) -> tuple[OpbBuilder, ScheduleVarMap]:
-    """Build the complete OPB formula for the joint scheduling problem."""
+    """Build the complete OPB formula for the joint scheduling problem.
+
+    soft_bound:
+        If set, add a hard cap ``sum(soft penalties) <= soft_bound``. Used both
+        for the legacy decision-scan and as the strict-improvement bound in the
+        native-optimization streaming loop.
+    objective:
+        If True, emit a native ``min:`` objective over the soft penalties so
+        RoundingSat minimizes them directly (via ``RoundingSatRunner.optimize``).
+        Can be combined with soft_bound to minimize subject to an upper bound.
+    """
 
     fellow_mapping = _build_fellow_mapping(config.fellow_groups)
     fellow_names = [
@@ -338,21 +354,27 @@ def build_full_schedule_opb(
         opb, xs, config, fellow_mapping, shift_idx, soft_violations,
         locked_fellow_indices=locked_fellow_indices,
     )
+    # Soft violations appended so far are all WEEKLY; everything appended after
+    # this point is weekend/night/call. This boundary lets the decoder report
+    # the weekly vs. weekend-night soft penalty separately.
+    weekly_soft_count = len(soft_violations)
 
     # -------------------------------------------------------------------
     # 4. Weekend variables: wr[w][role][f]
     # -------------------------------------------------------------------
     opb.add_comment("Weekend assignment variables")
+    _diag_disable_weekends = os.environ.get("SCHED_DIAG_DISABLE_WEEKENDS") == "1"
     wr: list[list[dict[int, int]]] = []
     for w in range(num_weeks):
         wr.append([])
         for role_idx in range(3):
             role_vars: dict[int, int] = {}
-            for f in range(num_fellows):
-                if _is_weekend_eligible_static(
-                    fellow_names[f], role_idx, config.weekend_config
-                ):
-                    role_vars[f] = opb.new_var()
+            if not _diag_disable_weekends:
+                for f in range(num_fellows):
+                    if _is_weekend_eligible_static(
+                        fellow_names[f], role_idx, config.weekend_config
+                    ):
+                        role_vars[f] = opb.new_var()
             wr[w].append(role_vars)
 
     # -------------------------------------------------------------------
@@ -366,11 +388,12 @@ def build_full_schedule_opb(
     # 6. Night variables: xn[d][f]
     # -------------------------------------------------------------------
     opb.add_comment("Night assignment variables")
+    _diag_disable_nights = os.environ.get("SCHED_DIAG_DISABLE_NIGHTS") == "1"
     xn: list[list[int]] = []
     for d in range(num_days):
         xn.append([])
         for f in range(num_fellows):
-            if fellow_names[f] in config.night_config.ccm_fellows:
+            if _diag_disable_nights or fellow_names[f] in config.night_config.ccm_fellows:
                 xn[d].append(0)
             else:
                 xn[d].append(opb.new_var())
@@ -402,6 +425,9 @@ def build_full_schedule_opb(
         weighted_terms = [(var, weight) for var, weight in soft_violations]
         opb.weighted_sum_at_most(weighted_terms, soft_bound)
 
+    if objective and soft_violations:
+        opb.set_objective([(var, weight) for var, weight in soft_violations])
+
     var_map = ScheduleVarMap(
         fellow_names=fellow_names,
         shifts=shifts,
@@ -414,6 +440,7 @@ def build_full_schedule_opb(
         wr=wr,
         xn=xn,
         soft_violations=soft_violations,
+        soft_weekly_count=weekly_soft_count,
     )
 
     return opb, var_map
@@ -1309,11 +1336,21 @@ def _encode_weekend_constraints(
     wk_config = config.weekend_config
 
     opb.add_comment("Weekend: exactly one fellow per role per week")
+    _diag_wk_coverage = os.environ.get("SCHED_DIAG_WEEKEND_COVERAGE")
+    _diag_cov_weight = int(os.environ.get("SCHED_DIAG_COVERAGE_WEIGHT", "100000"))
     for w in range(num_weeks):
         for role_idx in range(3):
             role_vars = list(wr[w][role_idx].values())
             if role_vars:
-                opb.exactly_one(role_vars)
+                if _diag_wk_coverage == "relax":
+                    opb.at_most_k(role_vars, 1)
+                elif _diag_wk_coverage == "soft":
+                    u = opb.new_var()
+                    opb.weighted_sum_at_least([(v, 1) for v in role_vars] + [(u, 1)], 1)
+                    opb.at_most_k(role_vars, 1)
+                    soft_violations.append((u, _diag_cov_weight))
+                else:
+                    opb.exactly_one(role_vars)
 
     # All-different: no fellow fills two weekend roles in same week
     opb.add_comment("Weekend: distinct assignments per week")
@@ -1604,12 +1641,26 @@ def _encode_night_constraints(
 
     # Exactly one fellow per night (hard coverage)
     opb.add_comment("Night: exactly one fellow per night")
+    _diag_coverage = os.environ.get("SCHED_DIAG_NIGHT_COVERAGE")
+    _diag_cov_weight = int(os.environ.get("SCHED_DIAG_COVERAGE_WEIGHT", "100000"))
     for d in range(num_days):
         active = [xn[d][f] for f in range(num_fellows) if xn[d][f] != 0]
         if active:
-            opb.exactly_one(active)
-            # TODO: this causes UNSAT with hard STROKE shift_totals (encoding bug)
-            # Temporarily using soft for diagnostic optimization runs
+            if _diag_coverage == "relax":
+                # DIAGNOSTIC: relax coverage to at_most_one (no forced coverage).
+                # If this turns the night layer SAT, the binding constraint is
+                # genuinely the per-night coverage requirement vs. the eligible pool.
+                opb.at_most_k(active, 1)
+            elif _diag_coverage == "soft":
+                # DIAGNOSTIC: soft coverage. slack u=1 means night d is left
+                # uncovered, at a large penalty. Minimizing the penalty reveals
+                # the minimum coverage deficit and which nights are uncoverable.
+                u = opb.new_var()
+                opb.weighted_sum_at_least([(v, 1) for v in active] + [(u, 1)], 1)
+                opb.at_most_k(active, 1)
+                soft_violations.append((u, _diag_cov_weight))
+            else:
+                opb.exactly_one(active)
 
     # Night blocking based on weekly shift (dynamic)
     # Vacation blocks ALL 7 nights; other blocked services only block Sun-Thu
@@ -1721,7 +1772,8 @@ def _encode_night_constraints(
     spacing_max = night_config.spacing_max_nights if hasattr(night_config, 'spacing_max_nights') else 1
     spacing_window = night_config.spacing_window_days if hasattr(night_config, 'spacing_window_days') else 3
     opb.add_comment(f"Night: at most {spacing_max} in any {spacing_window}-day window per fellow")
-    for f in range(num_fellows):
+    _diag_no_spacing = os.environ.get("SCHED_DIAG_DISABLE_NIGHT_SPACING") == "1"
+    for f in range(num_fellows) if not _diag_no_spacing else range(0):
         for start in range(num_days - spacing_window + 1):
             window_vars = [xn[start + offset][f] for offset in range(spacing_window)
                           if xn[start + offset][f] != 0]
@@ -2967,6 +3019,93 @@ def decode_solution(
     )
 
 
+def soft_penalty_breakdown(
+    assignment: dict[int, bool], var_map: ScheduleVarMap,
+) -> tuple[int, int, int]:
+    """Split the soft penalty into (weekly, weekend_night, total).
+
+    Weekly = soft violations from weekly shift rules; weekend_night = weekend +
+    night + call-rule soft violations. The split is the soft_weekly_count
+    boundary recorded at build time.
+    """
+    sv = var_map.soft_violations
+    k = var_map.soft_weekly_count
+    weekly = sum(w for v, w in sv[:k] if assignment.get(v, False))
+    call = sum(w for v, w in sv[k:] if assignment.get(v, False))
+    return weekly, call, weekly + call
+
+
+@dataclass(frozen=True)
+class OptimizeStreamStep:
+    """One streamed incumbent from native optimization."""
+    solution: FullScheduleSolution
+    weekly_penalty: int
+    call_penalty: int       # weekend + night + call-rule soft penalty
+    total_penalty: int
+    optimal: bool           # True iff this incumbent is proven optimal
+    elapsed: float
+
+
+def optimize_stream(
+    config: ScheduleSolverConfig,
+    runner: RoundingSatRunner,
+    *,
+    preview_seconds: tuple[float, ...] = (8.0, 25.0),
+    max_seconds: float = 180.0,
+    opt_mode: str = "hybrid",
+):
+    """Stream improving full schedules via native optimization (hybrid schedule).
+
+    RoundingSat minimizes the soft-penalty objective natively — far faster and
+    far better than the legacy decision-scan (it finds a feasible point in ~1s
+    then descends) — but it prints its incumbent model only once, at the end,
+    and cold restarts lose progress. So we run a few short *preview* solves
+    (each a quick streamed schedule for the "instant feedback, then streamed
+    improvements" UX) and then ONE long *final* solve that gets the entire
+    remaining budget for the best-quality result. No hard objective bound is
+    added (that would make initial feasibility slow). We keep the best incumbent
+    seen and yield only strict improvements, so the stream is monotonic.
+
+    preview_seconds:
+        Per-run budgets for the short preview solves. The final run always
+        consumes whatever budget remains, so it should dominate (keep previews
+        short relative to *max_seconds*).
+
+    Yields :class:`OptimizeStreamStep` per improvement; the final step has
+    ``optimal=True`` iff optimality was proven.
+
+    BACK-BURNER: the clean long-term alternative is to patch RoundingSat to emit
+    each improving incumbent's model, enabling true single-run streaming with no
+    restart tax. Tracked separately; not done here.
+    """
+    t0 = time.time()
+    opb, var_map = build_full_schedule_opb(config, objective=True)
+    best_total: int | None = None
+
+    # Short previews first, then a final run that takes all remaining budget.
+    budgets: list[float | None] = list(preview_seconds) + [None]
+    for b in budgets:
+        remaining = max_seconds - (time.time() - t0)
+        if remaining < 1.0:
+            return
+        budget = remaining if b is None else min(b, remaining)
+        res = runner.optimize(opb, time_limit=budget, opt_mode=opt_mode)
+
+        if res.satisfiable and res.assignment is not None:
+            sol = decode_solution(res.assignment, var_map)
+            wk, cn, tot = soft_penalty_breakdown(res.assignment, var_map)
+            if best_total is None or tot < best_total:
+                best_total = tot
+                yield OptimizeStreamStep(sol, wk, cn, tot, res.optimal, time.time() - t0)
+            if res.optimal or best_total == 0:
+                return
+        elif res.proven_unsat:
+            # The whole problem is infeasible (no objective bound was added).
+            return
+        # Otherwise (unknown / no incumbent in this slice): fall through to the
+        # next, longer budget.
+
+
 # ---------------------------------------------------------------------------
 # Optimization loop (linear scan)
 # ---------------------------------------------------------------------------
@@ -3103,121 +3242,66 @@ def solve_full_schedule_progressive(
     config: ScheduleSolverConfig,
     runner: RoundingSatRunner,
     *,
-    max_soft: int | None = None,
-    coarse_step: int = 100,
-    fine_step: int = 5,
-    coarse_timeout: float = 15.0,
-    fine_timeout: float = 60.0,
+    preview_seconds: tuple[float, ...] = (8.0, 25.0),
+    max_seconds: float = 180.0,
+    **_legacy,
 ):
-    """Generator that yields solver events for progressive optimization.
+    """Generator that yields solver events for progressive optimization,
+    powered by native RoundingSat minimization (:func:`optimize_stream`).
 
     Each yield is a dict with a ``type`` key:
 
     - ``{"type": "status", "phase": ..., "vars": ..., "constraints": ...}``
-    - ``{"type": "solution", ...solution_to_json..., "elapsed": float}``
-    - ``{"type": "done", "optimal_penalty": int, "total_seconds": float}``
+    - ``{"type": "solution", ...solution_to_json..., weekly_penalty, call_penalty,
+       optimal, "elapsed": float}``
+    - ``{"type": "done", "optimal_penalty": int, "optimal": bool, "total_seconds": float}``
     - ``{"type": "error", "message": str}``
+
+    Streams the first feasible/optimized schedule fast, then improving schedules
+    as the budget is spent. ``_legacy`` absorbs old scan-era kwargs harmlessly.
     """
     t0 = time.time()
 
     yield {"type": "status", "phase": "building"}
-
     opb_check, var_map = build_full_schedule_opb(config, soft_bound=None)
-    upper_bound = sum(w for _, w in var_map.soft_violations)
-    if max_soft is not None:
-        upper_bound = min(upper_bound, max_soft)
-
     yield {
         "type": "status",
         "phase": "built",
         "vars": opb_check.num_vars,
         "constraints": opb_check.num_constraints,
         "soft_indicators": len(var_map.soft_violations),
-        "upper_bound": upper_bound,
     }
 
-    # Feasibility check
-    yield {"type": "status", "phase": "feasibility"}
-    opb_feasible, _ = build_full_schedule_opb(config, soft_bound=upper_bound)
+    yield {"type": "status", "phase": "optimizing"}
+    any_solution = False
+    last_step = None
     try:
-        result = runner.solve(opb_feasible, timeout=120.0)
-    except Exception as exc:
-        yield {"type": "error", "message": f"Feasibility check timed out: {exc}"}
+        for step in optimize_stream(
+            config, runner,
+            preview_seconds=preview_seconds, max_seconds=max_seconds,
+        ):
+            any_solution = True
+            last_step = step
+            yield {
+                "type": "solution",
+                **solution_to_json(step.solution),
+                "weekly_penalty": step.weekly_penalty,
+                "call_penalty": step.call_penalty,
+                "optimal": step.optimal,
+                "elapsed": step.elapsed,
+            }
+    except Exception as exc:  # surface solver/runtime errors to the client
+        yield {"type": "error", "message": str(exc)}
         return
-    if not result.satisfiable:
-        yield {"type": "error", "message": f"Infeasible with full soft budget ({upper_bound})"}
+
+    if not any_solution:
+        yield {"type": "error", "message": "Infeasible with the current hard constraints"}
         return
-
-    best_assignment = result.assignment
-    best_bound = upper_bound
-
-    # Yield first feasible solution
-    _, decode_map = build_full_schedule_opb(config, soft_bound=best_bound)
-    first_solution = decode_solution(best_assignment, decode_map)
-    yield {
-        "type": "solution",
-        **solution_to_json(first_solution),
-        "elapsed": time.time() - t0,
-    }
-
-    # Coarse scan — step proportional to starting penalty
-    effective_coarse = max(coarse_step, first_solution.soft_penalty // 20)
-    yield {"type": "status", "phase": "coarse_scan", "step": effective_coarse}
-    last_yielded_penalty = first_solution.soft_penalty
-    current = first_solution.soft_penalty - effective_coarse
-    while current >= 0:
-        opb_probe, _ = build_full_schedule_opb(config, soft_bound=current)
-        try:
-            result = runner.solve(opb_probe, timeout=coarse_timeout)
-        except Exception:
-            break
-        if result.satisfiable:
-            best_assignment = result.assignment
-            best_bound = current
-            _, decode_map = build_full_schedule_opb(config, soft_bound=best_bound)
-            improved = decode_solution(best_assignment, decode_map)
-            if improved.soft_penalty < last_yielded_penalty:
-                last_yielded_penalty = improved.soft_penalty
-                yield {
-                    "type": "solution",
-                    **solution_to_json(improved),
-                    "elapsed": time.time() - t0,
-                }
-            current -= effective_coarse
-        else:
-            break
-
-    # Fine scan
-    if coarse_step > fine_step:
-        yield {"type": "status", "phase": "fine_scan", "step": fine_step}
-        fine_start = best_bound - fine_step
-        fine_end = max(current, 0)
-        current = fine_start
-        while current >= fine_end:
-            opb_probe, _ = build_full_schedule_opb(config, soft_bound=current)
-            try:
-                result = runner.solve(opb_probe, timeout=fine_timeout)
-            except Exception:
-                break
-            if result.satisfiable:
-                best_assignment = result.assignment
-                best_bound = current
-                _, decode_map = build_full_schedule_opb(config, soft_bound=best_bound)
-                improved = decode_solution(best_assignment, decode_map)
-                if improved.soft_penalty < last_yielded_penalty:
-                    last_yielded_penalty = improved.soft_penalty
-                    yield {
-                        "type": "solution",
-                        **solution_to_json(improved),
-                        "elapsed": time.time() - t0,
-                    }
-                current -= fine_step
-            else:
-                break
 
     yield {
         "type": "done",
-        "optimal_penalty": best_bound,
+        "optimal_penalty": last_step.total_penalty,
+        "optimal": last_step.optimal,
         "total_seconds": time.time() - t0,
     }
 

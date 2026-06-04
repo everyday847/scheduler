@@ -18,7 +18,8 @@ from scheduler.night_call_solver import NightScheduleSolution
 from scheduler.weekend_call_solver import WeekendScheduleSolution
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb, decode_solution, FullScheduleSolution,
+    build_full_schedule_opb, decode_solution, soft_penalty_breakdown,
+    optimize_stream, FullScheduleSolution,
 )
 from parafrost_scheduler.workbook import write_schedule_workbook
 
@@ -55,7 +56,7 @@ def load_config():
 
     annual["locked_assignments"] = locked
 
-    specific = yaml.safe_load(ANNUAL.read_text()).get("locked_assignments", {})
+    specific = yaml.safe_load(ANNUAL.read_text()).get("specific_assignments", {})
     for name in annual["fellow_groups"]["STROKE"] + annual["fellow_groups"]["NH"]:
         if name not in specific or name in locked:
             continue
@@ -108,56 +109,40 @@ def write_csv(sol, config, output_path):
             writer.writerow(row)
 
 
-def optimize(config, runner, *, coarse_timeout=15.0, fine_timeout=60.0):
-    opb, var_map = build_full_schedule_opb(config, soft_bound=None)
-    upper = sum(w for _, w in var_map.soft_violations)
-    print(f"Formula: {opb.num_vars} vars, {opb.num_constraints} constraints, "
-          f"{len(var_map.soft_violations)} soft indicators")
-
-    print("\n--- Feasibility check ---")
-    t0 = time.time()
-    opb_f, _ = build_full_schedule_opb(config, soft_bound=upper)
-    result = runner.solve(opb_f, timeout=120.0)
-    if not result.satisfiable:
+def optimize(config, runner, annual, *, preview_seconds=(8.0, 25.0), max_seconds=180.0):
+    """Native-optimization streaming. Each improving incumbent is written to the
+    CSV + workbook immediately (anytime: the latest schedule is always on disk),
+    with the weekly vs weekend/night soft-penalty breakdown printed live."""
+    print("\n--- Native optimization (streaming incumbents) ---")
+    print("  (total = weekly + weekend/night soft penalty)")
+    best = None
+    for step in optimize_stream(config, runner,
+                                preview_seconds=preview_seconds, max_seconds=max_seconds):
+        best = step.solution
+        tag = "  [OPTIMAL]" if step.optimal else ""
+        print(f"  [{step.elapsed:6.1f}s] total={step.total_penalty:6d}  "
+              f"weekly={step.weekly_penalty:5d}  weekend/night={step.call_penalty:5d}{tag}",
+              flush=True)
+        write_outputs(step.solution, config, annual)
+    if best is None:
         print("INFEASIBLE!")
         return None
-    _, dm = build_full_schedule_opb(config, soft_bound=upper)
-    best = decode_solution(result.assignment, dm)
-    print(f"Feasible: penalty={best.soft_penalty} ({time.time()-t0:.1f}s)")
-
-    print("\n--- Optimization (penalty-jump) ---")
-    current = best.soft_penalty - 1
-    timeout = coarse_timeout
-    stalls = 0
-    while current >= 0 and stalls < 3:
-        t0 = time.time()
-        opb_p, _ = build_full_schedule_opb(config, soft_bound=current)
-        try:
-            result = runner.solve(opb_p, timeout=timeout)
-        except Exception as e:
-            print(f"  Timeout at {current}")
-            stalls += 1
-            timeout = min(timeout * 2, 300.0)
-            current -= 1
-            continue
-        elapsed = time.time() - t0
-        if result.satisfiable:
-            _, dm = build_full_schedule_opb(config, soft_bound=current)
-            sol = decode_solution(result.assignment, dm)
-            best = sol
-            print(f"  SAT at bound={current} -> penalty={sol.soft_penalty} ({elapsed:.1f}s)")
-            if sol.soft_penalty < current:
-                current = sol.soft_penalty - 1
-            else:
-                current -= 1
-                timeout = fine_timeout
-            stalls = 0
-        else:
-            print(f"  UNSAT at {current} ({elapsed:.1f}s)")
-            break
-
-    print(f"\nOptimal penalty: {best.soft_penalty}")
+    print(f"\nBest penalty: {best.soft_penalty}")
     return best
+
+
+def write_outputs(sol, config, annual):
+    """Write the CSV and workbook for a (possibly intermediate) solution."""
+    write_csv(sol, config, OUTPUT_CSV)
+    fellow_order = list(sol.weekly_assignments.keys())
+    parsed = solution_to_parsed(sol, fellow_order)
+    from scheduler.night_call_solver_policy import (
+        CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING,
+    )
+    hard_criteria = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1,
+                               CRITERION_SUNDAY_FOLLOWING})
+    write_schedule_workbook(parsed, sol.night_solution, sol.weekend_solution,
+                            OUTPUT_WORKBOOK, hard_criteria=hard_criteria)
 
 
 def main():
@@ -168,19 +153,12 @@ def main():
     config, annual = load_config()
     runner = RoundingSatRunner(ROUNDINGSAT)
 
-    best = optimize(config, runner)
+    best = optimize(config, runner, annual)
     if best is None:
         return 1
 
-    write_csv(best, config, OUTPUT_CSV)
+    # write_outputs() already wrote the latest CSV + workbook on each improvement.
     print(f"\nWrote CSV: {OUTPUT_CSV}")
-
-    fellow_order = list(best.weekly_assignments.keys())
-    parsed = solution_to_parsed(best, fellow_order)
-    from scheduler.night_call_solver_policy import CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING
-    hard_criteria = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING})
-    write_schedule_workbook(parsed, best.night_solution, best.weekend_solution, OUTPUT_WORKBOOK,
-                           hard_criteria=hard_criteria)
     print(f"Wrote workbook: {OUTPUT_WORKBOOK}")
 
     vac_requests = annual.get("fellow_week_pairs", {})

@@ -24,6 +24,34 @@ from pathlib import Path
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.parafrost_runner import SolveResult  # reuse the same dataclass
 
+
+@dataclass(frozen=True)
+class OptimizeResult:
+    """Result of a native (objective) optimization run.
+
+    satisfiable:
+        True if any feasible solution was found.
+    assignment:
+        The best (incumbent) solution found, or None when UNSAT/none found.
+    optimal:
+        True if RoundingSat proved optimality (``s OPTIMUM FOUND``); False when
+        the run stopped at the time limit with a best-so-far incumbent.
+    objective:
+        The incumbent's objective value parsed from the last ``c bounds`` line,
+        or None if not reported.
+    runtime_seconds:
+        Wall-clock time.
+    """
+    satisfiable: bool
+    assignment: dict[int, bool] | None
+    optimal: bool
+    objective: int | None
+    runtime_seconds: float
+    proven_unsat: bool = False
+    """True only when RoundingSat *proved* UNSAT (``s UNSATISFIABLE``). A
+    time-limited run that simply found no solution is NOT proven_unsat — it is
+    unknown, and must not be treated as a proof of optimality."""
+
 # Library directories required when RoundingSat was built against GCC 13 /
 # Boost 1.85 modules on this cluster.  These are prepended to LD_LIBRARY_PATH
 # only when the binary exists at the expected vendor location and the libs are
@@ -118,6 +146,125 @@ class RoundingSatRunner:
             opb_path.unlink(missing_ok=True)
 
         return self._parse_output(proc.stdout, proc.stderr, elapsed)
+
+    def optimize(
+        self,
+        opb: OpbBuilder,
+        *,
+        time_limit: float | None = None,
+        opt_mode: str = "hybrid",
+    ) -> OptimizeResult:
+        """Run RoundingSat in native optimization mode on an OPB with an objective.
+
+        The formula must carry a ``min:`` objective (see
+        :meth:`OpbBuilder.set_objective`). RoundingSat minimizes it; with a
+        *time_limit* it stops early and reports the best incumbent found, which
+        is what enables an anytime/streaming workflow.
+
+        Returns an :class:`OptimizeResult`. ``optimal=True`` means provably
+        optimal; otherwise ``assignment`` is the best-so-far incumbent.
+        """
+        if not opb.has_objective:
+            raise ValueError("optimize() requires an objective; call opb.set_objective(...)")
+
+        opb_fd, opb_name = tempfile.mkstemp(suffix=".opb")
+        out_fd, out_name = tempfile.mkstemp(suffix=".out")
+        err_fd, err_name = tempfile.mkstemp(suffix=".err")
+        opb_path = Path(opb_name)
+        with os.fdopen(opb_fd, "w") as f:
+            f.write(opb.to_opb())
+
+        # RoundingSat's --time-limit is unreliable on this build (it can overshoot
+        # badly), but it catches SIGTERM and flushes its best incumbent + "s ..."
+        # line before exiting. So we stop it ourselves with SIGTERM at the deadline
+        # and read the incumbent from the redirected stdout file. We still pass
+        # --time-limit as a backstop.
+        args = [str(self._binary), "--print-sol=1", f"--opt-mode={opt_mode}"]
+        if time_limit is not None:
+            args.append(f"--time-limit={time_limit}")
+        args += [str(opb_path), *self._extra_args]
+
+        start = time.perf_counter()
+        try:
+            with os.fdopen(out_fd, "w") as out_f, os.fdopen(err_fd, "w") as err_f:
+                proc = subprocess.Popen(
+                    args, stdout=out_f, stderr=err_f, env=self._env,
+                )
+                try:
+                    proc.wait(timeout=time_limit)
+                except subprocess.TimeoutExpired:
+                    # Deadline reached: ask RoundingSat to stop and print incumbent.
+                    proc.terminate()  # SIGTERM
+                    try:
+                        proc.wait(timeout=30.0)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+            elapsed = time.perf_counter() - start
+            stdout = Path(out_name).read_text()
+            stderr = Path(err_name).read_text()
+        finally:
+            for p in (opb_name, out_name, err_name):
+                Path(p).unlink(missing_ok=True)
+
+        return self._parse_optimize_output(stdout, stderr, elapsed)
+
+    def _parse_optimize_output(
+        self, stdout: str, stderr: str, elapsed: float
+    ) -> OptimizeResult:
+        """Parse optimization output: ``s`` status, incumbent ``v`` line, and the
+        last ``c bounds <incumbent> >= <lower>`` objective value."""
+        optimal = False
+        proven_unsat = False
+        satisfiable: bool | None = None
+        assignment: dict[int, bool] | None = None
+        objective: int | None = None
+
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("s "):
+                status = line[2:].strip()
+                if status == "UNSATISFIABLE":
+                    satisfiable = False
+                    proven_unsat = True
+                elif status == "OPTIMUM FOUND":
+                    satisfiable = True
+                    optimal = True
+                elif status == "SATISFIABLE":
+                    satisfiable = True
+            elif line.startswith("c bounds "):
+                # "c bounds <incumbent> >= <lower> @ <time>"
+                parts = line.split()
+                if len(parts) >= 3 and parts[2] != "-":
+                    try:
+                        objective = int(parts[2])
+                    except ValueError:
+                        pass
+            elif line.startswith("v "):
+                if assignment is None:
+                    assignment = {}
+                for token in line[2:].split():
+                    token = token.strip()
+                    if not token:
+                        continue
+                    if token.startswith("-x") or token.startswith("~x"):
+                        assignment[int(token[2:])] = False
+                    elif token.startswith("x"):
+                        assignment[int(token[1:])] = True
+
+        if satisfiable is None:
+            # Time limit hit before any status line but an incumbent may exist.
+            satisfiable = assignment is not None
+        if not satisfiable:
+            assignment = None
+        return OptimizeResult(
+            satisfiable=satisfiable,
+            assignment=assignment,
+            optimal=optimal,
+            objective=objective,
+            runtime_seconds=elapsed,
+            proven_unsat=proven_unsat,
+        )
 
     # ------------------------------------------------------------------
     # Output parsing
