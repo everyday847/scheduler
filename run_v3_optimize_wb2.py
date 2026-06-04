@@ -14,8 +14,8 @@ import yaml
 from scheduler.solver_bridge import build_solver_config_from_request
 from scheduler.schedule_import import parse_schedule_file
 from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES, ParsedCallScheduleCsv, WeekRow
-from scheduler.night_call_solver import NightScheduleSolution
-from scheduler.weekend_call_solver import WeekendScheduleSolution
+from scheduler.night_call_types import NightScheduleSolution
+from scheduler.weekend_call_types import WeekendScheduleSolution
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.schedule_solver import (
     build_full_schedule_opb, decode_solution, soft_penalty_breakdown,
@@ -136,7 +136,7 @@ def write_outputs(sol, config, annual):
     write_csv(sol, config, OUTPUT_CSV)
     fellow_order = list(sol.weekly_assignments.keys())
     parsed = solution_to_parsed(sol, fellow_order)
-    from scheduler.night_call_solver_policy import (
+    from scheduler.night_policy_types import (
         CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING,
     )
     hard_criteria = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1,

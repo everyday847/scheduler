@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scheduler.night_call_solver import NightSolverConfig
+from scheduler.night_call_types import NightSolverConfig
 from scheduler.solver_bridge import (
     _apply_night_rules,
     _apply_weekend_rules,
@@ -14,7 +14,7 @@ from scheduler.solver_bridge import (
     _validate_weekend_config,
     build_solver_config_from_request,
 )
-from scheduler.weekend_call_solver import WeekendSolverConfig
+from scheduler.weekend_call_types import WeekendSolverConfig
 
 
 # ---------------------------------------------------------------------------

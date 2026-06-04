@@ -36,15 +36,15 @@ from scheduler.semantic_constraints import (
     ShiftSet,
 )
 from scheduler.standing_rules import constraints_from_config as standing_constraints_from_config
-from scheduler.night_call_solver import (
+from scheduler.night_call_types import (
     NightSolverConfig,
     NightScheduleSolution,
     CountMultiset,
     holiday_indices_for_config,
 )
-from scheduler.weekend_call_solver import WeekendSolverConfig, WeekendScheduleSolution
+from scheduler.weekend_call_types import WeekendSolverConfig, WeekendScheduleSolution
 from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES
-from scheduler.night_call_solver_policy import (
+from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     CRITERION_ANAESTHESIA,
     CRITERION_CLINIC,

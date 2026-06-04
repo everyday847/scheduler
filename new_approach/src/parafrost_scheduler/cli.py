@@ -17,8 +17,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from scheduler.night_call_solver import NightSolverConfig, write_night_schedule_csv
-from scheduler.night_call_solver_policy import (
+from scheduler.night_call_types import NightSolverConfig, write_night_schedule_csv
+from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     NightPolicyWeights,
     NightPolicySpec,
@@ -411,8 +411,8 @@ def _run_joint_solver(args) -> int:
         solve_joint_schedule_incremental,
     )
     from scheduler.call_schedule_common import parse_call_schedule_csv
-    from scheduler.night_call_solver import write_night_schedule_csv
-    from scheduler.weekend_call_solver import WeekendSolverConfig, write_weekend_schedule_csv
+    from scheduler.night_call_types import write_night_schedule_csv
+    from scheduler.weekend_call_types import WeekendSolverConfig, write_weekend_schedule_csv
 
     # --weekend-csv is required for the joint solver
     if args.weekend_csv is None:

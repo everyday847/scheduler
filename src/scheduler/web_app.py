@@ -1,11 +1,8 @@
-from io import BytesIO
 import json
-from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
 
-from .service import build_schedule_workbook, get_default_schedule_request, solve_schedule
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
@@ -134,35 +131,6 @@ def schedule_import():
     })
 
 
-@app.route("/api/default-schedule", methods=["GET"])
-def default_schedule():
-    return jsonify(get_default_schedule_request())
-
-
-@app.route("/api/schedule", methods=["POST"])
-def schedule():
-    try:
-        return jsonify(solve_schedule(request.get_json(silent=True)))
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-
-@app.route("/api/schedule.xlsx", methods=["POST"])
-def schedule_workbook():
-    try:
-        result = solve_schedule(request.get_json(silent=True))
-        workbook = build_schedule_workbook(result)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    return send_file(
-        BytesIO(workbook),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name="optimized_schedule.xlsx",
-    )
-
-
 @app.route("/api/feasibility/check", methods=["POST"])
 def feasibility_check():
     """Check feasibility of a rule (solo or paired with another).
@@ -179,8 +147,8 @@ def feasibility_check():
         ConstraintLifecycle, ConstraintStrength, FellowSelector, SemanticConstraint,
     )
     from parafrost_scheduler.schedule_solver import ScheduleSolverConfig, build_full_schedule_opb
-    from .night_call_solver import NightSolverConfig
-    from .weekend_call_solver import WeekendSolverConfig
+    from .night_call_types import NightSolverConfig
+    from .weekend_call_types import WeekendSolverConfig
 
     body = request.get_json(silent=True)
     if not body:

@@ -9,11 +9,11 @@ from typing import Any, Dict
 import yaml
 
 from .annual_rules import constraints_from_config as annual_constraints_from_config
-from .night_call_solver import NightSolverConfig, CountMultiset
+from .night_call_types import NightSolverConfig, CountMultiset
 from .palette_rules import palette_rule_to_constraints
 from .palette_derivations import derive_forbidden_shifts
 from .standing_rules import constraints_from_config as standing_constraints_from_config
-from .weekend_call_solver import WeekendSolverConfig
+from .weekend_call_types import WeekendSolverConfig
 
 from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner

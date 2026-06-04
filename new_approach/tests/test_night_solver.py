@@ -12,12 +12,12 @@ from scheduler.call_schedule_common import (
     WEEKEND_ROLES,
     WeekRow,
 )
-from scheduler.night_call_solver import (
+from scheduler.night_call_types import (
     NightScheduleSolution,
     NightSolverConfig,
     CountMultiset,
 )
-from scheduler.night_call_solver_policy import (
+from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     CRITERION_STROKE,
     NightPolicyCounts,

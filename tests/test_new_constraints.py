@@ -24,8 +24,8 @@ from parafrost_scheduler.schedule_solver import (
     _encode_dual_stroke_window,
     _encode_weekend_prerequisites,
 )
-from scheduler.night_call_solver import NightSolverConfig
-from scheduler.weekend_call_solver import WeekendSolverConfig
+from scheduler.night_call_types import NightSolverConfig
+from scheduler.weekend_call_types import WeekendSolverConfig
 
 
 # ---------------------------------------------------------------------------

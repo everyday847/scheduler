@@ -48,18 +48,18 @@ from scheduler.call_schedule_common import (
     is_preferred_sunday_following_service,
     weekend_roles_for_fellow,
 )
-from scheduler.night_call_solver import (
+from scheduler.night_call_types import (
     NightScheduleSolution,
     NightSolverConfig,
     CountMultiset,
     absolute_day_index,
     holiday_indices_for_config,
 )
-from scheduler.weekend_call_solver import (
+from scheduler.weekend_call_types import (
     WeekendScheduleSolution,
     WeekendSolverConfig,
 )
-from scheduler.night_call_solver_policy import (
+from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     CRITERION_ANAESTHESIA,
     CRITERION_CLINIC,
@@ -822,7 +822,7 @@ def solve_joint_schedule(
         optimized=False,
     )
     if emit_summary:
-        from scheduler.night_call_solver_policy import print_policy_summary
+        from scheduler.night_policy_types import print_policy_summary
         print_policy_summary(parsed, policy_result)
 
     return JointSolveResult(
@@ -904,7 +904,7 @@ def solve_joint_schedule_incremental(
         optimized=True,
     )
     if emit_summary:
-        from scheduler.night_call_solver_policy import print_policy_summary
+        from scheduler.night_policy_types import print_policy_summary
         print_policy_summary(parsed, policy_result)
 
     return JointSolveResult(

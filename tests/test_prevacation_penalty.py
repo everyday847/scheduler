@@ -22,8 +22,8 @@ from parafrost_scheduler.schedule_solver import (
     _ROLE_STROKE,
     _encode_prevacation_weekend_penalty,
 )
-from scheduler.night_call_solver import NightSolverConfig
-from scheduler.weekend_call_solver import WeekendSolverConfig
+from scheduler.night_call_types import NightSolverConfig
+from scheduler.weekend_call_types import WeekendSolverConfig
 
 
 # ---------------------------------------------------------------------------
