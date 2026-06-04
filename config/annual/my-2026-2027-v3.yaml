@@ -867,6 +867,72 @@ call_rules:
   count: 6
   strength: hard
   active: true
+- type: per_fellow_shift_total
+  name: Jinyuan total assigned weeks
+  fellow: Jinyuan Liu
+  shifts:
+  - SICU
+  - MICU
+  - NS
+  - Anaesthesia
+  - NCC1
+  - NCC2
+  - Swing
+  - Elec
+  - Vac
+  - Stroke
+  - Telestroke/Clinic
+  - Clinic/Elective
+  - SCVMC Rehab
+  - NIR
+  - ISC
+  - Anesthesia
+  - Elective
+  - MSICU
+  - NS SCVMC
+  - Vacation
+  - Elec/APBN
+  - Elective/NCS 2026
+  - Elective/SICU
+  - NHS
+  - AAN
+  relation: at_most
+  count: 13
+  strength: hard
+  active: true
+- type: per_fellow_shift_total
+  name: Sokena total assigned weeks
+  fellow: Sokena Zaidi
+  shifts:
+  - SICU
+  - MICU
+  - NS
+  - Anaesthesia
+  - NCC1
+  - NCC2
+  - Swing
+  - Elec
+  - Vac
+  - Stroke
+  - Telestroke/Clinic
+  - Clinic/Elective
+  - SCVMC Rehab
+  - NIR
+  - ISC
+  - Anesthesia
+  - Elective
+  - MSICU
+  - NS SCVMC
+  - Vacation
+  - Elec/APBN
+  - Elective/NCS 2026
+  - Elective/SICU
+  - NHS
+  - AAN
+  relation: at_most
+  count: 15
+  strength: hard
+  active: true
 specific_assignments:
   Aditya Srivatsan:
   - ''
