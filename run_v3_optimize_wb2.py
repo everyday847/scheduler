@@ -125,15 +125,18 @@ def optimize(config, runner, annual, *, preview_seconds=(8.0, 25.0), max_seconds
     """Native-optimization streaming. Each improving incumbent is written to the
     CSV + workbook immediately (anytime: the latest schedule is always on disk),
     with the weekly vs weekend/night soft-penalty breakdown printed live."""
-    print("\n--- Native optimization (streaming incumbents) ---")
-    print("  (total = weekly + weekend/night soft penalty)")
+    print("\n--- Native optimization (streaming incumbents) ---", flush=True)
+    print("  (total = weekly + weekend/night soft penalty)", flush=True)
     best = None
-    for step in optimize_stream(config, runner,
-                                preview_seconds=preview_seconds, max_seconds=max_seconds):
+    for step in optimize_stream(config, runner, preview_seconds=preview_seconds,
+                                max_seconds=max_seconds, echo_progress=True):
         best = step.solution
         tag = "  [OPTIMAL]" if step.optimal else ""
+        gap = ""
+        if step.lower_bound is not None:
+            gap = f"  lb={step.lower_bound:6d}  gap={step.total_penalty - step.lower_bound:6d}"
         print(f"  [{step.elapsed:6.1f}s] total={step.total_penalty:6d}  "
-              f"weekly={step.weekly_penalty:5d}  weekend/night={step.call_penalty:5d}{tag}",
+              f"weekly={step.weekly_penalty:5d}  weekend/night={step.call_penalty:5d}{gap}{tag}",
               flush=True)
         write_outputs(step.solution, config, annual)
     if best is None:

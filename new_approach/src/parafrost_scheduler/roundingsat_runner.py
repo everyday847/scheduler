@@ -51,6 +51,10 @@ class OptimizeResult:
     """True only when RoundingSat *proved* UNSAT (``s UNSATISFIABLE``). A
     time-limited run that simply found no solution is NOT proven_unsat — it is
     unknown, and must not be treated as a proof of optimality."""
+    lower_bound: int | None = None
+    """Best lower bound on the objective parsed from the last ``c bounds`` line.
+    With *objective* (the incumbent/upper bound) this gives the optimality gap;
+    lower_bound == objective means proven optimal."""
 
 # Library directories required when RoundingSat was built against GCC 13 /
 # Boost 1.85 modules on this cluster.  These are prepended to LD_LIBRARY_PATH
@@ -153,6 +157,7 @@ class RoundingSatRunner:
         *,
         time_limit: float | None = None,
         opt_mode: str = "hybrid",
+        echo_progress: bool = False,
     ) -> OptimizeResult:
         """Run RoundingSat in native optimization mode on an OPB with an objective.
 
@@ -161,6 +166,11 @@ class RoundingSatRunner:
         *time_limit* it stops early and reports the best incumbent found, which
         is what enables an anytime/streaming workflow.
 
+        When *echo_progress* is True, RoundingSat's ``c bounds`` progress lines
+        (incumbent >= lower bound @ time) are echoed to stdout AS THEY ARRIVE —
+        a non-interrupting heartbeat for long single B&B runs. The solver is not
+        disturbed; we only read its output stream.
+
         Returns an :class:`OptimizeResult`. ``optimal=True`` means provably
         optimal; otherwise ``assignment`` is the best-so-far incumbent.
         """
@@ -168,7 +178,6 @@ class RoundingSatRunner:
             raise ValueError("optimize() requires an objective; call opb.set_objective(...)")
 
         opb_fd, opb_name = tempfile.mkstemp(suffix=".opb")
-        out_fd, out_name = tempfile.mkstemp(suffix=".out")
         err_fd, err_name = tempfile.mkstemp(suffix=".err")
         opb_path = Path(opb_name)
         with os.fdopen(opb_fd, "w") as f:
@@ -176,20 +185,35 @@ class RoundingSatRunner:
 
         # RoundingSat's --time-limit is unreliable on this build (it can overshoot
         # badly), but it catches SIGTERM and flushes its best incumbent + "s ..."
-        # line before exiting. So we stop it ourselves with SIGTERM at the deadline
-        # and read the incumbent from the redirected stdout file. We still pass
-        # --time-limit as a backstop.
+        # line before exiting. So we stop it ourselves with SIGTERM at the deadline.
+        # We read stdout via a PIPE on a background thread so we can echo progress
+        # lines live (the file-then-read approach hid all progress until exit).
         args = [str(self._binary), "--print-sol=1", f"--opt-mode={opt_mode}"]
         if time_limit is not None:
             args.append(f"--time-limit={time_limit}")
         args += [str(opb_path), *self._extra_args]
 
+        import threading
+
+        stdout_lines: list[str] = []
+
+        def _drain(pipe):
+            # Accumulate every line; echo only the cheap progress lines live.
+            for raw in iter(pipe.readline, ""):
+                stdout_lines.append(raw)
+                if echo_progress and raw.startswith("c bounds "):
+                    print(f"    [roundingsat] {raw.rstrip()}", flush=True)
+            pipe.close()
+
         start = time.perf_counter()
         try:
-            with os.fdopen(out_fd, "w") as out_f, os.fdopen(err_fd, "w") as err_f:
+            with os.fdopen(err_fd, "w") as err_f:
                 proc = subprocess.Popen(
-                    args, stdout=out_f, stderr=err_f, env=self._env,
+                    args, stdout=subprocess.PIPE, stderr=err_f,
+                    env=self._env, text=True, bufsize=1,
                 )
+                reader = threading.Thread(target=_drain, args=(proc.stdout,), daemon=True)
+                reader.start()
                 try:
                     proc.wait(timeout=time_limit)
                 except subprocess.TimeoutExpired:
@@ -200,11 +224,12 @@ class RoundingSatRunner:
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
+                reader.join(timeout=5.0)
             elapsed = time.perf_counter() - start
-            stdout = Path(out_name).read_text()
+            stdout = "".join(stdout_lines)
             stderr = Path(err_name).read_text()
         finally:
-            for p in (opb_name, out_name, err_name):
+            for p in (opb_name, err_name):
                 Path(p).unlink(missing_ok=True)
 
         return self._parse_optimize_output(stdout, stderr, elapsed)
@@ -219,6 +244,7 @@ class RoundingSatRunner:
         satisfiable: bool | None = None
         assignment: dict[int, bool] | None = None
         objective: int | None = None
+        lower_bound: int | None = None
 
         for line in stdout.splitlines():
             line = line.strip()
@@ -238,6 +264,11 @@ class RoundingSatRunner:
                 if len(parts) >= 3 and parts[2] != "-":
                     try:
                         objective = int(parts[2])
+                    except ValueError:
+                        pass
+                if len(parts) >= 5 and parts[3] == ">=" and parts[4] != "-":
+                    try:
+                        lower_bound = int(parts[4])
                     except ValueError:
                         pass
             elif line.startswith("v "):
@@ -264,6 +295,7 @@ class RoundingSatRunner:
             objective=objective,
             runtime_seconds=elapsed,
             proven_unsat=proven_unsat,
+            lower_bound=lower_bound,
         )
 
     # ------------------------------------------------------------------

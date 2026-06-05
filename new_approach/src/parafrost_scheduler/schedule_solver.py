@@ -3173,6 +3173,7 @@ class OptimizeStreamStep:
     total_penalty: int
     optimal: bool           # True iff this incumbent is proven optimal
     elapsed: float
+    lower_bound: int | None = None  # best objective lower bound (gap = total - lower_bound)
 
 
 def optimize_stream(
@@ -3182,6 +3183,7 @@ def optimize_stream(
     preview_seconds: tuple[float, ...] = (8.0, 25.0),
     max_seconds: float = 180.0,
     opt_mode: str = "hybrid",
+    echo_progress: bool = False,
 ):
     """Stream improving full schedules via native optimization (hybrid schedule).
 
@@ -3218,14 +3220,18 @@ def optimize_stream(
         if remaining < 1.0:
             return
         budget = remaining if b is None else min(b, remaining)
-        res = runner.optimize(opb, time_limit=budget, opt_mode=opt_mode)
+        # Echo RoundingSat's bound progress live only on the final (longest) run,
+        # where the heartbeat matters; the short previews stay quiet.
+        res = runner.optimize(opb, time_limit=budget, opt_mode=opt_mode,
+                              echo_progress=echo_progress and b is None)
 
         if res.satisfiable and res.assignment is not None:
             sol = decode_solution(res.assignment, var_map)
             wk, cn, tot = soft_penalty_breakdown(res.assignment, var_map)
             if best_total is None or tot < best_total:
                 best_total = tot
-                yield OptimizeStreamStep(sol, wk, cn, tot, res.optimal, time.time() - t0)
+                yield OptimizeStreamStep(sol, wk, cn, tot, res.optimal,
+                                         time.time() - t0, res.lower_bound)
             if res.optimal or best_total == 0:
                 return
         elif res.proven_unsat:
