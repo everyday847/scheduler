@@ -111,9 +111,13 @@ _WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
 _BACKUP_WEEKDAY = 0
 _BACKUP_WEEKEND = 1
 _BACKUP_ROLE_NAMES = ("Backup", "Weekend Backup")
-# Eligibility: NCC_JR/NCC_SR on Elec, or STROKE on Clinic/Elective or
-# Telestroke/Clinic. Group -> the weekday shifts that make a fellow backup-eligible.
-_BACKUP_ELIGIBLE_SHIFTS_NCC = frozenset({"Elec"})
+# Eligibility: NCC_JR/NCC_SR on Elec or Telestroke/Clinic; STROKE on
+# Clinic/Elective or Telestroke/Clinic. (NCC_JR never does Telestroke/Clinic and
+# NCC never does Clinic/Elective in practice, so the NCC set is effectively
+# "Elec" for juniors and "Elec or Telestroke/Clinic" for seniors — covering e.g.
+# an NCC_SR on Telestroke/Clinic in a week where the Stroke fellows are pinned
+# elsewhere.) Group -> the weekday shifts that make a fellow backup-eligible.
+_BACKUP_ELIGIBLE_SHIFTS_NCC = frozenset({"Elec", "Telestroke/Clinic"})
 _BACKUP_ELIGIBLE_SHIFTS_STROKE = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
 _BACKUP_GROUPS = ("NCC_JR", "NCC_SR", "STROKE")
 _BACKUP_MAX_CONSECUTIVE_WEEKS = 2

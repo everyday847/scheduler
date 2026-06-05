@@ -86,6 +86,20 @@ class TestBackupEligibilityAllocation:
         assert 2 not in bk[0][_BACKUP_WEEKEND]
 
 
+class TestNccTelestrokeEligibility:
+    def test_ncc_sr_on_telestroke_clinic_is_backup_eligible(self):
+        """An NCC_SR on Telestroke/Clinic qualifies for Backup (covers weeks
+        where Stroke fellows are pinned off Clinic/Telestroke, e.g. wk32)."""
+        opb, bk, xs, wr, names, shift_idx, nw = _setup(
+            {"NCC_SR": ["Joseph"]}, ["Telestroke/Clinic", "NS"],
+        )
+        bk_var = bk[0][_BACKUP_WEEKDAY][0]
+        tele_var = xs[0][0][shift_idx["Telestroke/Clinic"]]
+        gated = [c for c in opb._constraints
+                 if f"x{bk_var} " in c.replace("~", "") and f"x{tele_var} " in c.replace("~", "")]
+        assert gated, "NCC_SR Backup must be gated on Telestroke/Clinic"
+
+
 class TestBackupShiftGating:
     def test_ncc_backup_requires_elec(self):
         """Alice's weekday Backup var must imply she is on Elec that week:
