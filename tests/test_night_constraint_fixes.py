@@ -522,6 +522,57 @@ class TestClinicCriterionDays:
         assert blocked == {6, 1, 2}, f"Expected {{6, 1, 2}}, got {blocked}"
 
 
+class TestTelestrokeClinicNotPenalized:
+    """Telestroke/Clinic fellows may take ANY weekday night, so the clinic
+    criterion must NEVER reference a Telestroke/Clinic shift variable."""
+
+    def _telestroke_clinic_blocked_dows(self, start_dow: int = 0) -> set[int]:
+        """Return the DOWs whose night gets a clinic-criterion constraint when
+        the fellow is on Telestroke/Clinic.
+
+        Only the ``clinic`` criterion is enabled (hard) here, but the Sunday
+        night also carries the unrelated ``sunday_following`` criterion which
+        legitimately references the (Telestroke/Clinic) next-week shift var. We
+        therefore detect the clinic criterion by its distinctive *same-week*
+        gating on Tue/Wed and the previous-Sunday → next-week Monday gating, and
+        we exclude dow 6 (Sunday) from this clinic-only probe to avoid the
+        sunday_following confound — Telestroke/Clinic exemption on Sun is covered
+        by the canonical-evaluator tests in test_night_policy_clinic_criterion.
+        """
+        shifts = ["NCC1", "Telestroke/Clinic"]
+        config = _make_config(
+            shifts, start_dow=start_dow, num_days=14,
+            night_hard_criteria=frozenset({CRITERION_CLINIC}),
+        )
+        shift_idx = {s: i for i, s in enumerate(shifts)}
+        num_weeks = config.num_weeks
+        opb = OpbBuilder()
+        xs, xn, wr = _make_vars(opb, 1, 14, len(shifts), num_weeks)
+        soft = []
+
+        _encode_night_policy_criteria(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
+
+        blocked_dows = set()
+        for d in range(14):
+            dow = _day_of_week(d, start_dow)
+            if dow == 6:
+                continue  # Sunday carries sunday_following — see docstring
+            night_var = xn[d][0]
+            constraints = _get_constraints_containing(opb, night_var)
+            for w in range(num_weeks):
+                tele_var = xs[0][w][shift_idx["Telestroke/Clinic"]]
+                if any(f"x{tele_var} " in c for c in constraints):
+                    blocked_dows.add(dow)
+                    break
+        return blocked_dows
+
+    def test_telestroke_clinic_never_blocked(self):
+        assert self._telestroke_clinic_blocked_dows() == set(), (
+            "Telestroke/Clinic must not trigger the clinic criterion on any "
+            "weekday night (Tue/Wed in particular)"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Test 5: First-week restriction blocks NCC_JR and STROKE until first Friday
 # ---------------------------------------------------------------------------

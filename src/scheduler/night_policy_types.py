@@ -8,7 +8,6 @@ from .call_schedule_common import (
     ParsedCallScheduleCsv,
     WEEKEND_ROLES,
     is_anaesthesia_service,
-    is_clinic_service,
     parse_call_schedule_csv,
 )
 from .night_call_types import (
@@ -181,8 +180,23 @@ def criteria_for_assignment(
 
     if is_weekday_night and is_anaesthesia_service(weekday_service):
         criteria.append(CRITERION_ANAESTHESIA)
-    if is_weekday_night and is_clinic_service(weekday_service):
-        criteria.append(CRITERION_CLINIC)
+    # Clinic/Elective fellows are softly discouraged from the nights before a
+    # clinic day (Mon/Wed/Thu clinic → previous-Sun/Tue/Wed nights), but MAY take
+    # Monday and Thursday nights. Telestroke/Clinic fellows are exempt entirely
+    # (they may take any weekday night). The clinic service that gates a night
+    # lives in the week containing the NEXT morning: Tue/Wed nights read the same
+    # week, the Sunday night reads the following week (its Monday). Mirrors the
+    # encoder's clinic criterion in schedule_solver._encode_night_policy_criteria.
+    if day_of_week in (1, 2):  # Tue/Wed night → clinic day is same week
+        clinic_week = week_index
+    elif day_of_week == 6:  # Sun night → clinic day (Mon) is next week
+        clinic_week = week_index + 1
+    else:
+        clinic_week = None
+    if clinic_week is not None and clinic_week < len(parsed.week_rows):
+        clinic_service = parsed.week_rows[clinic_week].weekday_assignments.get(fellow_name, "")
+        if clinic_service == "Clinic/Elective":
+            criteria.append(CRITERION_CLINIC)
     # Stroke: weekday Stroke service (NOT Telestroke), exempt in dual-stroke weeks.
     if ("Stroke" in weekday_service and "Telestroke" not in weekday_service
             and week_index not in dual):

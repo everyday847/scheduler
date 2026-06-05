@@ -75,7 +75,9 @@ NIGHT_BLOCKED_SHIFTS = frozenset(
 )
 NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
-CLINIC_SHIFTS = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
+# Only Clinic/Elective triggers the clinic night criterion. Telestroke/Clinic
+# fellows may take any weekday night, so they are NOT in this set.
+CLINIC_SHIFTS = frozenset({"Clinic/Elective"})
 STROKE_SHIFTS = frozenset({"Stroke"})
 NON_PREFERRED_SUNDAY_FOLLOWING = frozenset(
     {"Anaesthesia", "Clinic/Elective", "Telestroke/Clinic", "Vac", "NS", "NIR", "SICU", "SCVMC Rehab"}
