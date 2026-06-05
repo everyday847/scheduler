@@ -243,12 +243,12 @@ def build_night_opb(
                 blocked = True
             elif d in holiday_indices and not is_night_holiday_eligible(weekday_service):
                 blocked = True
-            # Conference/exam blocking: NHS blocks all nights; ISC blocks Tue-Fri; APBN blocks Mon-Fri
+            # Conference/exam blocking: NHS blocks all nights; ISC blocks Tue-Fri; ABPN blocks Mon-Fri
             elif weekday_service == "NHS":
                 blocked = True
             elif day_of_week >= 1 and day_of_week <= 4 and "ISC" in weekday_service:
                 blocked = True
-            elif day_of_week <= 4 and "APBN" in weekday_service:
+            elif day_of_week <= 4 and "ABPN" in weekday_service:
                 blocked = True
             if blocked:
                 opb.add_unit(-x[d][fi])

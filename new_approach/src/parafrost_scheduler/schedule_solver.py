@@ -101,7 +101,7 @@ WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "NS", "Anaesthesia", "Vac"})
 # AFTER the pair is one of these, the fellow gets a break and avoids working 15+
 # days straight. Used by the buffered no-consecutive-weekends rule.
 CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = frozenset(
-    {"Vac", "ISC", "APBN", "NHS", "AAN", "NCS 2026"}
+    {"Vac", "ISC", "ABPN", "NHS", "AAN", "NCS 2026"}
 )
 
 _ROLE_NCC1 = 0

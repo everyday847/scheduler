@@ -33,6 +33,9 @@ SHIFT_MAP = {
     "Elective": "Elec",
     "Elective/SICU": "SICU",
     "NS SCVMC": "NS",
+    # APBN was a typo for ABPN (American Board of Psychiatry & Neurology);
+    # canonicalize any imported-workbook "APBN" cells to the correct "ABPN".
+    "APBN": "ABPN",
 }
 
 # Default config locations (repo-relative).

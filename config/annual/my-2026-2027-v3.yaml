@@ -38,7 +38,7 @@ shifts:
 - MSICU
 - NS SCVMC
 - Vacation
-- APBN
+- ABPN
 - NCS 2026
 - RWC
 - Elective/SICU
@@ -778,10 +778,10 @@ rules:
   count: 1
   groups:
   - NH
-  name: NH Elective/APBN
+  name: NH Elective/ABPN
   relation: at_least
   shifts:
-  - APBN
+  - ABPN
   strength: hard
   type: shift_total
 - active: true
@@ -798,10 +798,10 @@ rules:
   count: 1
   groups:
   - STROKE
-  name: STROKE Elective/APBN
+  name: STROKE Elective/ABPN
   relation: exactly
   shifts:
-  - APBN
+  - ABPN
   strength: hard
   type: shift_total
 weekend_rules:
@@ -949,7 +949,7 @@ call_rules:
   - MSICU
   - NS SCVMC
   - Vacation
-  - APBN
+  - ABPN
   - NCS 2026
   - Elective/SICU
   - NHS
@@ -982,7 +982,7 @@ call_rules:
   - MSICU
   - NS SCVMC
   - Vacation
-  - APBN
+  - ABPN
   - NCS 2026
   - Elective/SICU
   - NHS
@@ -1004,7 +1004,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - APBN
+  - ABPN
   - ''
   - ''
   - ''
@@ -1058,7 +1058,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - APBN
+  - ABPN
   - ''
   - ''
   - ''
@@ -1112,7 +1112,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - APBN
+  - ABPN
   - ''
   - ''
   - ''
@@ -1165,7 +1165,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - APBN
+  - ABPN
   - ''
   - ''
   - ''
@@ -1225,7 +1225,7 @@ specific_assignments:
   - NHS
   - ''
   - ''
-  - APBN
+  - ABPN
   - ''
   - ''
   - ''
@@ -1274,7 +1274,7 @@ specific_assignments:
   - ''
   - ''
   - ''
-  - APBN
+  - ABPN
   - ''
   - NHS
   - ''

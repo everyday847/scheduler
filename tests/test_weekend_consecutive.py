@@ -8,7 +8,7 @@ penalty / permitted when hard — when:
     AND
   * a light rotation breaks the run: week w+2 weekday service is light, OR the
     MIDDLE week w+1 weekday service is itself light
-    (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = Vac/ISC/APBN/NHS/AAN/NCS 2026).
+    (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = Vac/ISC/ABPN/NHS/AAN/NCS 2026).
 
 The w+1-light case matters because a light middle week means the fellow isn't
 working those weekdays, so the run is already broken without a w+2 buffer.
@@ -94,7 +94,7 @@ def _constraints_with(opb: OpbBuilder, *var_ids: int) -> list[str]:
 class TestBufferShiftConstant:
     def test_buffer_shifts_are_the_agreed_light_set(self):
         assert CONSECUTIVE_WEEKEND_BUFFER_SHIFTS == frozenset(
-            {"Vac", "ISC", "APBN", "NHS", "AAN", "NCS 2026"}
+            {"Vac", "ISC", "ABPN", "NHS", "AAN", "NCS 2026"}
         )
 
 
