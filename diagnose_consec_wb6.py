@@ -13,8 +13,10 @@ from collections import Counter
 
 import run_v3_optimize_wb6 as r
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb, decode_solution, CONSECUTIVE_WEEKEND_BUFFER_SHIFTS,
+from parafrost_scheduler.schedule_types import CONSECUTIVE_WEEKEND_BUFFER_SHIFTS
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb,
+    decode_solution,
 )
 from scheduler.call_schedule_common import WEEKEND_ROLES
 

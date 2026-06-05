@@ -267,10 +267,8 @@ def main(argv: list[str] | None = None) -> int:
 def _run_schedule_solver(args) -> int:
     """Run the full joint schedule solver (weekly + weekend + night)."""
     from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-    from parafrost_scheduler.schedule_solver import (
-        load_schedule_config,
-        solve_full_schedule,
-    )
+    from parafrost_scheduler.schedule_optimizer import solve_full_schedule
+    from parafrost_scheduler.schedule_loader import load_schedule_config
     from parafrost_scheduler.workbook import generate_workbook
 
     if args.annual_config is None or args.standing_config is None:

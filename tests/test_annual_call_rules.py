@@ -18,16 +18,16 @@ from datetime import date
 import pytest
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _ROLE_NCC1,
     _ROLE_NCC2,
     _ROLE_STROKE,
     _date_to_day_index,
-    _encode_call_rules,
     _num_weeks_for,
     _week_day,
 )
+from parafrost_scheduler.schedule_encoder import _encode_call_rules
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 

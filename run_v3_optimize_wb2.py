@@ -13,10 +13,13 @@ from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES, ParsedCal
 from scheduler.night_call_types import NightScheduleSolution
 from scheduler.weekend_call_types import WeekendScheduleSolution
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb, decode_solution, soft_penalty_breakdown,
-    optimize_stream, FullScheduleSolution,
+from parafrost_scheduler.schedule_types import FullScheduleSolution
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb,
+    decode_solution,
+    soft_penalty_breakdown,
 )
+from parafrost_scheduler.schedule_optimizer import optimize_stream
 from parafrost_scheduler.workbook import write_schedule_workbook
 
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")

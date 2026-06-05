@@ -122,6 +122,13 @@ def date_to_day_index(date_str: str | date, horizon_start: date) -> int:
     return (d - horizon_start).days
 
 
+# Private aliases for backward compatibility (tests and encoder import them)
+_day_of_week = day_of_week
+_day_to_week = day_to_week
+_week_day = week_day
+_num_weeks_for = num_weeks_for
+_date_to_day_index = date_to_day_index
+
 # ---------------------------------------------------------------------------
 # Enums & data classes
 # ---------------------------------------------------------------------------

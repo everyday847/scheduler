@@ -21,8 +21,9 @@ from pathlib import Path
 
 import run_v3_optimize_wb6 as r
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb, soft_penalty_breakdown,
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb,
+    soft_penalty_breakdown,
 )
 
 

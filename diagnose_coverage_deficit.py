@@ -21,7 +21,10 @@ import yaml
 from scheduler.solver_bridge import build_solver_config_from_request
 from scheduler.schedule_import import parse_schedule_file
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import build_full_schedule_opb, decode_solution
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb,
+    decode_solution,
+)
 
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")
 STANDING = Path("config/standing/stanford-fellowship-v3.yaml")
@@ -139,7 +142,7 @@ def report_nights(config):
     if k > 0:
         sol = decode_solution(assignment, var_map)
         from scheduler.call_schedule_common import NIGHT_ROLES
-        from parafrost_scheduler.schedule_solver import _week_day
+        from parafrost_scheduler.schedule_types import _week_day
         uncovered = []
         for w, week in enumerate(sol.night_solution.assignments_by_week):
             for dow_target, role in enumerate(NIGHT_ROLES):

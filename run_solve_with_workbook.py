@@ -10,10 +10,10 @@ import yaml
 from scheduler.solver_bridge import build_solver_config_from_request
 from scheduler.schedule_import import parse_schedule_file
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import FullScheduleSolution
+from parafrost_scheduler.schedule_encoder import (
     build_full_schedule_opb,
     decode_solution,
-    FullScheduleSolution,
 )
 
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")

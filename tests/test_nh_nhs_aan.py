@@ -12,15 +12,17 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
+    NHS_NIGHT_PENALTY_WEIGHT,
     ScheduleSolverConfig,
     _ROLE_NCC1,
     _ROLE_STROKE,
     _day_of_week,
     _week_day,
+)
+from parafrost_scheduler.schedule_encoder import (
     _encode_nhs_week_nights,
     _encode_pre_aan_forbid,
-    NHS_NIGHT_PENALTY_WEIGHT,
 )
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig

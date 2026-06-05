@@ -15,7 +15,7 @@ from .palette_derivations import derive_forbidden_shifts
 from .standing_rules import constraints_from_config as standing_constraints_from_config
 from .weekend_call_types import WeekendSolverConfig
 
-from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"

@@ -12,13 +12,14 @@ from pathlib import Path
 import pytest
 
 REPO = Path("/cv/scratch/u/watkina6/scheduler")
+SCHEDULE_PY = Path(__file__).resolve().parent.parent / "schedule.py"
 WB6 = REPO / "workbook_partial_input6.xlsx"
 
 pytestmark = pytest.mark.skipif(not WB6.exists(), reason="wb6 workbook not present")
 
 
 def _load_cli():
-    spec = importlib.util.spec_from_file_location("schedule_cli", REPO / "schedule.py")
+    spec = importlib.util.spec_from_file_location("schedule_cli", SCHEDULE_PY)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

@@ -17,15 +17,17 @@ import pytest
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     ManagementMode,
     ScheduleSolverConfig,
-    _encode_shift_total,
-    _encode_staffing_per_week,
-    _encode_weekend_eligibility,
     _ROLE_NCC1,
     _ROLE_NCC2,
     _ROLE_STROKE,
+)
+from parafrost_scheduler.schedule_encoder import (
+    _encode_shift_total,
+    _encode_staffing_per_week,
+    _encode_weekend_eligibility,
 )
 from scheduler.semantic_constraints import (
     ConstraintLifecycle,
@@ -434,7 +436,7 @@ class TestWeekendEligibility:
 # Night harness: calls the real _encode_night_constraints
 # ---------------------------------------------------------------------------
 
-from parafrost_scheduler.schedule_solver import _encode_night_constraints
+from parafrost_scheduler.schedule_encoder import _encode_night_constraints
 
 
 class NightHarness:

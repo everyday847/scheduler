@@ -146,7 +146,8 @@ def feasibility_check():
     from .semantic_constraints import (
         ConstraintLifecycle, ConstraintStrength, FellowSelector, SemanticConstraint,
     )
-    from parafrost_scheduler.schedule_solver import ScheduleSolverConfig, build_full_schedule_opb
+    from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+    from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
     from .night_call_types import NightSolverConfig
     from .weekend_call_types import WeekendSolverConfig
 
@@ -340,7 +341,7 @@ def schedule_stream():
 
     def generate():
         from .solver_bridge import build_solver_config_from_request, get_runner
-        from parafrost_scheduler.schedule_solver import solve_full_schedule_progressive
+        from parafrost_scheduler.schedule_optimizer import solve_full_schedule_progressive
 
         try:
             config = build_solver_config_from_request(body)

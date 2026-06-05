@@ -31,7 +31,7 @@ import yaml
 import run_v3_optimize_wb6 as r
 from scheduler.solver_bridge import build_solver_config_from_request
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import build_full_schedule_opb
+from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
 
 ROUNDINGSAT = r.ROUNDINGSAT
 STANDING = r.STANDING

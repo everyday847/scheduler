@@ -15,13 +15,13 @@ from datetime import date
 import pytest
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _ROLE_NCC1,
     _ROLE_NCC2,
     _ROLE_STROKE,
-    _encode_prevacation_weekend_penalty,
 )
+from parafrost_scheduler.schedule_encoder import _encode_prevacation_weekend_penalty
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 
