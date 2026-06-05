@@ -89,6 +89,12 @@ HOLIDAY_ELIGIBLE_SHIFTS = frozenset({"NCC1", "NCC2", "Stroke"})
 # substring "MSICU", which never matched after the canonical rename MSICU->MICU,
 # and Anaesthesia was never listed. NS blocks the full week (nights + weekends).
 WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "NS", "Anaesthesia", "Vac"})
+# "Light" weekday rotations that buffer a consecutive-weekend pair: if the week
+# AFTER the pair is one of these, the fellow gets a break and avoids working 15+
+# days straight. Used by the buffered no-consecutive-weekends rule.
+CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = frozenset(
+    {"Vac", "ISC", "APBN", "NHS", "AAN", "NCS 2026"}
+)
 
 _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1
@@ -1367,6 +1373,51 @@ def _encode_specific_assignment(opb, xs, constraint, fellow_indices, **kw):
 # Weekend constraint encoders
 # ---------------------------------------------------------------------------
 
+def _encode_buffered_consecutive_pair(
+    opb: OpbBuilder,
+    f: int,
+    w: int,
+    v_w: int,
+    v_w1: int,
+    work_by_week: dict[int, int],
+    xs: list[list[list[int]]],
+    buffer_indices: list[int],
+    num_weeks: int,
+) -> None:
+    """Forbid the UNBUFFERED consecutive weekend pair (w, w+1) for fellow ``f``.
+
+    A pair is permitted only when buffered on both sides so the fellow never
+    works 15+ days straight:
+      * no weekend role in week w-1 (a weekend off before the pair), AND
+      * week w+2 weekday service is "light" (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS).
+
+    Encoded as two forbidden combinations:
+      A) work[w-1] AND work[w] AND work[w+1]        (no weekend-off before)
+      B) work[w] AND work[w+1] AND NOT light[w+2]   (no light week after)
+    If week w+2 is past the horizon, or the fellow can hold no buffer shift that
+    week, the pair can never be buffered after, so it is forbidden outright.
+    """
+    # Combo A: the weekend before the pair must be off (no three-in-a-row).
+    prev = work_by_week.get(w - 1)
+    if prev is not None:
+        opb.at_most_k([prev, v_w, v_w1], 2)
+
+    # Combo B: the pair requires a light week after it.
+    w2 = w + 2
+    if w2 >= num_weeks:
+        opb.at_most_k([v_w, v_w1], 1)
+        return
+    buffer_vars = [xs[f][w2][si] for si in buffer_indices if xs[f][w2][si] != 0]
+    if not buffer_vars:
+        opb.at_most_k([v_w, v_w1], 1)
+        return
+    # work[w] AND work[w+1] -> OR(buffer_vars):
+    #   +1 ~v_w +1 ~v_w1 + sum(buffer) >= 1
+    opb.weighted_sum_at_least(
+        [(-v_w, 1), (-v_w1, 1)] + [(b, 1) for b in buffer_vars], 1
+    )
+
+
 def _encode_weekend_constraints(
     opb: OpbBuilder,
     wr: list[list[dict[int, int]]],
@@ -1497,9 +1548,14 @@ def _encode_weekend_constraints(
                 opb.weighted_sum_at_least([(v, 1) for v in roles_for_f] + [(-aux, 1)], 1)
                 work_vars.append((w, aux))
 
-        # No two consecutive weekends. Hard by default (config flag); soft mode
-        # falls back to a per-pair distribution penalty. SCHED_DIAG_CONSECUTIVE
-        # = "soft"/"hard" overrides the config flag for SAT bisects.
+        # No two consecutive weekends, BUFFERED. A blanket hard rule is
+        # infeasible on the production workbook (Slurm SAT bisect, 2026-06-05),
+        # so the hard form permits a pair (w, w+1) only when it is buffered on
+        # both sides — the fellow had no weekend role in week w-1 AND their
+        # week w+2 weekday service is "light" (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS).
+        # That caps the run at Mon(w)->Sun(w+1) = 14 days. Soft mode (config flag
+        # False or SCHED_DIAG_CONSECUTIVE=soft) degrades to a flat per-pair
+        # penalty. SCHED_DIAG_CONSECUTIVE=hard forces the buffered hard rule.
         _diag_consec = os.environ.get("SCHED_DIAG_CONSECUTIVE")
         if _diag_consec == "soft":
             consecutive_hard = False
@@ -1507,15 +1563,25 @@ def _encode_weekend_constraints(
             consecutive_hard = True
         else:
             consecutive_hard = config.weekend_consecutive_hard
+
+        work_by_week = dict(work_vars)
+        buffer_indices = [shift_idx[s] for s in CONSECUTIVE_WEEKEND_BUFFER_SHIFTS if s in shift_idx]
         for i in range(len(work_vars) - 1):
             w1, v1 = work_vars[i]
             w2, v2 = work_vars[i + 1]
-            if w2 - w1 == 1:
+            if w2 - w1 != 1:
+                continue
+            if not consecutive_hard:
+                # Soft: flat per-pair distribution penalty.
                 _add_cardinality_constraint(
                     opb, [v1, v2], "at_most", 1,
-                    is_soft=not consecutive_hard, weight=config.weekend_mismatch_weight,
+                    is_soft=True, weight=config.weekend_mismatch_weight,
                     soft_violations=soft_violations,
                 )
+                continue
+            _encode_buffered_consecutive_pair(
+                opb, f, w1, v1, v2, work_by_week, xs, buffer_indices, num_weeks,
+            )
 
         # At most 2 in any 4-week window (hard — a fellow should never work 3+
         # weekends within 4 weeks).
