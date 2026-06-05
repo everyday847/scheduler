@@ -11,10 +11,6 @@ import sys
 import time
 from pathlib import Path
 
-import yaml
-
-from scheduler.solver_bridge import build_solver_config_from_request
-from scheduler.schedule_import import parse_schedule_file
 from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES, ParsedCallScheduleCsv, WeekRow
 from scheduler.night_call_types import NightScheduleSolution
 from scheduler.weekend_call_types import WeekendScheduleSolution
@@ -32,65 +28,20 @@ ROUNDINGSAT = Path("new_approach/vendor/roundingsat/build/roundingsat")
 OUTPUT_WORKBOOK = Path("output_v3_wb6_workbook.xlsx")
 OUTPUT_CSV = Path("output_v3_wb6.csv")
 
-SHIFT_MAP = {
-    'MSICU': 'MICU', 'Anesthesia': 'Anaesthesia', 'Vacation': 'Vac',
-    'Elective': 'Elec', 'Elective/SICU': 'SICU', 'NS SCVMC': 'NS',
-}
-
 
 def assemble_config_dicts(*, verbose=True):
-    """Assemble the mutable request dicts WB2 solves with, without building the
-    ScheduleSolverConfig. Returns the ``annual`` request dict, which carries
-    ``locked_assignments``, the injected specific-assignment rules, and
-    ``standing_rules`` (with NCC Team Cap softened). Callers may mutate rule
-    dicts (e.g. flip strength) before calling build_solver_config_from_request.
-    """
-    annual = yaml.safe_load(ANNUAL.read_text())
-    locked = {}
-    wb_groups = set(
-        annual["fellow_groups"]["NCC_JR"]
-        + annual["fellow_groups"]["NCC_SR"]
-        + annual["fellow_groups"]["CCM"]
-    )
-    if WORKBOOK.exists():
-        wb = parse_schedule_file(WORKBOOK.read_bytes(), WORKBOOK.name)
-        if verbose:
-            print(f"Imported workbook: {WORKBOOK.name}, {len(wb.fellow_names)} fellows")
-        for name, shifts in wb.assignments.items():
-            if name not in wb_groups:
-                continue
-            locked[name] = [SHIFT_MAP.get(s, s) if s else "" for s in shifts]
-        if verbose:
-            print(f"Locked {len(locked)} fellows from workbook (NCC + CCM)")
-
-    annual["locked_assignments"] = locked
-
-    specific = yaml.safe_load(ANNUAL.read_text()).get("specific_assignments", {})
-    for name in annual["fellow_groups"]["STROKE"] + annual["fellow_groups"]["NH"]:
-        if name not in specific or name in locked:
-            continue
-        for w, shift in enumerate(specific[name]):
-            if shift:
-                annual.setdefault("rules", []).append({
-                    "type": "specific_assignment", "fellow": name,
-                    "week": w, "shift": shift, "strength": "hard",
-                    "active": True, "name": f"{name} w{w} {shift}", "groups": [],
-                })
-
-    # Soften NCC Team Cap — same encoding interaction bug as wb1
-    standing = yaml.safe_load(STANDING.read_text())
-    for r in standing["rules"]:
-        if r.get("name") == "NCC Team Cap":
-            r["strength"] = "soft"
-    annual["standing_rules"] = standing["rules"]
-
-    return annual
+    """Thin shim over the shared experiment.assemble_annual_dict (the
+    config-assembly logic now lives in ONE place). Kept so existing callers
+    (heavy_opt_wb6, harden_experiment, slurm_sat_job) keep working."""
+    from parafrost_scheduler.experiment import assemble_annual_dict
+    return assemble_annual_dict(WORKBOOK, annual_path=ANNUAL,
+                                standing_path=STANDING, verbose=verbose)
 
 
 def load_config():
-    annual = assemble_config_dicts()
-    config = build_solver_config_from_request(annual, standing_path=STANDING)
-    return config, annual
+    """Thin shim over the shared experiment.assemble_config."""
+    from parafrost_scheduler.experiment import assemble_config
+    return assemble_config(WORKBOOK, annual_path=ANNUAL, standing_path=STANDING)
 
 
 def solution_to_parsed(sol, fellow_order):
