@@ -88,6 +88,13 @@ class WeekendScheduleSolution:
 
 
 @dataclass(frozen=True)
+class BackupScheduleSolution:
+    """Per-week Backup assignments. Each dict has keys "Backup" (weekday) and
+    "Weekend Backup", mapping to a fellow name (or "" if uncovered)."""
+    assignments_by_week: list[dict[str, str]]
+
+
+@dataclass(frozen=True)
 class WeekendSummary:
     total_matches: int
     total_mismatches: int

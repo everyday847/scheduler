@@ -42,7 +42,11 @@ from scheduler.night_call_types import (
     CountMultiset,
     holiday_indices_for_config,
 )
-from scheduler.weekend_call_types import WeekendSolverConfig, WeekendScheduleSolution
+from scheduler.weekend_call_types import (
+    WeekendSolverConfig,
+    WeekendScheduleSolution,
+    BackupScheduleSolution,
+)
 from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES
 from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
@@ -100,6 +104,19 @@ _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1
 _ROLE_STROKE = 2
 _WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
+
+# Backup roles (separate from the weekend `wr` structure so weekend-only logic —
+# spacing, totals, all-different — never touches them). kind 0 = weekday Backup,
+# kind 1 = Weekend Backup.
+_BACKUP_WEEKDAY = 0
+_BACKUP_WEEKEND = 1
+_BACKUP_ROLE_NAMES = ("Backup", "Weekend Backup")
+# Eligibility: NCC_JR/NCC_SR on Elec, or STROKE on Clinic/Elective or
+# Telestroke/Clinic. Group -> the weekday shifts that make a fellow backup-eligible.
+_BACKUP_ELIGIBLE_SHIFTS_NCC = frozenset({"Elec"})
+_BACKUP_ELIGIBLE_SHIFTS_STROKE = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
+_BACKUP_GROUPS = ("NCC_JR", "NCC_SR", "STROKE")
+_BACKUP_MAX_CONSECUTIVE_WEEKS = 2
 
 DEFAULT_WEEKLY_SOFT_WEIGHT = 100
 DEFAULT_WEEKEND_MISMATCH_WEIGHT = 20
@@ -275,6 +292,7 @@ class FullScheduleSolution:
     weekend_solution: WeekendScheduleSolution
     night_solution: NightScheduleSolution
     soft_penalty: int
+    backup_solution: BackupScheduleSolution | None = None
 
 
 @dataclass
@@ -302,6 +320,8 @@ class ScheduleVarMap:
     # penalties; the remainder are weekend/night/call. Used to report the soft
     # penalty broken down by layer.
     soft_weekly_count: int = 0
+    # bk[w][kind] = {fellow_idx: var}; kind 0 = weekday Backup, 1 = Weekend Backup
+    bk: list[list[dict[int, int]]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +468,15 @@ def build_full_schedule_opb(
     )
 
     # -------------------------------------------------------------------
+    # 5b. Backup variables + constraints: bk[w][kind][f]
+    # -------------------------------------------------------------------
+    opb.add_comment("Backup assignment variables")
+    bk = _allocate_backup_vars(opb, config, fellow_names)
+    _encode_backup_constraints(
+        opb, bk, wr, xs, config, fellow_names, shift_idx, soft_violations,
+    )
+
+    # -------------------------------------------------------------------
     # 6. Night variables: xn[d][f]
     # -------------------------------------------------------------------
     opb.add_comment("Night assignment variables")
@@ -504,6 +533,7 @@ def build_full_schedule_opb(
         xn=xn,
         soft_violations=soft_violations,
         soft_weekly_count=weekly_soft_count,
+        bk=bk,
     )
 
     return opb, var_map
@@ -1377,6 +1407,142 @@ def _encode_specific_assignment(opb, xs, constraint, fellow_indices, **kw):
         soft_violations.append((v, weight))
     else:
         opb.at_least_k(vars_for_week, 1)
+
+
+# ---------------------------------------------------------------------------
+# Backup role encoders
+# ---------------------------------------------------------------------------
+
+def _backup_eligible_shift_indices(
+    group_of: dict[int, str], shift_idx: dict[str, int]
+) -> dict[int, list[int]]:
+    """Per-fellow-index list of shift var indices that make them backup-eligible.
+
+    NCC_JR/NCC_SR -> Elec; STROKE -> Clinic/Elective or Telestroke/Clinic.
+    Fellows not in a backup group get an empty list (no eligibility).
+    """
+    ncc_si = [shift_idx[s] for s in _BACKUP_ELIGIBLE_SHIFTS_NCC if s in shift_idx]
+    stroke_si = [shift_idx[s] for s in _BACKUP_ELIGIBLE_SHIFTS_STROKE if s in shift_idx]
+    out: dict[int, list[int]] = {}
+    for f, grp in group_of.items():
+        if grp in ("NCC_JR", "NCC_SR"):
+            out[f] = ncc_si
+        elif grp == "STROKE":
+            out[f] = stroke_si
+    return out
+
+
+def _backup_group_of(config: "ScheduleSolverConfig", fellow_names: list[str]) -> dict[int, str]:
+    """Map fellow index -> backup group name for fellows in a backup group."""
+    name_to_group: dict[str, str] = {}
+    for grp in _BACKUP_GROUPS:
+        for name in config.fellow_groups.get(grp, []):
+            name_to_group[name] = grp
+    return {f: name_to_group[name] for f, name in enumerate(fellow_names)
+            if name in name_to_group}
+
+
+def _allocate_backup_vars(
+    opb: OpbBuilder, config: "ScheduleSolverConfig", fellow_names: list[str]
+) -> list[list[dict[int, int]]]:
+    """Allocate bk[w][kind][f] for backup-eligible fellows (NCC_JR/NCC_SR/STROKE).
+
+    Static (group) eligibility only; the weekday-shift gating is a dynamic
+    constraint added in _encode_backup_constraints. A Weekend Backup var is
+    allocated only for weeks that contain a weekend day.
+    """
+    num_weeks = config.num_weeks
+    start_dow = config.start_dow
+    num_days = config.num_days
+    group_of = _backup_group_of(config, fellow_names)
+    bk: list[list[dict[int, int]]] = []
+    for w in range(num_weeks):
+        sat_day = _week_day(w, 5, start_dow)
+        week_has_weekend = 0 <= sat_day < num_days
+        weekday_vars = {f: opb.new_var() for f in group_of}
+        weekend_vars = {f: opb.new_var() for f in group_of} if week_has_weekend else {}
+        bk.append([weekday_vars, weekend_vars])
+    return bk
+
+
+def _encode_backup_constraints(
+    opb: OpbBuilder,
+    bk: list[list[dict[int, int]]],
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: "ScheduleSolverConfig",
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Encode the Backup / Weekend Backup roles.
+
+    - Shift gating (hard): a backup var implies the fellow is on an eligible
+      weekday shift that week (NCC->Elec; STROKE->Clinic/Elective|Telestroke/Clinic).
+    - Weekend Backup excludes weekend-call-role holders (hard).
+    - Coverage (hard): exactly one weekday Backup and one Weekend Backup per week.
+    - Max 2 consecutive backup weeks per fellow (hard), over the combined
+      (weekday OR weekend) backup indicator.
+    """
+    num_weeks = config.num_weeks
+    group_of = _backup_group_of(config, fellow_names)
+    eligible_shifts = _backup_eligible_shift_indices(group_of, shift_idx)
+
+    opb.add_comment("Backup: weekday-shift gating + weekend-role exclusion")
+    for w in range(num_weeks):
+        for kind in (_BACKUP_WEEKDAY, _BACKUP_WEEKEND):
+            for f, bk_var in bk[w][kind].items():
+                shift_vars = [xs[f][w][si] for si in eligible_shifts.get(f, []) if xs[f][w][si] != 0]
+                if not shift_vars:
+                    # No eligible weekday shift available -> cannot be backup.
+                    opb.add_unit(-bk_var)
+                    continue
+                # bk_var -> OR(shift_vars): sum(shift_vars) + (1 - bk_var) >= 1
+                opb.weighted_sum_at_least(
+                    [(v, 1) for v in shift_vars] + [(-bk_var, 1)], 1
+                )
+        # Weekend Backup excludes any weekend call role that week.
+        for f, wb_var in bk[w][_BACKUP_WEEKEND].items():
+            for role_idx in range(3):
+                if f in wr[w][role_idx]:
+                    opb.at_most_k([wb_var, wr[w][role_idx][f]], 1)
+
+    opb.add_comment("Backup: hard coverage (exactly one weekday + one weekend per week)")
+    for w in range(num_weeks):
+        wd_vars = list(bk[w][_BACKUP_WEEKDAY].values())
+        if wd_vars:
+            opb.exactly_one(wd_vars)
+        we_vars = list(bk[w][_BACKUP_WEEKEND].values())
+        if we_vars:
+            opb.exactly_one(we_vars)
+
+    opb.add_comment(f"Backup: max {_BACKUP_MAX_CONSECUTIVE_WEEKS} consecutive backup weeks")
+    # on_backup[w][f] = OR(weekday backup, weekend backup) for fellow f, week w.
+    on_backup: list[dict[int, int]] = [{} for _ in range(num_weeks)]
+    for w in range(num_weeks):
+        for f in group_of:
+            parts = []
+            if f in bk[w][_BACKUP_WEEKDAY]:
+                parts.append(bk[w][_BACKUP_WEEKDAY][f])
+            if f in bk[w][_BACKUP_WEEKEND]:
+                parts.append(bk[w][_BACKUP_WEEKEND][f])
+            if not parts:
+                continue
+            if len(parts) == 1:
+                on_backup[w][f] = parts[0]
+            else:
+                aux = opb.new_var()
+                for p in parts:
+                    opb.weighted_sum_at_least([(aux, 1), (-p, 1)], 1)
+                opb.weighted_sum_at_least([(v, 1) for v in parts] + [(-aux, 1)], 1)
+                on_backup[w][f] = aux
+    win = _BACKUP_MAX_CONSECUTIVE_WEEKS + 1
+    for f in group_of:
+        for w_start in range(num_weeks - win + 1):
+            window = [on_backup[w_start + o][f] for o in range(win)
+                      if f in on_backup[w_start + o]]
+            if len(window) > _BACKUP_MAX_CONSECUTIVE_WEEKS:
+                opb.at_most_k(window, _BACKUP_MAX_CONSECUTIVE_WEEKS)
 
 
 # ---------------------------------------------------------------------------
@@ -3285,6 +3451,19 @@ def decode_solution(
                 week_nights[role] = ""
         night_by_week.append(week_nights)
 
+    # Backup assignments: bk[w][kind][f]
+    backup_by_week: list[dict[str, str]] = []
+    for w in range(num_weeks):
+        week_backup: dict[str, str] = {}
+        for kind, role_name in enumerate(_BACKUP_ROLE_NAMES):
+            week_backup[role_name] = ""
+            if w < len(var_map.bk):
+                for fi, var in var_map.bk[w][kind].items():
+                    if assignment.get(var, False):
+                        week_backup[role_name] = fellow_names[fi]
+                        break
+        backup_by_week.append(week_backup)
+
     # Compute soft penalty
     penalty = sum(
         weight for var, weight in var_map.soft_violations
@@ -3296,6 +3475,7 @@ def decode_solution(
         weekend_solution=WeekendScheduleSolution(assignments_by_week=weekend_by_week),
         night_solution=NightScheduleSolution(assignments_by_week=night_by_week),
         soft_penalty=penalty,
+        backup_solution=BackupScheduleSolution(assignments_by_week=backup_by_week),
     )
 
 
