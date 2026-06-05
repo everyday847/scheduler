@@ -197,10 +197,36 @@ def criteria_for_assignment(
         clinic_service = parsed.week_rows[clinic_week].weekday_assignments.get(fellow_name, "")
         if clinic_service == "Clinic/Elective":
             criteria.append(CRITERION_CLINIC)
-    # Stroke: weekday Stroke service (NOT Telestroke), exempt in dual-stroke weeks.
-    if ("Stroke" in weekday_service and "Telestroke" not in weekday_service
-            and week_index not in dual):
-        criteria.append(CRITERION_STROKE)
+    # Stroke: mirrors the encoder's TWO rules (schedule_solver). Exempt in
+    # dual-stroke weeks (the second Stroke fellow covers the night).
+    #   (1) Weekday Stroke service penalizes only the nights BEFORE a stroke
+    #       workday — Sun/Mon/Tue/Wed/Thu nights — reading the Stroke service of
+    #       the week containing the NEXT morning (Mon-Thu night => same week,
+    #       Sunday night => next week's Monday). Fri/Sat nights are NOT penalized
+    #       (the morning after is not a stroke workday).
+    #   (2) The Weekend STROKE role holder is penalized for Sat/Sun night.
+    if week_index not in dual:
+        stroke_added = False
+        # Rule 1: night before a stroke workday.
+        if day_of_week in (0, 1, 2, 3):  # Mon-Thu night -> next morning same week
+            stroke_week = week_index
+        elif day_of_week == 6:  # Sun night -> Monday of next week
+            stroke_week = week_index + 1
+        else:  # Fri/Sat -> next morning is not a stroke workday
+            stroke_week = None
+        if stroke_week is not None and stroke_week < len(parsed.week_rows):
+            svc = parsed.week_rows[stroke_week].weekday_assignments.get(fellow_name, "")
+            if "Stroke" in svc and "Telestroke" not in svc:
+                criteria.append(CRITERION_STROKE)
+                stroke_added = True
+        # Rule 2: Weekend Stroke role holder on Sat/Sun night.
+        if not stroke_added and day_of_week in (5, 6):
+            if weekend_solution is not None:
+                wknd_stroke = weekend_solution.assignments_by_week[week_index].get("Weekend Stroke")
+            else:
+                wknd_stroke = week_row.schedule_assignments.get("Weekend Stroke")
+            if wknd_stroke == fellow_name:
+                criteria.append(CRITERION_STROKE)
     # Friday weekend-NCC1: prefer the solved weekend, fall back to imported.
     if day_of_week == 4:
         if weekend_solution is not None:
