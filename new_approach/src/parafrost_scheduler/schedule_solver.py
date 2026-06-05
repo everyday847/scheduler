@@ -71,13 +71,17 @@ from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 # shift names, curated here rather than derived from the config's
 # night_blocked_services rule because SHIFT_MAP is lossy (e.g. it collapses
 # several raw elective names to "Elec"), so round-tripping raw->canonical would
-# over-block. NHS/AAN/RWC/NCS 2026 were previously missing, which let NH fellows
-# take call during NHS/AAN weeks. Members NOT also in NIGHT_BLOCKED_ALL_WEEK
-# block only Sun(prev)-Thu nights; the all-week set blocks all 7 nights.
+# over-block. AAN/RWC/NCS 2026 block only Sun(prev)-Thu nights; the all-week set
+# blocks all 7 nights. NHS is NOT here — it has a custom rule
+# (_encode_nhs_week_nights): an NH fellow on NHS may work Mon+Tue night (soft
+# penalty) but no other night that week.
 NIGHT_BLOCKED_SHIFTS = frozenset(
-    {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "NHS", "AAN", "RWC", "NCS 2026"}
+    {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "AAN", "RWC", "NCS 2026"}
 )
 NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
+# An NH fellow on NHS may take ONLY Monday + Tuesday night that week, each at
+# this soft penalty; Wed-Sun nights are hard-forbidden (_encode_nhs_week_nights).
+NHS_NIGHT_PENALTY_WEIGHT = 100
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 # Only Clinic/Elective triggers the clinic night criterion. Telestroke/Clinic
 # fellows may take any weekday night, so they are NOT in this set.
@@ -2045,6 +2049,85 @@ def _encode_weekend_mismatch_penalty(
 # Night constraint encoders
 # ---------------------------------------------------------------------------
 
+def _encode_nhs_week_nights(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """NHS week: a fellow on NHS may work ONLY Monday + Tuesday night that week.
+
+    Mon/Tue night each get a soft NHS_NIGHT_PENALTY_WEIGHT penalty (they SHOULDN'T
+    have to, but may); Wed/Thu/Fri/Sat/Sun nights of the NHS week are hard-
+    forbidden. Gated on the NHS shift var, so only whoever is on NHS is affected.
+    """
+    nhs_si = shift_idx.get("NHS")
+    if nhs_si is None:
+        return
+    num_weeks = config.num_weeks
+    start_dow = config.start_dow
+    num_days = config.num_days
+    for w in range(num_weeks):
+        for f in range(len(fellow_names)):
+            nhs_var = xs[f][w][nhs_si]
+            if nhs_var == 0:
+                continue
+            for dow in range(7):
+                d = _week_day(w, dow, start_dow)
+                if d < 0 or d >= num_days or xn[d][f] == 0:
+                    continue
+                if dow in (0, 1):  # Mon/Tue: allowed, soft penalty when both hold
+                    pen = opb.new_var()
+                    # pen = nhs AND night: pen >= nhs + night - 1
+                    opb.weighted_sum_at_most([(nhs_var, 1), (xn[d][f], 1), (-pen, 1)], 2)
+                    opb.weighted_sum_at_least([(nhs_var, 1), (-pen, 1)], 1)
+                    opb.weighted_sum_at_least([(xn[d][f], 1), (-pen, 1)], 1)
+                    soft_violations.append((pen, NHS_NIGHT_PENALTY_WEIGHT))
+                else:  # Wed-Sun: hard-forbidden
+                    opb.at_most_k([nhs_var, xn[d][f]], 1)
+
+
+def _encode_pre_aan_forbid(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+) -> None:
+    """Week before AAN: a fellow on AAN in week A is hard-forbidden, in week A-1,
+    from any weekend role (Weekend NCC1/NCC2/Stroke) and from Fri/Sat/Sun nights.
+
+    AAN happens early in its week, so the fellow must be free the preceding
+    weekend to travel. Gated on the AAN shift var in week A.
+    """
+    aan_si = shift_idx.get("AAN")
+    if aan_si is None:
+        return
+    num_weeks = config.num_weeks
+    start_dow = config.start_dow
+    num_days = config.num_days
+    for w in range(1, num_weeks):  # w = AAN week; w-1 = week before
+        for f in range(len(fellow_names)):
+            aan_var = xs[f][w][aan_si]
+            if aan_var == 0:
+                continue
+            prev = w - 1
+            # Weekend roles in week w-1.
+            for role_idx in range(3):
+                if f in wr[prev][role_idx]:
+                    opb.at_most_k([aan_var, wr[prev][role_idx][f]], 1)
+            # Fri/Sat/Sun nights of week w-1.
+            for dow in (4, 5, 6):
+                d = _week_day(prev, dow, start_dow)
+                if 0 <= d < num_days and xn[d][f] != 0:
+                    opb.at_most_k([aan_var, xn[d][f]], 1)
+
+
 def _encode_night_constraints(
     opb: OpbBuilder,
     xn: list[list[int]],
@@ -2132,6 +2215,14 @@ def _encode_night_constraints(
                     )
                 else:
                     opb.add_unit(-xn[d][f])
+
+    # NHS week: only Mon+Tue night (soft 100); Wed-Sun hard-forbidden.
+    opb.add_comment("Night: NHS week (Mon/Tue soft, Wed-Sun forbidden)")
+    _encode_nhs_week_nights(opb, xn, xs, config, fellow_names, shift_idx, soft_violations)
+
+    # Week before AAN: forbid weekend roles + Fri/Sat/Sun nights.
+    opb.add_comment("Night/Weekend: forbid the weekend before AAN")
+    _encode_pre_aan_forbid(opb, xn, wr, xs, config, fellow_names, shift_idx)
 
     # First-week restriction: NCC_JR and STROKE fellows blocked until first Friday
     opb.add_comment("Night: first-week restriction for NCC_JR and STROKE")

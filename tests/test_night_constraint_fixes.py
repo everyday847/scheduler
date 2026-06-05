@@ -726,10 +726,14 @@ class TestScvmcRehabBlocked:
         assert "SCVMC Rehab" in NIGHT_BLOCKED_SHIFTS
 
     def test_all_expected_shifts_present(self):
-        # Core blocked services that must always be present (superset check so
-        # adding new blocked shifts like NHS/AAN/RWC/NCS doesn't break this).
-        expected = {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "NHS", "AAN", "RWC", "NCS 2026"}
+        # Core blocked services that must always be present. NHS is intentionally
+        # NOT here: it has a custom rule (_encode_nhs_week_nights) allowing Mon/Tue
+        # night, so the generic Sun-Thu block must not also apply to it.
+        expected = {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "AAN", "RWC", "NCS 2026"}
         assert expected <= NIGHT_BLOCKED_SHIFTS
+
+    def test_nhs_not_in_generic_blocked_set(self):
+        assert "NHS" not in NIGHT_BLOCKED_SHIFTS
 
     def test_scvmc_rehab_generates_blocking_constraint(self):
         """SCVMC Rehab should generate blocking constraints like other blocked services."""

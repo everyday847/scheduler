@@ -541,8 +541,9 @@ class TestNightBlocking:
 
 
 class TestWeekdayOnlyNightBlocking:
-    """NHS / AAN / RWC / NCS 2026 block weekday nights (Sun-of-prev-week
-    through Thu of the service week) but allow Fri/Sat (weekend) nights.
+    """AAN / RWC / NCS 2026 block weekday nights (Sun-of-prev-week through Thu of
+    the service week) but allow Fri/Sat (weekend) nights. (NHS is excluded — it
+    has a custom rule allowing Mon/Tue night; see test_nh_nhs_aan.py.)
 
     Uses a 2-week horizon so 'the Sunday before week 1' (day 6 of week 0)
     exists and can be tested. For a week-1 service, the blocked nights are
@@ -560,7 +561,7 @@ class TestWeekdayOnlyNightBlocking:
     ALLOWED_WEEKEND_NIGHTS = [11, 12]           # Fri, Sat of the service week
 
     def test_weekday_services_block_weekday_nights_allow_weekend(self):
-        for service in ("NHS", "AAN", "RWC", "NCS 2026"):
+        for service in ("AAN", "RWC", "NCS 2026"):
             h = self._harness()
             h.encode()
             for d in self.BLOCKED_WEEKDAY_NIGHTS:
