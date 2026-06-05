@@ -23,7 +23,7 @@ cd "$REPO"
 export PYTHONPATH="src:new_approach/src"
 export PYTHONUNBUFFERED=1
 
-VARIANTS=(baseline consec_soft hard_stroke hard_sunday)
+VARIANTS=(baseline hard_stroke hard_sunday)
 VARIANT="${VARIANTS[$SLURM_ARRAY_TASK_ID]}"
 
 echo "Host: $(hostname)"

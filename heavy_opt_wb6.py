@@ -6,16 +6,18 @@ flipping which constraints are hard. Select a variant with the VARIANT env var
 several can run in parallel on separate defq nodes.
 
 Variants (all share the new defaults: full NCC2 coverage, week-0-exempt
-Telestroke, fixed clinic criterion):
-  baseline       — shipped defaults: hard no-consecutive-weekends; hard
-                   anaesthesia/friday_weekend_ncc1/sunday_following; soft stroke,
-                   clinic, Sunday weekend-stroke linking.
-  consec_soft    — like baseline but no-consecutive-weekends is SOFT (the prior
-                   behavior; a feasibility fallback + comparison point).
+Telestroke, fixed clinic criterion, soft buffer-exempt consecutive weekends):
+  baseline       — shipped defaults: hard anaesthesia/friday_weekend_ncc1/
+                   sunday_following; soft stroke, clinic, consecutive weekends,
+                   Sunday weekend-stroke linking.
   hard_stroke    — baseline + the stroke night criterion made HARD (prioritize
                    zero stroke-night violations).
   hard_sunday    — baseline + Sunday-night-must-be-weekend-Stroke made HARD
                    (prioritize Sunday weekend-stroke coverage).
+  hard_consec    — baseline + buffered-hard consecutive weekends. NOTE: this was
+                   proven UNSAT on wb6 (2026-06-05); kept only so the comparison
+                   harness records the INFEASIBLE result rather than silently
+                   omitting it.
 """
 from __future__ import annotations
 
@@ -34,14 +36,14 @@ def _apply_variant(config, variant: str):
     """Return a config copy adjusted for the named variant."""
     if variant == "baseline":
         return config
-    if variant == "consec_soft":
-        return dataclasses.replace(config, weekend_consecutive_hard=False)
     if variant == "hard_stroke":
         return dataclasses.replace(
             config, night_hard_criteria=config.night_hard_criteria | {CRITERION_STROKE}
         )
     if variant == "hard_sunday":
         return dataclasses.replace(config, weekend_night_sunday_hard=True)
+    if variant == "hard_consec":
+        return dataclasses.replace(config, weekend_consecutive_hard=True)
     raise SystemExit(f"unknown variant: {variant!r}")
 
 
