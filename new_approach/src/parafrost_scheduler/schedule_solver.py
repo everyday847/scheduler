@@ -192,6 +192,11 @@ class ScheduleSolverConfig:
     # Stroke" bug). Flip to True only if the surrounding constraints loosen.
     weekend_night_saturday_hard: bool = True
     weekend_night_sunday_hard: bool = False
+    # No fellow works weekend call in two back-to-back weeks. HARD by default: a
+    # hard at_most-1 over each adjacent weekend pair avoids needing a more complex
+    # "two straight weekends => mandatory time off after" rule. Flip to False to
+    # make it a soft distribution penalty (one slack per adjacent pair).
+    weekend_consecutive_hard: bool = True
     # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
     # of the target (so the distribution can't collapse onto a few fellows).
     weekend_total_tolerance: int = 1
@@ -1492,14 +1497,16 @@ def _encode_weekend_constraints(
                 opb.weighted_sum_at_least([(v, 1) for v in roles_for_f] + [(-aux, 1)], 1)
                 work_vars.append((w, aux))
 
-        # No two consecutive (soft — distribution constraint)
+        # No two consecutive weekends. Hard by default (config flag); soft mode
+        # falls back to a per-pair distribution penalty.
+        consecutive_hard = config.weekend_consecutive_hard
         for i in range(len(work_vars) - 1):
             w1, v1 = work_vars[i]
             w2, v2 = work_vars[i + 1]
             if w2 - w1 == 1:
                 _add_cardinality_constraint(
                     opb, [v1, v2], "at_most", 1,
-                    is_soft=True, weight=config.weekend_mismatch_weight,
+                    is_soft=not consecutive_hard, weight=config.weekend_mismatch_weight,
                     soft_violations=soft_violations,
                 )
 
