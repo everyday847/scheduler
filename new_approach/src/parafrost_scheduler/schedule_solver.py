@@ -180,11 +180,16 @@ class ScheduleSolverConfig:
     weekend_night_friday_weight: int = DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT
     weekend_night_saturday_weight: int = DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT
     weekend_night_sunday_weight: int = DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT
-    # Saturday night fellow must be Weekend NCC1/NCC2, Sunday night fellow must be
-    # Weekend Stroke. Hard by default (verified feasible: a k=0 bound on these
-    # mismatches is SAT). Set False to fall back to the scaled soft penalty above.
+    # Saturday night fellow must be Weekend NCC1/NCC2 (HARD — feasible). Sunday
+    # night fellow must be Weekend Stroke (SOFT by default — a hard Sunday rule
+    # is INFEASIBLE on WB5: forcing the single weekend-Stroke holder onto Sunday
+    # night every week collides with night spacing + NS-all-week blocking +
+    # week-0 Elec pins, confirmed by a factorial SAT bisect. The soft penalty
+    # still covers ALL fellows, including non-stroke-eligible NCC_JR who were
+    # previously skipped — that omission was the reported "Sunday != weekend
+    # Stroke" bug). Flip to True only if the surrounding constraints loosen.
     weekend_night_saturday_hard: bool = True
-    weekend_night_sunday_hard: bool = True
+    weekend_night_sunday_hard: bool = False
     # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
     # of the target (so the distribution can't collapse onto a few fellows).
     weekend_total_tolerance: int = 1
@@ -2143,14 +2148,21 @@ def _encode_weekend_night_linking(
                         _SoftWeightProxy(saturday_weight), soft_violations,
                     )
 
-        # --- Sunday night: prefer Weekend Stroke ---
+        # --- Sunday night: must be covered by the Weekend Stroke fellow ---
+        # Two cases per fellow who could work Sunday night:
+        #  (a) stroke-eligible (has a weekend-Stroke var): working Sunday night
+        #      implies holding the weekend-Stroke role that week.
+        #  (b) NOT stroke-eligible (no weekend-Stroke var): cannot be the weekend
+        #      -Stroke fellow, so cannot work Sunday night at all. Without this
+        #      branch, NCC_JR fellows slipped through and took Sunday night while
+        #      someone else held weekend-Stroke.
         sun_d = _week_day(w, 6, start_dow)
         if 0 <= sun_d < num_days:
             for f in range(num_fellows):
                 if xn[sun_d][f] == 0:
                     continue
                 if f in wr[w][_ROLE_STROKE]:
-                    # Soft: xn AND NOT wr_stroke → penalty
+                    # xn AND NOT wr_stroke → violation (hard forbid, or penalty)
                     not_stroke = opb.new_var()
                     stroke_var = wr[w][_ROLE_STROKE][f]
                     opb.weighted_sum_at_least([(stroke_var, 1), (not_stroke, 1)], 1)
@@ -2160,6 +2172,13 @@ def _encode_weekend_night_linking(
                         "weekend_night_sunday", sun_hard,
                         _SoftWeightProxy(sunday_weight), soft_violations,
                     )
+                elif config.weekend_night_sunday_hard:
+                    # Not stroke-eligible → can never be the weekend-Stroke fellow,
+                    # so forbid Sunday night outright.
+                    opb.add_unit(-xn[sun_d][f])
+                else:
+                    # Soft mode: penalize a non-eligible fellow on Sunday night.
+                    soft_violations.append((xn[sun_d][f], sunday_weight))
 
 
 def _encode_weekend_prerequisites(

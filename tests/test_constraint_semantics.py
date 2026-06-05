@@ -479,6 +479,12 @@ class NightHarness:
             shifts=shifts, constraints=[fa],
             night_config=NightSolverConfig(), weekend_config=WeekendSolverConfig(),
             start_dow=0, num_days=self.num_days,
+            # This harness exercises SERVICE-based night blocking, not weekend
+            # role linking, and leaves the weekend (wr) layer empty. The hard
+            # Sunday-night-must-be-weekend-Stroke rule would forbid all Sunday
+            # coverage here (no fellow holds a weekend-Stroke var), so run that
+            # rule in soft mode — its dedicated coverage is in test_weekend_night_linking.
+            weekend_night_sunday_hard=False,
         )
 
     def encode(self):

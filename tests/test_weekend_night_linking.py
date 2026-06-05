@@ -41,8 +41,15 @@ def _make_config(
     num_days: int = 14,
     fellow_groups: dict[str, list[str]] | None = None,
     stroke_eligible: frozenset[str] = frozenset(),
-    weekend_night_hard: bool = True,
+    weekend_night_hard: bool | None = None,
 ) -> ScheduleSolverConfig:
+    # weekend_night_hard=None -> production defaults (Sat hard, Sun soft).
+    # Pass True/False to force BOTH Sat and Sun to that hardness (for tests that
+    # exercise pure hard or pure soft mode).
+    if weekend_night_hard is None:
+        sat_hard, sun_hard = True, False
+    else:
+        sat_hard, sun_hard = weekend_night_hard, weekend_night_hard
     """Build a minimal ScheduleSolverConfig for testing."""
     if fellow_groups is None:
         fellow_groups = {"NCC_SR": ["Alice", "Bob"]}
@@ -77,8 +84,8 @@ def _make_config(
         night_hard_criteria=frozenset(),
         start_dow=start_dow,
         num_days=num_days,
-        weekend_night_saturday_hard=weekend_night_hard,
-        weekend_night_sunday_hard=weekend_night_hard,
+        weekend_night_saturday_hard=sat_hard,
+        weekend_night_sunday_hard=sun_hard,
     )
 
 
@@ -161,8 +168,10 @@ class TestWeekendNightDefaults:
                                weekend_options=None, friday_weekend_options=None),
             num_days=14,
         )
+        # Saturday is hard (feasible); Sunday is soft (a hard Sunday rule is
+        # infeasible on the production schedule — see schedule_solver comment).
         assert cfg.weekend_night_saturday_hard is True
-        assert cfg.weekend_night_sunday_hard is True
+        assert cfg.weekend_night_sunday_hard is False
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +437,46 @@ class TestSundayNightMustBeStroke:
             if (f"x{wr_ncc1}" in c or f"x{wr_ncc2}" in c)
         ]
         assert len(ncc_constraints) == 0, "Sunday night should not imply NCC roles"
+
+    def test_sunday_night_penalizes_non_stroke_eligible_fellow(self):
+        """The completeness fix: a fellow with NO weekend-Stroke var (e.g. an
+        NCC_JR who can't hold weekend Stroke) must STILL be penalized for working
+        Sunday night. Previously such fellows were skipped entirely, which is why
+        NCC_JR fellows took Sunday night while someone else held weekend-Stroke."""
+        config = _make_config(start_dow=0, num_days=7)  # sunday soft by default
+        opb = OpbBuilder()
+        xn = _make_xn(opb, 7, 1)
+        # Fellow 0 is NOT weekend-Stroke-eligible (no stroke var).
+        wr = _make_wr(opb, config.num_weeks, 1, stroke_eligible=set())
+
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
+
+        sun_d = _week_day(0, 6, 0)
+        xn_sun = xn[sun_d][0]
+        # The non-eligible fellow's Sunday-night var must carry a soft penalty.
+        assert any(v == xn_sun for v, _ in soft), (
+            "Non-stroke-eligible fellow on Sunday night must be penalized (completeness fix)"
+        )
+
+    def test_sunday_night_hard_forbids_non_eligible_fellow(self):
+        """In hard mode, a non-stroke-eligible fellow is forbidden from Sunday
+        night outright (unit clause)."""
+        config = _make_config(start_dow=0, num_days=7, weekend_night_hard=True)
+        opb = OpbBuilder()
+        xn = _make_xn(opb, 7, 1)
+        wr = _make_wr(opb, config.num_weeks, 1, stroke_eligible=set())
+
+        soft = []
+        _encode_weekend_night_linking(opb, xn, wr, config, ["Alice"], soft)
+
+        sun_d = _week_day(0, 6, 0)
+        xn_sun = xn[sun_d][0]
+        constraints = _constraints_containing(opb, xn_sun)
+        unit_clause = f"+1 ~x{xn_sun} >= 1 ;"
+        assert any(c.strip() == unit_clause for c in constraints), (
+            "Hard mode must forbid a non-eligible fellow from Sunday night"
+        )
 
 
 # ---------------------------------------------------------------------------
