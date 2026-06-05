@@ -17,8 +17,11 @@ from pathlib import Path
 
 import yaml
 
+import csv as _csv
+
 from scheduler.solver_bridge import build_solver_config_from_request
 from scheduler.schedule_import import parse_schedule_file
+from scheduler.call_schedule_common import WEEKEND_ROLES, ParsedCallScheduleCsv, WeekRow
 
 # Canonical (post-import) shift renames. The imported workbook uses display
 # names; the solver/config use canonical names. SHIFT_MAP is the single place
@@ -117,3 +120,39 @@ def assemble_config(
     )
     config = build_solver_config_from_request(annual, standing_path=standing_path)
     return config, annual
+
+
+# ---------------------------------------------------------------------------
+# Output helpers (shared by the CLI and the run-script shims)
+# ---------------------------------------------------------------------------
+
+def solution_to_parsed(sol, fellow_order: list[str]) -> ParsedCallScheduleCsv:
+    """Reconstruct a ParsedCallScheduleCsv from a solved schedule (for the
+    workbook writer, which colors against the solved weekday + weekend data)."""
+    num_weeks = len(next(iter(sol.weekly_assignments.values())))
+    week_rows = []
+    for w in range(num_weeks):
+        weekday_assignments = {name: sol.weekly_assignments[name][w] for name in fellow_order}
+        weekend_data = sol.weekend_solution.assignments_by_week[w]
+        schedule_assignments = {role: weekend_data.get(role, "") for role in WEEKEND_ROLES}
+        week_rows.append(WeekRow(weekday_assignments=weekday_assignments,
+                                 schedule_assignments=schedule_assignments, raw_row=[]))
+    return ParsedCallScheduleCsv(fellow_names=fellow_order,
+                                 existing_schedule_columns=tuple(WEEKEND_ROLES),
+                                 week_rows=week_rows, trailing_rows=[])
+
+
+def write_csv(sol, output_path: Path) -> None:
+    """Write the solved schedule as a CSV (fellows | weekend roles | night roles)."""
+    fellow_names = list(sol.weekly_assignments.keys())
+    num_weeks = len(next(iter(sol.weekly_assignments.values())))
+    wk_keys = list(sol.weekend_solution.assignments_by_week[0].keys())
+    nk_keys = list(sol.night_solution.assignments_by_week[0].keys())
+    with Path(output_path).open("w", newline="", encoding="utf-8") as fh:
+        writer = _csv.writer(fh)
+        writer.writerow(fellow_names + wk_keys + nk_keys)
+        for w in range(num_weeks):
+            row = [sol.weekly_assignments[name][w] for name in fellow_names]
+            row += [sol.weekend_solution.assignments_by_week[w].get(r, "") for r in wk_keys]
+            row += [sol.night_solution.assignments_by_week[w].get(r, "") for r in nk_keys]
+            writer.writerow(row)
