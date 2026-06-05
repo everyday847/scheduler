@@ -73,7 +73,7 @@ from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 NIGHT_BLOCKED_SHIFTS = frozenset(
     {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "NHS", "AAN", "RWC", "NCS 2026"}
 )
-NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac"})
+NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 CLINIC_SHIFTS = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
 STROKE_SHIFTS = frozenset({"Stroke"})
@@ -81,12 +81,12 @@ NON_PREFERRED_SUNDAY_FOLLOWING = frozenset(
     {"Anaesthesia", "Clinic/Elective", "Telestroke/Clinic", "Vac", "NS", "NIR", "SICU", "SCVMC Rehab"}
 )
 HOLIDAY_ELIGIBLE_SHIFTS = frozenset({"NCC1", "NCC2", "Stroke"})
-# A fellow on a core ICU rotation (MICU/SICU), Anaesthesia, or Vacation cannot
-# also take a weekend call role that week. MICU/Anaesthesia were historically
-# missing here: the legacy weekend-blocking used the raw-name substring "MSICU",
-# which never matched after the canonical rename MSICU->MICU, and Anaesthesia was
-# simply never listed. Mirror NIGHT_BLOCKED_ALL_WEEK, which correctly blocks MICU.
-WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "Anaesthesia", "Vac"})
+# A fellow on a core ICU rotation (MICU/SICU), NS, Anaesthesia, or Vacation
+# cannot also take a weekend call role that week. MICU/Anaesthesia were
+# historically missing here: the legacy weekend-blocking used the raw-name
+# substring "MSICU", which never matched after the canonical rename MSICU->MICU,
+# and Anaesthesia was never listed. NS blocks the full week (nights + weekends).
+WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "NS", "Anaesthesia", "Vac"})
 
 _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1
