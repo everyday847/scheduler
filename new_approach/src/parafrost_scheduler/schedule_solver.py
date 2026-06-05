@@ -62,285 +62,57 @@ from scheduler.night_policy_types import (
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-# Weekday services that preclude night call. These are CANONICAL (post-SHIFT_MAP)
-# shift names, curated here rather than derived from the config's
-# night_blocked_services rule because SHIFT_MAP is lossy (e.g. it collapses
-# several raw elective names to "Elec"), so round-tripping raw->canonical would
-# over-block. AAN/RWC/NCS 2026 block only Sun(prev)-Thu nights; the all-week set
-# blocks all 7 nights. NHS is NOT here — it has a custom rule
-# (_encode_nhs_week_nights): an NH fellow on NHS may work Mon+Tue night (soft
-# penalty) but no other night that week.
-NIGHT_BLOCKED_SHIFTS = frozenset(
-    {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "AAN", "RWC", "NCS 2026"}
+from parafrost_scheduler.schedule_types import (
+    # Constants
+    NIGHT_BLOCKED_SHIFTS,
+    NIGHT_BLOCKED_ALL_WEEK,
+    NHS_NIGHT_PENALTY_WEIGHT,
+    ANAESTHESIA_SHIFTS,
+    CLINIC_SHIFTS,
+    STROKE_SHIFTS,
+    NON_PREFERRED_SUNDAY_FOLLOWING,
+    HOLIDAY_ELIGIBLE_SHIFTS,
+    WEEKEND_BLOCKED_SHIFTS,
+    CONSECUTIVE_WEEKEND_BUFFER_SHIFTS,
+    _ROLE_NCC1,
+    _ROLE_NCC2,
+    _ROLE_STROKE,
+    _WEEKEND_ROLE_NAMES,
+    _BACKUP_WEEKDAY,
+    _BACKUP_WEEKEND,
+    _BACKUP_ROLE_NAMES,
+    _BACKUP_ELIGIBLE_SHIFTS_NCC,
+    _BACKUP_ELIGIBLE_SHIFTS_STROKE,
+    _BACKUP_GROUPS,
+    _BACKUP_MAX_CONSECUTIVE_WEEKS,
+    _BACKUP_FORBIDDEN_WEEKS,
+    _BACKUP_COVERAGE_FIRST_WEEK,
+    _BACKUP_HOLIDAY_WEEKS,
+    _BACKUP_HOLIDAY_SHIFTS,
+    DEFAULT_WEEKLY_SOFT_WEIGHT,
+    DEFAULT_WEEKEND_MISMATCH_WEIGHT,
+    DEFAULT_SWING_UNCOVERED_WEIGHT,
+    DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT,
+    DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT,
+    DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT,
+    # Calendar helpers (public — aliased below for internal backward compat)
+    day_of_week,
+    day_to_week,
+    week_day,
+    num_weeks_for,
+    date_to_day_index,
+    # Types
+    ManagementMode,
+    ScheduleSolverConfig,
+    FullScheduleSolution,
+    ScheduleVarMap,
 )
-NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
-# An NH fellow on NHS may take ONLY Monday + Tuesday night that week, each at
-# this soft penalty; Wed-Sun nights are hard-forbidden (_encode_nhs_week_nights).
-NHS_NIGHT_PENALTY_WEIGHT = 100
-ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
-# Only Clinic/Elective triggers the clinic night criterion. Telestroke/Clinic
-# fellows may take any weekday night, so they are NOT in this set.
-CLINIC_SHIFTS = frozenset({"Clinic/Elective"})
-STROKE_SHIFTS = frozenset({"Stroke"})
-NON_PREFERRED_SUNDAY_FOLLOWING = frozenset(
-    {"Anaesthesia", "Clinic/Elective", "Telestroke/Clinic", "Vac", "NS", "NIR", "SICU", "SCVMC Rehab"}
-)
-HOLIDAY_ELIGIBLE_SHIFTS = frozenset({"NCC1", "NCC2", "Stroke"})
-# A fellow on a core ICU rotation (MICU/SICU), NS, Anaesthesia, or Vacation
-# cannot also take a weekend call role that week. MICU/Anaesthesia were
-# historically missing here: the legacy weekend-blocking used the raw-name
-# substring "MSICU", which never matched after the canonical rename MSICU->MICU,
-# and Anaesthesia was never listed. NS blocks the full week (nights + weekends).
-WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "NS", "Anaesthesia", "Vac"})
-# "Light" weekday rotations that buffer a consecutive-weekend pair: if the week
-# AFTER the pair is one of these, the fellow gets a break and avoids working 15+
-# days straight. Used by the buffered no-consecutive-weekends rule.
-CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = frozenset(
-    {"Vac", "ISC", "APBN", "NHS", "AAN", "NCS 2026"}
-)
 
-_ROLE_NCC1 = 0
-_ROLE_NCC2 = 1
-_ROLE_STROKE = 2
-_WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
-
-# Backup roles (separate from the weekend `wr` structure so weekend-only logic —
-# spacing, totals, all-different — never touches them). kind 0 = weekday Backup,
-# kind 1 = Weekend Backup.
-_BACKUP_WEEKDAY = 0
-_BACKUP_WEEKEND = 1
-_BACKUP_ROLE_NAMES = ("Backup", "Weekend Backup")
-# Eligibility: NCC_JR/NCC_SR on Elec or Telestroke/Clinic; STROKE on
-# Clinic/Elective or Telestroke/Clinic. (NCC_JR never does Telestroke/Clinic and
-# NCC never does Clinic/Elective in practice, so the NCC set is effectively
-# "Elec" for juniors and "Elec or Telestroke/Clinic" for seniors — covering e.g.
-# an NCC_SR on Telestroke/Clinic in a week where the Stroke fellows are pinned
-# elsewhere.) Group -> the weekday shifts that make a fellow backup-eligible.
-_BACKUP_ELIGIBLE_SHIFTS_NCC = frozenset({"Elec", "Telestroke/Clinic"})
-_BACKUP_ELIGIBLE_SHIFTS_STROKE = frozenset({"Elec", "Clinic/Elective", "Telestroke/Clinic"})
-_BACKUP_GROUPS = ("NCC_JR", "NCC_SR", "STROKE")
-_BACKUP_MAX_CONSECUTIVE_WEEKS = 2
-# Week 0 forbids ALL Backup: the Stroke fellows' orientation Elec is special and
-# they must not serve as backup that week. Since Elec is otherwise backup-
-# eligible, this needs an explicit forbid (not just a coverage exemption).
-_BACKUP_FORBIDDEN_WEEKS = frozenset({0})
-# Hard Backup coverage starts at week 1 (week 0 is forbidden, above).
-_BACKUP_COVERAGE_FIRST_WEEK = 1
-# Holiday weeks (0-indexed) where BOTH Backup and Weekend Backup must be the
-# Telestroke/Clinic fellow specifically — Elec / Clinic/Elective do not qualify.
-# 1-indexed weeks 26 & 27 (the Christmas / New Year fortnight).
-_BACKUP_HOLIDAY_WEEKS = frozenset({25, 26})
-_BACKUP_HOLIDAY_SHIFTS = frozenset({"Telestroke/Clinic"})
-
-DEFAULT_WEEKLY_SOFT_WEIGHT = 100
-DEFAULT_WEEKEND_MISMATCH_WEIGHT = 20
-DEFAULT_SWING_UNCOVERED_WEIGHT = 100
-# Weekend-night linking penalties (per fellow-week occurrence). Friday (a night
-# fellow also holding a weekend role) is the most disruptive, so it is weighted
-# higher than the Saturday/Sunday role-preference nudges.
-DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT = 40
-DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT = 10
-DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT = 10
-
-
-# ---------------------------------------------------------------------------
-# Calendar helpers
-# ---------------------------------------------------------------------------
-
-def _day_of_week(d: int, start_dow: int) -> int:
-    """Return the day-of-week (Mon=0 ... Sun=6) for absolute day *d*."""
-    return (start_dow + d) % 7
-
-
-def _day_to_week(d: int, start_dow: int) -> int:
-    """Return the academic-year week index for absolute day *d*."""
-    return (start_dow + d) // 7
-
-
-def _week_day(w: int, dow_target: int, start_dow: int) -> int:
-    """Return absolute day *d* for weekday *dow_target* in week *w*.
-
-    May return a negative value (before the academic year) or a value
-    >= num_days (after the academic year); callers must bounds-check.
-    """
-    return w * 7 - start_dow + dow_target
-
-
-def _num_weeks_for(start_dow: int, num_days: int) -> int:
-    """Number of (possibly partial) weeks that span *num_days* starting on *start_dow*."""
-    return (start_dow + num_days - 1) // 7 + 1
-
-
-def _date_to_day_index(date_str: str | date, horizon_start: date) -> int:
-    """Convert a date string (or date object) to absolute day index from horizon start."""
-    if isinstance(date_str, str):
-        d = date.fromisoformat(date_str)
-    else:
-        d = date_str
-    return (d - horizon_start).days
-
-
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
-
-class ManagementMode(Enum):
-    """How a fellow's WEEKLY schedule is determined (the single source of truth
-    for the "locked vs. pinned" distinction that used to be re-derived ad hoc).
-
-    IMPORTED  — weekly schedule frozen exactly as given (an external workbook
-                import); empty weeks stay empty; per-fellow weekly rules are
-                skipped because the schedule is managed elsewhere. Nights and
-                weekends are still solver-assigned.
-    MANAGED   — the solver assigns the weekly schedule; Annual Rules may pin
-                specific weeks (vacation / exam / conference) via
-                specific_assignment, but all per-fellow rules stay enforced.
-    """
-    IMPORTED = "imported"
-    MANAGED = "managed"
-
-
-@dataclass(frozen=True)
-class ScheduleSolverConfig:
-    fellow_groups: dict[str, list[str]]
-    shifts: list[str]
-    constraints: list[SemanticConstraint]
-    night_config: NightSolverConfig
-    weekend_config: WeekendSolverConfig
-    night_weights: NightPolicyWeights = field(default_factory=NightPolicyWeights)
-    # sunday_following is SOFT (weight 1, see NightPolicyWeights): a hard
-    # sunday_following conflicts with the Stroke weekend-Sunday-night preference,
-    # because its non-preferred set includes Telestroke/Clinic + Clinic/Elective
-    # — the rotations Stroke fellows spend ~23/53 weeks on (hard per-fellow
-    # totals). Forbidding a Sunday-night fellow from following with those is too
-    # tight. anaesthesia and friday_weekend_ncc1 stay hard.
-    night_hard_criteria: frozenset[str] = frozenset(
-        {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
-    )
-    start_dow: int = 0  # weekday of day 0 (0=Mon ... 6=Sun)
-    num_days: int = 365  # total days in the academic year
-    num_weeks: int = field(init=False)
-    weekly_soft_weight: int = DEFAULT_WEEKLY_SOFT_WEIGHT
-    weekend_mismatch_weight: int = DEFAULT_WEEKEND_MISMATCH_WEIGHT
-    weekend_night_friday_weight: int = DEFAULT_WEEKEND_NIGHT_FRIDAY_WEIGHT
-    weekend_night_saturday_weight: int = DEFAULT_WEEKEND_NIGHT_SATURDAY_WEIGHT
-    weekend_night_sunday_weight: int = DEFAULT_WEEKEND_NIGHT_SUNDAY_WEIGHT
-    # Saturday night fellow must be Weekend NCC1/NCC2 (HARD — feasible). Sunday
-    # night fellow must be Weekend Stroke (SOFT by default — a hard Sunday rule
-    # is INFEASIBLE on WB5: forcing the single weekend-Stroke holder onto Sunday
-    # night every week collides with night spacing + NS-all-week blocking +
-    # week-0 Elec pins, confirmed by a factorial SAT bisect. The soft penalty
-    # still covers ALL fellows, including non-stroke-eligible NCC_JR who were
-    # previously skipped — that omission was the reported "Sunday != weekend
-    # Stroke" bug). Flip to True only if the surrounding constraints loosen.
-    weekend_night_saturday_hard: bool = True
-    weekend_night_sunday_hard: bool = False
-    # No fellow works weekend call in two back-to-back weeks unless the pair is
-    # BUFFERED (a weekend off before AND a light week w+1 or w+2 — see
-    # _encode_buffered_consecutive_pair). SOFT by default: both a blanket-hard
-    # and a buffered-hard rule are infeasible on workbook6 (proven UNSAT on
-    # Slurm), because coverage forces more consecutive pairs than there are light
-    # weeks to buffer. Soft mode penalizes only UN-buffered pairs, so the
-    # optimizer is nudged to buffer them. Flip to True (or SCHED_DIAG_CONSECUTIVE
-    # =hard) to forbid un-buffered pairs outright (for SAT experiments).
-    weekend_consecutive_hard: bool = False
-    # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
-    # of the target (so the distribution can't collapse onto a few fellows).
-    weekend_total_tolerance: int = 1
-    swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
-    locked_assignments: dict[str, list[str]] = field(default_factory=dict)
-    call_rules: list[dict] = field(default_factory=list)
-
-    def __post_init__(self):
-        object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
-
-    # -- Management mode: the single source of truth for IMPORTED vs MANAGED ---
-    # A fellow is IMPORTED iff their weekly schedule was frozen from an external
-    # import (recorded in locked_assignments). Everything that used to ask "is
-    # this fellow locked?" must route through these helpers so the answer is
-    # derived in exactly one place.
-
-    @property
-    def imported_fellow_names(self) -> frozenset[str]:
-        """Fellows whose weekly schedule is frozen (IMPORTED)."""
-        return frozenset(self.locked_assignments)
-
-    def management_mode(self, fellow_name: str) -> ManagementMode:
-        return (ManagementMode.IMPORTED if fellow_name in self.locked_assignments
-                else ManagementMode.MANAGED)
-
-    def imported_fellow_indices(self, fellow_names: list[str]) -> frozenset[int]:
-        """Indices (in canonical *fellow_names* order) of IMPORTED fellows."""
-        return frozenset(
-            i for i, name in enumerate(fellow_names)
-            if name in self.locked_assignments
-        )
-
-    def imported_shift_counts(
-        self,
-        fellow_names: list[str],
-        shift_names: set[str] | frozenset[str],
-        restrict_to: frozenset[int] | None = None,
-    ) -> dict[int, int]:
-        """Per-week count of IMPORTED fellows whose frozen weekly shift is one of
-        *shift_names*. Optionally restricted to fellow indices in *restrict_to*
-        (e.g. a constraint's target group). Single source for the locked-fill
-        softening used by staffing caps and the dual-stroke window."""
-        target = set(shift_names)
-        counts: dict[int, int] = {}
-        for i, name in enumerate(fellow_names):
-            if restrict_to is not None and i not in restrict_to:
-                continue
-            weekly = self.locked_assignments.get(name)
-            if not weekly:
-                continue
-            for w, shift in enumerate(weekly):
-                if shift and shift in target:
-                    counts[w] = counts.get(w, 0) + 1
-        return counts
-
-
-@dataclass(frozen=True)
-class FullScheduleSolution:
-    weekly_assignments: dict[str, list[str]]  # fellow_name → [shift_per_week]
-    weekend_solution: WeekendScheduleSolution
-    night_solution: NightScheduleSolution
-    soft_penalty: int
-    backup_solution: BackupScheduleSolution | None = None
-
-
-@dataclass
-class ScheduleVarMap:
-    """Tracks OPB variable indices for the full joint formula."""
-
-    fellow_names: list[str]
-    shifts: list[str]
-    num_weeks: int
-    num_fellows: int
-    num_shifts: int
-    start_dow: int
-    num_days: int
-
-    # xs[f][w][s] = OPB variable index (or 0 if forbidden)
-    xs: list[list[list[int]]]
-    # wr[w][role_idx] = {fellow_idx: var}
-    wr: list[list[dict[int, int]]]
-    # xn[d][f] = OPB variable index (or 0 if blocked)
-    xn: list[list[int]]
-
-    # Auxiliary variables
-    soft_violations: list[tuple[int, int]]  # (var, weight) pairs
-    # The first soft_weekly_count entries of soft_violations are WEEKLY-layer
-    # penalties; the remainder are weekend/night/call. Used to report the soft
-    # penalty broken down by layer.
-    soft_weekly_count: int = 0
-    # bk[w][kind] = {fellow_idx: var}; kind 0 = weekday Backup, 1 = Weekend Backup
-    bk: list[list[dict[int, int]]] = field(default_factory=list)
+_day_of_week = day_of_week
+_day_to_week = day_to_week
+_week_day = week_day
+_num_weeks_for = num_weeks_for
+_date_to_day_index = date_to_day_index
 
 
 # ---------------------------------------------------------------------------
