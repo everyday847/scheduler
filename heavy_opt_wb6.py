@@ -51,8 +51,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--variant", default=os.environ.get("VARIANT", "baseline"))
     ap.add_argument("--max-seconds", type=float, default=21600.0)  # 6 hours
+    # Preview windows are RETURNING budget slices: optimize_stream writes the
+    # best-so-far to disk each time a slice returns. Without intermediate long
+    # windows, the single final slice writes nothing until the full budget ends
+    # (see memory project_optimize_stream_disk_writes). Defaults give an early
+    # incumbent (8/25/90s) plus 10- and 30-minute checkpoints so disk tracks
+    # progress on long runs.
+    ap.add_argument("--preview", type=str, default="8,25,90,600,1800",
+                    help="comma-separated returning-slice budgets (seconds)")
     args = ap.parse_args()
     variant = args.variant
+    preview_seconds = tuple(float(x) for x in args.preview.split(",") if x.strip())
 
     # Per-variant output paths so parallel runs don't clobber each other.
     r.OUTPUT_CSV = Path(f"output_v3_wb6_{variant}.csv")
@@ -69,9 +78,10 @@ def main():
     print(f"  weekend_night_sunday_hard = {config.weekend_night_sunday_hard}")
     print(f"  night_hard_criteria = {sorted(config.night_hard_criteria)}", flush=True)
 
+    print(f"  preview slices (returning, write-to-disk) = {preview_seconds}", flush=True)
     runner = RoundingSatRunner(r.ROUNDINGSAT)
     best = r.optimize(config, runner, annual,
-                      preview_seconds=(8.0, 25.0, 90.0), max_seconds=args.max_seconds)
+                      preview_seconds=preview_seconds, max_seconds=args.max_seconds)
     if best is None:
         print("INFEASIBLE!")
         return 1
