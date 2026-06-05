@@ -366,15 +366,20 @@ def _build_weekend_config(
             for i, f in enumerate(fellows):
                 ncc_totals[f] = base + (1 if i < remainder else 0)
 
-        # Stroke distribution
-        group_stroke = entry.get("stroke_total", 0)
-        if group_stroke > 0:
+        # Stroke distribution. Note: a group with an explicit stroke_total of 0
+        # records 0 for every fellow so a HARD at-most-0 weekend-Stroke
+        # constraint is still emitted (previously zero-target fellows were
+        # dropped entirely, leaving their weekend-Stroke count unbounded — NH
+        # got Stroke weekends despite a 0 budget). Only the >0 fellows become
+        # stroke_eligible via target; service-eligibility is handled separately.
+        if "stroke_total" in entry:
+            group_stroke = entry.get("stroke_total", 0)
             base_s = group_stroke // group_size
             remainder_s = group_stroke % group_size
             for i, f in enumerate(fellows):
                 fellow_stroke = base_s + (1 if i < remainder_s else 0)
+                stroke_totals[f] = fellow_stroke
                 if fellow_stroke > 0:
-                    stroke_totals[f] = fellow_stroke
                     stroke_eligible.add(f)
 
     weekend_rules_config = _apply_weekend_rules(request)

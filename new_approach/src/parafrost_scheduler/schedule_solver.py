@@ -1415,7 +1415,26 @@ def _encode_weekend_constraints(
     # the band (capped at tol slacks, since the hard band already bounds the count).
     tol = config.weekend_total_tolerance
     wknd_weight = config.weekly_soft_weight
-    opb.add_comment(f"Weekend: NCC totals per fellow (hard within {tol}, scaled toward target)")
+    def _weekend_total_band(role_vars: list[int], total: int) -> None:
+        """Enforce a per-fellow weekend-role total. A target of 0 is a HARD
+        at-most-0 (forbid the role entirely — no +/-tol band, since 'zero' must
+        mean zero). Positive targets use the hard [total-tol, total+tol] band
+        plus a deviation-scaled soft nudge toward the exact target."""
+        if not role_vars:
+            return
+        if total <= 0:
+            opb.at_most_k(role_vars, 0)
+            return
+        lo = max(0, total - tol)
+        if lo > 0:
+            opb.at_least_k(role_vars, min(lo, len(role_vars)))
+        opb.at_most_k(role_vars, total + tol)
+        _add_cardinality_constraint(
+            opb, role_vars, "exactly", total, is_soft=True, weight=wknd_weight,
+            soft_violations=soft_violations, max_violation=tol,
+        )
+
+    opb.add_comment(f"Weekend: NCC totals per fellow (hard within {tol}; 0 = hard zero)")
     for fellow_name, total in wk_config.ncc_totals.items():
         if fellow_name not in fellow_names:
             continue
@@ -1426,31 +1445,15 @@ def _encode_weekend_constraints(
                 ncc_vars.append(wr[w][_ROLE_NCC1][fi])
             if fi in wr[w][_ROLE_NCC2]:
                 ncc_vars.append(wr[w][_ROLE_NCC2][fi])
-        if ncc_vars:
-            lo = max(0, total - tol)
-            if lo > 0:
-                opb.at_least_k(ncc_vars, min(lo, len(ncc_vars)))
-            opb.at_most_k(ncc_vars, total + tol)
-            _add_cardinality_constraint(
-                opb, ncc_vars, "exactly", total, is_soft=True, weight=wknd_weight,
-                soft_violations=soft_violations, max_violation=tol,
-            )
+        _weekend_total_band(ncc_vars, total)
 
-    opb.add_comment(f"Weekend: Stroke totals per fellow (hard within {tol}, scaled toward target)")
+    opb.add_comment(f"Weekend: Stroke totals per fellow (hard within {tol}; 0 = hard zero)")
     for fellow_name, total in wk_config.stroke_totals.items():
         if fellow_name not in fellow_names:
             continue
         fi = fellow_names.index(fellow_name)
         stroke_vars = [wr[w][_ROLE_STROKE][fi] for w in range(num_weeks) if fi in wr[w][_ROLE_STROKE]]
-        if stroke_vars:
-            lo = max(0, total - tol)
-            if lo > 0:
-                opb.at_least_k(stroke_vars, min(lo, len(stroke_vars)))
-            opb.at_most_k(stroke_vars, total + tol)
-            _add_cardinality_constraint(
-                opb, stroke_vars, "exactly", total, is_soft=True, weight=wknd_weight,
-                soft_violations=soft_violations, max_violation=tol,
-            )
+        _weekend_total_band(stroke_vars, total)
 
     # Stroke cohort bounds
     if wk_config.stroke_cohort:
