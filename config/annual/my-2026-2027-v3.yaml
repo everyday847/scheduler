@@ -205,6 +205,53 @@ night_rules:
     - ISC
     - Vac
 rules:
+# Sparse specific assignments (week is 0-indexed). Stroke fellows do Elec in
+# week 0; Aditya included (he cannot hold Telestroke that week). Helena does
+# Stroke in week 1 and must not be alone on Stroke that week (>=2 on service).
+- type: specific_assignment
+  name: 'Aditya wk0 Elec'
+  fellow: Aditya Srivatsan
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: 'Cameron wk0 Elec'
+  fellow: Cameron Schmidt
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: 'Harneet wk0 Elec'
+  fellow: Harneet Dhillon
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: 'Helena wk0 Elec'
+  fellow: Helena Xeros
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: 'Helena wk1 Stroke'
+  fellow: Helena Xeros
+  week: 1
+  shift: Stroke
+  strength: hard
+  active: true
+- type: staffing_per_week
+  name: 'Helena wk1 not alone on Stroke'
+  groups: [STROKE, NCC_SR, NH]
+  shifts: [Stroke]
+  relation: at_least
+  count: 2
+  window: [1, 2]
+  strength: hard
+  active: true
 - active: true
   count: 20
   groups:
