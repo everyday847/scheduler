@@ -348,6 +348,8 @@ def _build_weekend_config(
     ncc_totals: dict[str, int] = {}
     stroke_totals: dict[str, int] = {}
     stroke_eligible: set[str] = set()
+    ncc_ranges: dict[str, tuple[int, int]] = {}
+    ncc_group_sums: list[tuple[tuple[str, ...], int]] = []
 
     for entry in weekend_call:
         group = entry.get("group")
@@ -358,9 +360,32 @@ def _build_weekend_config(
         if group_size == 0:
             continue
 
-        # NCC distribution (NCC1 + NCC2 combined)
         group_ncc = entry.get("ncc_total", 0)
-        if group_ncc > 0:
+        entry_ranges = entry.get("ncc_ranges")
+        if entry_ranges:
+            # Proportionate range model: per-fellow [lo, hi] hard bands plus a
+            # group-sum so the combined weekend-NCC total is still exact. These
+            # fellows are NOT given an even-split ncc_total.
+            lo_sum = hi_sum = 0
+            for f in fellows:
+                rng = entry_ranges.get(f)
+                if rng is None:
+                    raise ValueError(
+                        f"weekend_call group {group!r} has ncc_ranges but is "
+                        f"missing fellow {f!r}")
+                lo, hi = int(rng[0]), int(rng[1])
+                if lo > hi:
+                    raise ValueError(f"ncc_range for {f!r} has lo > hi: {rng}")
+                ncc_ranges[f] = (lo, hi)
+                lo_sum += lo
+                hi_sum += hi
+            if not (lo_sum <= group_ncc <= hi_sum):
+                raise ValueError(
+                    f"weekend_call group {group!r} ncc_total {group_ncc} is "
+                    f"outside the summed ranges [{lo_sum}, {hi_sum}]")
+            ncc_group_sums.append((tuple(fellows), group_ncc))
+        elif group_ncc > 0:
+            # Even split (NCC1 + NCC2 combined) across the group.
             base = group_ncc // group_size
             remainder = group_ncc % group_size
             for i, f in enumerate(fellows):
@@ -400,6 +425,8 @@ def _build_weekend_config(
     return WeekendSolverConfig(
         ncc_totals=ncc_totals or None,
         stroke_totals=stroke_totals or None,
+        ncc_ranges=ncc_ranges or None,
+        ncc_group_sums=tuple(ncc_group_sums),
         stroke_cohort=(),
         stroke_cohort_total=None,
         stroke_cohort_min=0,

@@ -43,6 +43,13 @@ DEFAULT_STROKE_COHORT = ("Aditya Srivatsan", "Cameron Schmidt", "Harneet Dhillon
 class WeekendSolverConfig:
     ncc_totals: dict[str, int] = None
     stroke_totals: dict[str, int] = None
+    # Per-fellow weekend-NCC RANGES [lo, hi] (hard band, no tolerance). Used for
+    # groups (e.g. CCM) whose weekend load is proportionate to on-service weeks
+    # rather than an even split. Fellows here are NOT in ncc_totals.
+    ncc_ranges: dict[str, tuple[int, int]] | None = None
+    # Group-sum constraints: (fellow_names, exact_total). Pairs with ncc_ranges
+    # so a range group still hits its combined weekend-NCC total exactly.
+    ncc_group_sums: tuple[tuple[tuple[str, ...], int], ...] = ()
     stroke_cohort: tuple[str, ...] = DEFAULT_STROKE_COHORT
     stroke_cohort_total: int | None = 45
     stroke_cohort_min: int = 11

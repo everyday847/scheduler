@@ -1529,18 +1529,46 @@ def _encode_weekend_constraints(
             soft_violations=soft_violations, max_violation=tol,
         )
 
+    def _ncc_vars_for(fi: int) -> list[int]:
+        out = []
+        for w in range(num_weeks):
+            if fi in wr[w][_ROLE_NCC1]:
+                out.append(wr[w][_ROLE_NCC1][fi])
+            if fi in wr[w][_ROLE_NCC2]:
+                out.append(wr[w][_ROLE_NCC2][fi])
+        return out
+
     opb.add_comment(f"Weekend: NCC totals per fellow (hard within {tol}; 0 = hard zero)")
     for fellow_name, total in wk_config.ncc_totals.items():
         if fellow_name not in fellow_names:
             continue
-        fi = fellow_names.index(fellow_name)
-        ncc_vars = []
-        for w in range(num_weeks):
-            if fi in wr[w][_ROLE_NCC1]:
-                ncc_vars.append(wr[w][_ROLE_NCC1][fi])
-            if fi in wr[w][_ROLE_NCC2]:
-                ncc_vars.append(wr[w][_ROLE_NCC2][fi])
-        _weekend_total_band(ncc_vars, total)
+        _weekend_total_band(_ncc_vars_for(fellow_names.index(fellow_name)), total)
+
+    # Per-fellow weekend-NCC RANGES (proportionate model, e.g. CCM). Hard
+    # [lo, hi] band — no tolerance, no soft nudge (any value in band is fine).
+    if wk_config.ncc_ranges:
+        opb.add_comment("Weekend: NCC per-fellow ranges (proportionate, hard band)")
+        for fellow_name, (lo, hi) in wk_config.ncc_ranges.items():
+            if fellow_name not in fellow_names:
+                continue
+            ncc_vars = _ncc_vars_for(fellow_names.index(fellow_name))
+            if not ncc_vars:
+                continue
+            if lo > 0:
+                opb.at_least_k(ncc_vars, min(lo, len(ncc_vars)))
+            if hi < len(ncc_vars):
+                opb.at_most_k(ncc_vars, hi)
+
+    # Group-sum constraints: a range group's combined weekend-NCC total is exact.
+    if wk_config.ncc_group_sums:
+        opb.add_comment("Weekend: NCC group-sum (range groups hit combined total)")
+        for group_fellows, total in wk_config.ncc_group_sums:
+            group_vars: list[int] = []
+            for fellow_name in group_fellows:
+                if fellow_name in fellow_names:
+                    group_vars.extend(_ncc_vars_for(fellow_names.index(fellow_name)))
+            if group_vars:
+                opb.exactly_k(group_vars, total)
 
     opb.add_comment(f"Weekend: Stroke totals per fellow (hard within {tol}; 0 = hard zero)")
     for fellow_name, total in wk_config.stroke_totals.items():

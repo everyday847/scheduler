@@ -244,6 +244,60 @@ def test_build_weekend_config_with_rules():
     assert config.stroke_eligible_services == ("Stroke",)
 
 
+def test_build_weekend_config_ncc_ranges():
+    """A weekend_call entry with ncc_ranges should produce per-fellow ranges + a
+    group-sum constraint, and EXCLUDE those fellows from the even-split totals."""
+    request = {
+        "fellow_groups": {
+            "CCM": ["CCM A", "CCM B", "CCM C"],
+            "NCC_JR": ["Bob", "Cara"],
+        },
+        "shifts": ["NCC1"],
+        "fellow_week_pairs": {},
+        "weekend_call": [
+            {
+                "group": "CCM",
+                "ncc_total": 22,
+                "stroke_total": 0,
+                "ncc_ranges": {
+                    "CCM A": [15, 22],
+                    "CCM B": [4, 7],
+                    "CCM C": [0, 4],
+                },
+            },
+            {"group": "NCC_JR", "ncc_total": 10, "stroke_total": 0},
+        ],
+    }
+    config = build_solver_config_from_request(request).weekend_config
+    # Ranges populated for CCM fellows.
+    assert config.ncc_ranges == {
+        "CCM A": (15, 22), "CCM B": (4, 7), "CCM C": (0, 4),
+    }
+    # Group-sum recorded for the CCM trio.
+    assert (("CCM A", "CCM B", "CCM C"), 22) in config.ncc_group_sums
+    # CCM fellows are NOT in the even-split ncc_totals (range model owns them).
+    for f in ("CCM A", "CCM B", "CCM C"):
+        assert f not in config.ncc_totals
+    # NCC_JR still even-split (10 / 2 = 5 each).
+    assert config.ncc_totals["Bob"] == 5
+    assert config.ncc_totals["Cara"] == 5
+
+
+def test_build_weekend_config_ncc_ranges_infeasible_sum_rejected():
+    """If the group total can't fit inside the summed ranges, raise at load."""
+    request = {
+        "fellow_groups": {"CCM": ["A", "B"]},
+        "shifts": ["NCC1"],
+        "fellow_week_pairs": {},
+        "weekend_call": [
+            {"group": "CCM", "ncc_total": 50, "stroke_total": 0,
+             "ncc_ranges": {"A": [0, 4], "B": [0, 4]}},  # max 8 < 50
+        ],
+    }
+    with pytest.raises(ValueError):
+        build_solver_config_from_request(request)
+
+
 def test_build_night_config_no_rules_uses_defaults():
     """Without night_rules, default values should be used."""
     request = {
