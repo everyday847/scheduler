@@ -82,6 +82,16 @@ NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
 # An NH fellow on NHS may take ONLY Monday + Tuesday night that week, each at
 # this soft penalty; Wed-Sun nights are hard-forbidden (_encode_nhs_week_nights).
 NHS_NIGHT_PENALTY_WEIGHT = 100
+# "On" service for the Stroke wk26/27 (1-indexed) on/off holiday toggle.
+STROKE_WK2627_ON_SHIFTS = frozenset({"Stroke", "Telestroke/Clinic", "Swing", "NCC1", "NCC2"})
+# wk26/27 one-indexed -> 0-indexed weeks 25 & 26.
+STROKE_WK2627_WEEKS = (25, 26)
+# Dual-stroke Helena soft-penalty tiers (week split at index 20 = 1-indexed wk21).
+DUAL_STROKE_EARLY_END = 20            # weeks 0..19 are "early"
+DUAL_STROKE_BASE_EARLY = 0            # dual-stroke base penalty, early
+DUAL_STROKE_BASE_LATE = 20           # dual-stroke base penalty, late
+DUAL_STROKE_NO_HELENA_EARLY = 100    # extra if dual & not Helena, early
+DUAL_STROKE_NO_HELENA_LATE = 80      # extra if dual & not Helena, late
 ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
 # Only Clinic/Elective triggers the clinic night criterion. Telestroke/Clinic
 # fellows may take any weekday night, so they are NOT in this set.
@@ -255,6 +265,13 @@ class ScheduleSolverConfig:
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
     call_rules: list[dict] = field(default_factory=list)
+    # --- Experimental variant flags (default off; the shipped config is unchanged) ---
+    # ABPN blocks prior-Sun..Thu weekday night call (like the generic night-block).
+    abpn_night_block: bool = False
+    # Preferred fellow for dual-Stroke weeks (soft, two-tier early/late). None = off.
+    dual_stroke_helena: str | None = None
+    # Stroke wk26/27 (1-indexed) on/off toggle: "off" | "hard" | "soft".
+    stroke_wk2627_toggle: str = "off"
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
@@ -527,6 +544,13 @@ def build_full_schedule_opb(
         opb.add_comment("Dual Stroke window (from call_rules)")
         _encode_dual_stroke_window(opb, xs, config, fellow_names, shift_idx,
                                    soft_violations=soft_violations)
+
+    # -------------------------------------------------------------------
+    # 7c. Experimental Stroke variants (default off; flags set by --variant)
+    # -------------------------------------------------------------------
+    opb.add_comment("Stroke variants: wk26/27 toggle + dual-stroke Helena preference")
+    _encode_stroke_wk2627_toggle(opb, xs, config, fellow_names, shift_idx, soft_violations)
+    _encode_dual_stroke_helena(opb, xs, config, fellow_names, shift_idx, soft_violations)
 
     # -------------------------------------------------------------------
     # 8. Soft penalty bound
@@ -2178,7 +2202,11 @@ def _encode_night_constraints(
     opb.add_comment("Night: service-based blocking (vacation = all nights)")
     vac_idx = shift_idx.get("Vac")
     all_week_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_ALL_WEEK if s in shift_idx]
-    weekday_only_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_SHIFTS if s in shift_idx and s not in NIGHT_BLOCKED_ALL_WEEK]
+    weekday_only_shifts = set(NIGHT_BLOCKED_SHIFTS)
+    # Variant: ABPN blocks prior-Sun..Thu weekday night call (like ISC/AAN).
+    if config.abpn_night_block and "ABPN" in shift_idx:
+        weekday_only_shifts.add("ABPN")
+    weekday_only_blocked = [shift_idx[s] for s in weekday_only_shifts if s in shift_idx and s not in NIGHT_BLOCKED_ALL_WEEK]
     s_isc = shift_idx.get("ISC")
 
     for d in range(num_days):
@@ -2708,6 +2736,107 @@ def _encode_weekend_prerequisites(
                                 [(v, 1) for v in prior_ncc] + [(-wr[w][role_idx][fi], 1)],
                                 0,
                             )
+
+
+def _on_indicator(opb, parts: list[int]) -> int | None:
+    """OR-indicator var over *parts* (the fellow is 'on' if any part is true)."""
+    parts = [p for p in parts if p != 0]
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    aux = opb.new_var()
+    for p in parts:
+        opb.weighted_sum_at_least([(aux, 1), (-p, 1)], 1)
+    opb.weighted_sum_at_least([(v, 1) for v in parts] + [(-aux, 1)], 1)
+    return aux
+
+
+def _encode_stroke_wk2627_toggle(
+    opb: OpbBuilder,
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Stroke wk26/27 (1-indexed) on/off toggle: a STROKE fellow 'on' in week 25
+    (0-indexed) must be 'off' in week 26 and vice versa. 'on' = Stroke /
+    Telestroke/Clinic / Swing / NCC1 / NCC2. Mode: off | hard | soft."""
+    mode = config.stroke_wk2627_toggle
+    if mode == "off":
+        return
+    w_a, w_b = STROKE_WK2627_WEEKS
+    if w_b >= config.num_weeks:
+        return
+    on_si = [shift_idx[s] for s in STROKE_WK2627_ON_SHIFTS if s in shift_idx]
+    stroke_group = set(config.fellow_groups.get("STROKE", []))
+    for f, name in enumerate(fellow_names):
+        if name not in stroke_group:
+            continue
+        on_a = _on_indicator(opb, [xs[f][w_a][si] for si in on_si])
+        on_b = _on_indicator(opb, [xs[f][w_b][si] for si in on_si])
+        if on_a is None or on_b is None:
+            continue
+        if mode == "hard":
+            opb.at_most_k([on_a, on_b], 1)
+        else:  # soft: penalize being on both
+            p = opb.new_var()
+            # p >= on_a + on_b - 1
+            opb.weighted_sum_at_least([(p, 1), (-on_a, 1), (-on_b, 1)], 1)
+            soft_violations.append((p, config.weekly_soft_weight))
+
+
+def _encode_dual_stroke_helena(
+    opb: OpbBuilder,
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Soft, two-tier dual-Stroke preference. For each week with >=2 fellows on
+    Stroke: a base penalty (0 early / 20 late); plus, if Helena is NOT one of the
+    Stroke fellows that week, an additional penalty (100 early / 80 late). 'Early'
+    = weeks 0..19 (1-indexed 1..20)."""
+    helena = config.dual_stroke_helena
+    if not helena or helena not in fellow_names:
+        return
+    stroke_si = shift_idx.get("Stroke")
+    if stroke_si is None:
+        return
+    hi = fellow_names.index(helena)
+    num_weeks = config.num_weeks
+    for w in range(num_weeks):
+        stroke_vars = [xs[f][w][stroke_si] for f in range(len(fellow_names))
+                       if xs[f][w][stroke_si] != 0]
+        if len(stroke_vars) < 2:
+            continue
+        early = w < DUAL_STROKE_EARLY_END
+        base_w = DUAL_STROKE_BASE_EARLY if early else DUAL_STROKE_BASE_LATE
+        nohel_w = DUAL_STROKE_NO_HELENA_EARLY if early else DUAL_STROKE_NO_HELENA_LATE
+        # dual[w] = 1 iff >= 2 on Stroke.  dual + (n-1)~? ... use: dual <-> sum>=2.
+        n = len(stroke_vars)
+        dual = opb.new_var()
+        # dual=1 -> sum>=2:  sum + (2)*~dual >= 2  (when dual=0: sum+2>=2 trivial;
+        #   when dual=1: sum>=2)
+        opb.weighted_sum_at_least([(v, 1) for v in stroke_vars] + [(-dual, 2)], 2)
+        # dual=0 -> sum<=1:  sum <= 1 + (n-1)*dual
+        opb.weighted_sum_at_most([(v, 1) for v in stroke_vars] + [(-dual, n - 1)], n)
+        if base_w > 0:
+            soft_violations.append((dual, base_w))
+        # no-Helena extra: viol = dual AND NOT helena_on_stroke.
+        hel_var = xs[hi][w][stroke_si]
+        if nohel_w > 0:
+            viol = opb.new_var()
+            if hel_var == 0:
+                # Helena can't be on Stroke this week -> viol == dual.
+                opb.weighted_sum_at_least([(viol, 1), (-dual, 1)], 0)  # viol>=dual
+                opb.weighted_sum_at_least([(dual, 1), (-viol, 1)], 0)  # viol<=dual
+            else:
+                # viol >= dual - hel:  viol + hel - dual >= 0
+                opb.weighted_sum_at_least([(viol, 1), (hel_var, 1), (-dual, 1)], 0)
+            soft_violations.append((viol, nohel_w))
 
 
 def _encode_dual_stroke_window(

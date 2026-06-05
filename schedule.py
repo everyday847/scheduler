@@ -61,6 +61,11 @@ def _apply_variant(config, variant: str):
         return dataclasses.replace(config, weekend_night_sunday_hard=True)
     if variant == "hard_consec":
         return dataclasses.replace(config, weekend_consecutive_hard=True)
+    if variant == "abpn_block":
+        # ABPN night-block + dual-stroke-Helena preference + wk26/27 on-off toggle.
+        return dataclasses.replace(
+            config, abpn_night_block=True, dual_stroke_helena="Helena Xeros",
+            stroke_wk2627_toggle="hard")
     raise SystemExit(f"unknown variant: {variant!r}")
 
 
