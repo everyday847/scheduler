@@ -59,7 +59,7 @@ def _ccm_every_other_weekend(opb, vm, config):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exp", choices=["tol2", "ccm_eow"], required=True)
+    ap.add_argument("--exp", choices=["tol2", "ccm_eow", "baseline"], required=True)
     ap.add_argument("--sat-limit", type=float, default=400.0)
     ap.add_argument("--unsat-limit", type=float, default=1500.0)
     args = ap.parse_args()
@@ -78,6 +78,8 @@ def main():
         opb, vm = build_full_schedule_opb(config, objective=True)
         added = _ccm_every_other_weekend(opb, vm, config)
         note["ccm_pairs_constrained"] = added
+    elif args.exp == "baseline":
+        opb, vm = build_full_schedule_opb(config, objective=True)
 
     runner = RoundingSatRunner(r.ROUNDINGSAT)
     t0 = time.time()
@@ -90,6 +92,19 @@ def main():
     if res.satisfiable and res.assignment is not None:
         wk, cn, tot = soft_penalty_breakdown(res.assignment, vm)
         out.update(state="SAT", total=tot, weekly=wk, call=cn, optimal=res.optimal)
+        # Report per-CCM-fellow weekend-NCC counts (should land in the ranges).
+        ccm = config.fellow_groups.get("CCM", [])
+        counts = {}
+        for name in ccm:
+            f = vm.fellow_names.index(name)
+            n = 0
+            for w in range(vm.num_weeks):
+                for role in (0, 1):  # NCC1, NCC2
+                    v = vm.wr[w][role].get(f)
+                    if v and res.assignment.get(v, False):
+                        n += 1
+            counts[name] = n
+        out["ccm_weekend_ncc_counts"] = counts
     elif res.proven_unsat:
         out.update(state="UNSAT")
     else:
