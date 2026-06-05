@@ -23,7 +23,11 @@ cd "$REPO"
 export PYTHONPATH="src:new_approach/src"
 export PYTHONUNBUFFERED=1
 
-VARIANTS=(baseline hard_stroke hard_sunday)
+# Only baseline is feasible: hard_stroke / hard_sunday / hard_consec were all
+# proven UNSAT on wb6 (Slurm SAT bisect, 2026-06-05). Keep the array to a single
+# baseline task; re-add variants here if future workbooks make a hardening
+# feasible.
+VARIANTS=(baseline)
 VARIANT="${VARIANTS[$SLURM_ARRAY_TASK_ID]}"
 
 echo "Host: $(hostname)"
