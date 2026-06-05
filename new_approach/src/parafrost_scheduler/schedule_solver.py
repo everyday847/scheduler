@@ -177,8 +177,14 @@ class ScheduleSolverConfig:
     night_config: NightSolverConfig
     weekend_config: WeekendSolverConfig
     night_weights: NightPolicyWeights = field(default_factory=NightPolicyWeights)
+    # sunday_following is SOFT (weight 1, see NightPolicyWeights): a hard
+    # sunday_following conflicts with the Stroke weekend-Sunday-night preference,
+    # because its non-preferred set includes Telestroke/Clinic + Clinic/Elective
+    # — the rotations Stroke fellows spend ~23/53 weeks on (hard per-fellow
+    # totals). Forbidding a Sunday-night fellow from following with those is too
+    # tight. anaesthesia and friday_weekend_ncc1 stay hard.
     night_hard_criteria: frozenset[str] = frozenset(
-        {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
+        {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
     )
     start_dow: int = 0  # weekday of day 0 (0=Mon ... 6=Sun)
     num_days: int = 365  # total days in the academic year
@@ -3580,6 +3586,6 @@ def load_schedule_config(
         weekend_config=weekend_config or WeekendSolverConfig(),
         night_weights=night_weights or NightPolicyWeights(),
         night_hard_criteria=night_hard_criteria or frozenset(
-            {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING}
+            {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
         ),
     )

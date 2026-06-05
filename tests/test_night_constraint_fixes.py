@@ -28,8 +28,11 @@ from parafrost_scheduler.schedule_solver import (
 from scheduler.night_call_types import NightSolverConfig, CountMultiset
 from scheduler.weekend_call_types import WeekendSolverConfig
 from scheduler.night_policy_types import (
+    CRITERION_ANAESTHESIA,
     CRITERION_CLINIC,
+    CRITERION_FRIDAY_WEEKEND_NCC1,
     CRITERION_STROKE,
+    CRITERION_SUNDAY_FOLLOWING,
     NightPolicyWeights,
 )
 from scheduler.semantic_constraints import (
@@ -848,3 +851,42 @@ class TestIscBlocking:
         constraints = _get_constraints_containing(opb, night_var_day6)
         isc_constraints = [c for c in constraints if f"x{isc_var_week1} " in c]
         assert len(isc_constraints) > 0, "ISC should block Sunday night"
+
+
+# ---------------------------------------------------------------------------
+# Default-value guard for night_hard_criteria. Asserts the SHIPPED default,
+# separate from behavioral tests (which pin their own). If someone flips the
+# default, THIS test fails loudly.
+# ---------------------------------------------------------------------------
+
+class TestNightHardCriteriaDefaults:
+    def test_default_hard_criteria_excludes_sunday_following(self):
+        """sunday_following is SOFT by default: a hard sunday_following conflicts
+        with the Stroke weekend-Sunday-night preference, because its non-preferred
+        set includes Telestroke/Clinic + Clinic/Elective — the rotations Stroke
+        fellows spend ~23/53 weeks on (hard per-fellow totals). anaesthesia and
+        friday_weekend_ncc1 stay hard."""
+        cfg = _make_config(["NCC1"], num_days=14, night_hard_criteria=None)
+        # _make_config passes None -> frozenset(); assert the PRODUCTION default
+        # by constructing a config without overriding the field.
+        from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+        from scheduler.night_call_types import NightSolverConfig as _NC
+        from scheduler.weekend_call_types import WeekendSolverConfig as _WC
+        prod = ScheduleSolverConfig(
+            fellow_groups={"NCC_SR": ["A"]}, shifts=["NCC1"], constraints=[],
+            night_config=_NC(total_nights={}, friday_nights={},
+                             total_night_multisets=(), friday_night_multisets=(),
+                             ccm_fellows=frozenset(), holiday_dates=(),
+                             horizon_start_date=date(2026, 7, 1)),
+            weekend_config=_WC(ncc_totals={}, stroke_totals={}, stroke_cohort=(),
+                               stroke_cohort_total=None, ccm_fellows=frozenset(),
+                               always_stroke_eligible=frozenset(),
+                               telestroke_stroke_eligible=frozenset(),
+                               stroke_only_eligible=frozenset(), total_weekends={},
+                               weekend_options=None, friday_weekend_options=None),
+            num_days=14,
+        )
+        assert prod.night_hard_criteria == frozenset(
+            {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
+        )
+        assert CRITERION_SUNDAY_FOLLOWING not in prod.night_hard_criteria
