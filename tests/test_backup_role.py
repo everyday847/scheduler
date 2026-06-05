@@ -93,11 +93,40 @@ class TestNccTelestrokeEligibility:
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
             {"NCC_SR": ["Joseph"]}, ["Telestroke/Clinic", "NS"],
         )
-        bk_var = bk[0][_BACKUP_WEEKDAY][0]
-        tele_var = xs[0][0][shift_idx["Telestroke/Clinic"]]
+        bk_var = bk[1][_BACKUP_WEEKDAY][0]  # week 1 (week 0 forbids backup)
+        tele_var = xs[0][1][shift_idx["Telestroke/Clinic"]]
         gated = [c for c in opb._constraints
                  if f"x{bk_var} " in c.replace("~", "") and f"x{tele_var} " in c.replace("~", "")]
         assert gated, "NCC_SR Backup must be gated on Telestroke/Clinic"
+
+
+class TestStrokeElecEligibility:
+    def test_stroke_on_elec_is_backup_eligible_in_ordinary_week(self):
+        """A STROKE fellow on Elec qualifies for weekday Backup (ordinary week)."""
+        opb, bk, xs, wr, names, shift_idx, nw = _setup(
+            {"STROKE": ["Stan"]}, ["Elec", "Stroke"], num_days=21,
+        )
+        bk_var = bk[1][_BACKUP_WEEKDAY][0]  # week 1 (not exempt/holiday)
+        elec_var = xs[0][1][shift_idx["Elec"]]
+        gated = [c for c in opb._constraints
+                 if f"x{bk_var} " in c.replace("~", "") and f"x{elec_var} " in c.replace("~", "")]
+        assert gated, "STROKE on Elec must be Backup-eligible in an ordinary week"
+
+
+class TestWeek0BackupForbidden:
+    def test_week0_backup_vars_forced_off(self):
+        """Week 0 forbids all Backup (orientation Elec is special — the Stroke
+        fellows pinned to Elec must NOT serve as backup), even though Elec is
+        now an eligible backup shift in general."""
+        opb, bk, xs, wr, names, shift_idx, nw = _setup(
+            {"STROKE": ["Stan"]}, ["Elec", "Stroke"], num_days=21,
+        )
+        for kind in (_BACKUP_WEEKDAY, _BACKUP_WEEKEND):
+            for f, bk_var in bk[0][kind].items():
+                # Forced false: a unit clause +1 ~x{bk_var} >= 1 ;
+                assert f"+1 ~x{bk_var} >= 1 ;" in opb._constraints, (
+                    f"week-0 backup var {bk_var} must be forced off"
+                )
 
 
 class TestHolidayWeekBackup:
@@ -141,9 +170,9 @@ class TestBackupShiftGating:
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
             {"NCC_SR": ["Alice"]}, ["Elec", "MICU"],
         )
-        bk_var = bk[0][_BACKUP_WEEKDAY][0]
-        elec_var = xs[0][0][shift_idx["Elec"]]
-        micu_var = xs[0][0][shift_idx["MICU"]]
+        bk_var = bk[1][_BACKUP_WEEKDAY][0]  # week 1 (week 0 forbids backup)
+        elec_var = xs[0][1][shift_idx["Elec"]]
+        micu_var = xs[0][1][shift_idx["MICU"]]
         # Some constraint references both bk_var and elec_var (the gating OR).
         gated = [c for c in opb._constraints
                  if f"x{bk_var} " in c.replace("~", "") and f"x{elec_var} " in c.replace("~", "")]
@@ -158,10 +187,10 @@ class TestWeekendBackupExcludesWeekendRole:
     def test_weekend_backup_excludes_weekend_ncc1_holder(self):
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
             {"STROKE": ["Stan"]}, ["Clinic/Elective", "Telestroke/Clinic"],
-            weekend_holders={(0, 0)},  # Stan holds Weekend NCC1 in week 0
+            weekend_holders={(1, 0)},  # Stan holds Weekend NCC1 in week 1
         )
-        wb_var = bk[0][_BACKUP_WEEKEND][0]
-        wr_var = wr[0][_ROLE_NCC1][0]
+        wb_var = bk[1][_BACKUP_WEEKEND][0]  # week 1 (week 0 forbids backup)
+        wr_var = wr[1][_ROLE_NCC1][0]
         # A constraint forbids holding both: ...wb_var... wr_var ... <= 1
         both = [c for c in opb._constraints
                 if f"x{wb_var} " in c.replace("~", "") and f"x{wr_var} " in c.replace("~", "")]

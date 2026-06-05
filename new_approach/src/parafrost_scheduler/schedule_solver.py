@@ -118,11 +118,14 @@ _BACKUP_ROLE_NAMES = ("Backup", "Weekend Backup")
 # an NCC_SR on Telestroke/Clinic in a week where the Stroke fellows are pinned
 # elsewhere.) Group -> the weekday shifts that make a fellow backup-eligible.
 _BACKUP_ELIGIBLE_SHIFTS_NCC = frozenset({"Elec", "Telestroke/Clinic"})
-_BACKUP_ELIGIBLE_SHIFTS_STROKE = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
+_BACKUP_ELIGIBLE_SHIFTS_STROKE = frozenset({"Elec", "Clinic/Elective", "Telestroke/Clinic"})
 _BACKUP_GROUPS = ("NCC_JR", "NCC_SR", "STROKE")
 _BACKUP_MAX_CONSECUTIVE_WEEKS = 2
-# Week 0 is exempt from hard Backup coverage: the Stroke fellows are pinned to
-# orientation Elec, so no fellow is backup-eligible (cf. NCC2/Telestroke wk0).
+# Week 0 forbids ALL Backup: the Stroke fellows' orientation Elec is special and
+# they must not serve as backup that week. Since Elec is otherwise backup-
+# eligible, this needs an explicit forbid (not just a coverage exemption).
+_BACKUP_FORBIDDEN_WEEKS = frozenset({0})
+# Hard Backup coverage starts at week 1 (week 0 is forbidden, above).
 _BACKUP_COVERAGE_FIRST_WEEK = 1
 # Holiday weeks (0-indexed) where BOTH Backup and Weekend Backup must be the
 # Telestroke/Clinic fellow specifically — Elec / Clinic/Elective do not qualify.
@@ -1505,6 +1508,12 @@ def _encode_backup_constraints(
 
     opb.add_comment("Backup: weekday-shift gating + weekend-role exclusion")
     for w in range(num_weeks):
+        # Forbidden weeks (e.g. week 0 orientation): no backup at all.
+        if w in _BACKUP_FORBIDDEN_WEEKS:
+            for kind in (_BACKUP_WEEKDAY, _BACKUP_WEEKEND):
+                for bk_var in bk[w][kind].values():
+                    opb.add_unit(-bk_var)
+            continue
         is_holiday = w in _BACKUP_HOLIDAY_WEEKS
         for kind in (_BACKUP_WEEKDAY, _BACKUP_WEEKEND):
             for f, bk_var in bk[w][kind].items():
