@@ -34,13 +34,12 @@ rules:
     active: true
 
   - name: NCC2 Coverage
-    description: "The NCC2 team must be staffed weeks 2-53 (one-indexed). Week 1 is exempt: the Stroke fellows are on Elec and there is no NCC2-capable fellow free."
+    description: "The NCC2 team must be staffed every week. With workbook6 the imported NCC fellows cover NCC2 in week 1 (one-indexed), so the previous week-1 exemption is no longer needed."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
     shifts: [NCC2]
     relation: at_least
     count: 1
-    window: [1, 53]
     strength: hard
     active: true
 
@@ -141,12 +140,13 @@ rules:
     active: true
 
   - name: Telestroke Coverage
-    description: "At least one fellow on Telestroke/Clinic each week. Required for telestroke call coverage."
+    description: "At least one fellow on Telestroke/Clinic weeks 2-53 (one-indexed). Week 1 is exempt: the Stroke fellows are pinned to Elec and no Telestroke-capable fellow is free."
     type: staffing_per_week
     groups: [NCC_JR, NCC_SR, STROKE, NH]
     shifts: [Telestroke/Clinic]
     relation: at_least
     count: 1
+    window: [1, 53]
     strength: hard
     active: true
 
