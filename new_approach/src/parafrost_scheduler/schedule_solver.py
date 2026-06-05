@@ -1498,8 +1498,15 @@ def _encode_weekend_constraints(
                 work_vars.append((w, aux))
 
         # No two consecutive weekends. Hard by default (config flag); soft mode
-        # falls back to a per-pair distribution penalty.
-        consecutive_hard = config.weekend_consecutive_hard
+        # falls back to a per-pair distribution penalty. SCHED_DIAG_CONSECUTIVE
+        # = "soft"/"hard" overrides the config flag for SAT bisects.
+        _diag_consec = os.environ.get("SCHED_DIAG_CONSECUTIVE")
+        if _diag_consec == "soft":
+            consecutive_hard = False
+        elif _diag_consec == "hard":
+            consecutive_hard = True
+        else:
+            consecutive_hard = config.weekend_consecutive_hard
         for i in range(len(work_vars) - 1):
             w1, v1 = work_vars[i]
             w2, v2 = work_vars[i + 1]
