@@ -117,6 +117,9 @@ _BACKUP_ELIGIBLE_SHIFTS_NCC = frozenset({"Elec"})
 _BACKUP_ELIGIBLE_SHIFTS_STROKE = frozenset({"Clinic/Elective", "Telestroke/Clinic"})
 _BACKUP_GROUPS = ("NCC_JR", "NCC_SR", "STROKE")
 _BACKUP_MAX_CONSECUTIVE_WEEKS = 2
+# Week 0 is exempt from hard Backup coverage: the Stroke fellows are pinned to
+# orientation Elec, so no fellow is backup-eligible (cf. NCC2/Telestroke wk0).
+_BACKUP_COVERAGE_FIRST_WEEK = 1
 
 DEFAULT_WEEKLY_SOFT_WEIGHT = 100
 DEFAULT_WEEKEND_MISMATCH_WEIGHT = 20
@@ -1507,8 +1510,13 @@ def _encode_backup_constraints(
                 if f in wr[w][role_idx]:
                     opb.at_most_k([wb_var, wr[w][role_idx][f]], 1)
 
-    opb.add_comment("Backup: hard coverage (exactly one weekday + one weekend per week)")
+    # Hard coverage: exactly one weekday Backup + one Weekend Backup per week,
+    # EXCEPT week 0 — the Stroke fellows are pinned to orientation Elec there, so
+    # no fellow is backup-eligible (mirrors the NCC2/Telestroke week-0 exemption).
+    opb.add_comment("Backup: hard coverage (exactly one weekday + one weekend per week, week 0 exempt)")
     for w in range(num_weeks):
+        if w < _BACKUP_COVERAGE_FIRST_WEEK:
+            continue
         wd_vars = list(bk[w][_BACKUP_WEEKDAY].values())
         if wd_vars:
             opb.exactly_one(wd_vars)

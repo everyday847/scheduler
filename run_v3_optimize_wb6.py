@@ -159,7 +159,9 @@ def write_outputs(sol, config, annual):
     hard_criteria = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1,
                                CRITERION_SUNDAY_FOLLOWING})
     write_schedule_workbook(parsed, sol.night_solution, sol.weekend_solution,
-                            OUTPUT_WORKBOOK, hard_criteria=hard_criteria)
+                            OUTPUT_WORKBOOK, hard_criteria=hard_criteria,
+                            backup_solution=sol.backup_solution,
+                            fellow_groups=config.fellow_groups)
 
 
 def main():

@@ -21,7 +21,7 @@ from scheduler.call_schedule_common import (
     parse_call_schedule_csv,
 )
 from scheduler.night_call_types import NightScheduleSolution
-from scheduler.weekend_call_types import WeekendScheduleSolution
+from scheduler.weekend_call_types import WeekendScheduleSolution, BackupScheduleSolution
 from scheduler.night_policy_types import (
     NightPolicyWeights,
     criteria_for_assignment,
@@ -389,6 +389,104 @@ def _build_shift_coverage_sheet(
 
 
 # ---------------------------------------------------------------------------
+# Sheets 3 & 4: Backup
+# ---------------------------------------------------------------------------
+
+_BACKUP_FELLOW_GROUPS = ("NCC_JR", "NCC_SR", "STROKE")
+_BACKUP_ROLE_NAMES = ("Backup", "Weekend Backup")
+
+
+def _backup_eligible_fellow_names(
+    parsed: ParsedCallScheduleCsv,
+    fellow_groups: dict[str, list[str]] | None,
+) -> list[str]:
+    """Fellows shown on the per-fellow Backup sheet: NCC_JR/NCC_SR/STROKE only,
+    in the parsed fellow order. Falls back to all fellows if groups unknown."""
+    if not fellow_groups:
+        return list(parsed.fellow_names)
+    eligible = set()
+    for grp in _BACKUP_FELLOW_GROUPS:
+        eligible.update(fellow_groups.get(grp, []))
+    return [f for f in parsed.fellow_names if f in eligible]
+
+
+def _build_backup_fellow_sheet(
+    ws,
+    parsed: ParsedCallScheduleCsv,
+    backup_solution: BackupScheduleSolution,
+    fellow_groups: dict[str, list[str]] | None,
+) -> None:
+    """Per-fellow Backup view: NCC_JR/NCC_SR/STROKE fellows, two columns each
+    ("Backup", "Wknd Backup") marking the weeks they hold each role."""
+    fellows = _backup_eligible_fellow_names(parsed, fellow_groups)
+    ws.column_dimensions["A"].width = 6
+    for fi in range(len(fellows)):
+        base_col = 2 + fi * 2
+        ws.column_dimensions[get_column_letter(base_col)].width = 8
+        ws.column_dimensions[get_column_letter(base_col + 1)].width = 12
+
+    ws.cell(row=1, column=1, value="Week").font = _bold_font()
+    for fi, fellow in enumerate(fellows):
+        start_col = 2 + fi * 2
+        ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=start_col + 1)
+        c = ws.cell(row=1, column=start_col, value=fellow)
+        c.font = _bold_font()
+        c.alignment = Alignment(horizontal="center")
+        ws.cell(row=1, column=start_col + 1).border = Border(right=_THICK)
+
+    ws.cell(row=2, column=1, value="Week").font = _bold_font()
+    for fi in range(len(fellows)):
+        base_col = 2 + fi * 2
+        for offset, label in enumerate(("Backup", "Wknd Bkup")):
+            cell = ws.cell(row=2, column=base_col + offset, value=label)
+            cell.font = _bold_font()
+            cell.alignment = Alignment(horizontal="center")
+        ws.cell(row=2, column=base_col + 1).border = Border(right=_THICK)
+
+    for week_index in range(len(parsed.week_rows)):
+        row = week_index + 3
+        ws.cell(row=row, column=1, value=week_index + 1).alignment = Alignment(horizontal="center")
+        assignments = backup_solution.assignments_by_week[week_index]
+        for fi, fellow in enumerate(fellows):
+            base_col = 2 + fi * 2
+            ws.cell(row=row, column=base_col,
+                    value="X" if assignments.get("Backup") == fellow else "")
+            ws.cell(row=row, column=base_col + 1,
+                    value="X" if assignments.get("Weekend Backup") == fellow else "")
+            ws.cell(row=row, column=base_col + 1).border = Border(right=_THICK)
+    ws.freeze_panes = ws.cell(row=3, column=2)
+
+
+def _build_backup_coverage_sheet(
+    ws,
+    parsed: ParsedCallScheduleCsv,
+    backup_solution: BackupScheduleSolution,
+) -> None:
+    """Per-service Backup view: rows = weeks, columns = Backup, Weekend Backup."""
+    headers = ("Week", *_BACKUP_ROLE_NAMES)
+    ws.column_dimensions["A"].width = 6
+    for col_idx in range(2, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 18
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = _bold_font()
+        cell.alignment = Alignment(horizontal="center")
+
+    for week_index in range(len(parsed.week_rows)):
+        row = week_index + 2
+        ws.cell(row=row, column=1, value=week_index + 1).alignment = Alignment(horizontal="center")
+        assignments = backup_solution.assignments_by_week[week_index]
+        for col_idx, role in enumerate(_BACKUP_ROLE_NAMES, start=2):
+            fellow = assignments.get(role, "")
+            cell = ws.cell(row=row, column=col_idx, value=fellow)
+            if fellow:
+                bg = _fellow_category_color(fellow)
+                if bg:
+                    cell.fill = _make_fill(bg)
+    ws.freeze_panes = ws.cell(row=2, column=2)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -400,8 +498,15 @@ def write_schedule_workbook(
     *,
     hard_criteria: frozenset[str] = frozenset(),
     weights: NightPolicyWeights = NightPolicyWeights(),
+    backup_solution: BackupScheduleSolution | None = None,
+    fellow_groups: dict[str, list[str]] | None = None,
 ) -> None:
-    """Write a color-coded Excel workbook for the combined night + weekend schedule."""
+    """Write a color-coded Excel workbook for the combined night + weekend schedule.
+
+    When ``backup_solution`` is provided, two extra sheets are added: a per-fellow
+    "Backup Schedule" (NCC_JR/NCC_SR/STROKE only) and a per-service
+    "Backup Coverage".
+    """
     wb = openpyxl.Workbook()
 
     # Sheet 1
@@ -412,6 +517,13 @@ def write_schedule_workbook(
     # Sheet 2
     ws2 = wb.create_sheet(title="Shift Coverage")
     _build_shift_coverage_sheet(ws2, parsed, night_solution, weekend_solution, hard_criteria)
+
+    # Sheets 3 & 4: Backup (optional)
+    if backup_solution is not None:
+        ws3 = wb.create_sheet(title="Backup Schedule")
+        _build_backup_fellow_sheet(ws3, parsed, backup_solution, fellow_groups)
+        ws4 = wb.create_sheet(title="Backup Coverage")
+        _build_backup_coverage_sheet(ws4, parsed, backup_solution)
 
     wb.save(output_path)
 

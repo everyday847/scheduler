@@ -125,12 +125,23 @@ class TestBackupHardCoverage:
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
             {"NCC_SR": ["Alice", "Bob"]}, ["Elec"],
         )
-        # exactly_one over week-0 weekday backup vars => a "= 1 ;" constraint
-        # covering exactly Alice+Bob's bk weekday vars.
-        wd_vars = set(bk[0][_BACKUP_WEEKDAY].values())
+        # Week 1 (not the exempt week 0): exactly_one over its weekday backup
+        # vars => a "= 1 ;" constraint covering exactly Alice+Bob's bk vars.
+        wd_vars = set(bk[1][_BACKUP_WEEKDAY].values())
         eq1 = [c for c in opb._constraints if c.strip().endswith("= 1 ;")
                and {int(t[1:]) for t in c.replace("~", "").split() if t.startswith("x")} == wd_vars]
-        assert eq1, "must emit exactly-one weekday Backup coverage for week 0"
+        assert eq1, "must emit exactly-one weekday Backup coverage for week 1"
+
+    def test_week0_coverage_exempt(self):
+        """Week 0 must NOT get a hard exactly-one Backup coverage constraint
+        (Stroke fellows pinned to Elec -> no eligible backup)."""
+        opb, bk, xs, wr, names, shift_idx, nw = _setup(
+            {"NCC_SR": ["Alice", "Bob"]}, ["Elec"],
+        )
+        wd_vars0 = set(bk[0][_BACKUP_WEEKDAY].values())
+        eq1_wk0 = [c for c in opb._constraints if c.strip().endswith("= 1 ;")
+                   and {int(t[1:]) for t in c.replace("~", "").split() if t.startswith("x")} == wd_vars0]
+        assert not eq1_wk0, "week 0 must be exempt from hard Backup coverage"
 
 
 class TestBackupMaxConsecutive:
@@ -170,3 +181,42 @@ class TestBackupDecode:
     def test_backup_solution_is_dataclass(self):
         sol = BackupScheduleSolution(assignments_by_week=[{"Backup": "X", "Weekend Backup": ""}])
         assert sol.assignments_by_week[0]["Backup"] == "X"
+
+
+class TestBackupWorkbookSheets:
+    def test_workbook_has_backup_sheets(self, tmp_path):
+        import openpyxl
+        from parafrost_scheduler.workbook import write_schedule_workbook
+        from scheduler.call_schedule_common import ParsedCallScheduleCsv, WeekRow
+        from scheduler.night_call_types import NightScheduleSolution
+        from scheduler.weekend_call_types import WeekendScheduleSolution
+
+        fellows = ["Alice", "Bob", "Stan"]
+        week_rows = [WeekRow(weekday_assignments={f: "Elec" for f in fellows},
+                             schedule_assignments={}, raw_row=[]) for _ in range(2)]
+        parsed = ParsedCallScheduleCsv(
+            fellow_names=fellows, existing_schedule_columns=(),
+            week_rows=week_rows, trailing_rows=[])
+        night = NightScheduleSolution(assignments_by_week=[
+            {r: "" for r in ("Night Mon", "Night Tue", "Night Wed", "Night Thu",
+                             "Night Fri", "Night Sat", "Night Sun")} for _ in range(2)])
+        weekend = WeekendScheduleSolution(assignments_by_week=[
+            {"Weekend NCC1": "", "Weekend NCC2": "", "Weekend Stroke": ""} for _ in range(2)])
+        backup = BackupScheduleSolution(assignments_by_week=[
+            {"Backup": "Alice", "Weekend Backup": "Bob"},
+            {"Backup": "Stan", "Weekend Backup": "Alice"}])
+        fellow_groups = {"NCC_SR": ["Alice", "Bob"], "STROKE": ["Stan"], "CCM": ["Cara"]}
+
+        out = tmp_path / "wb.xlsx"
+        write_schedule_workbook(parsed, night, weekend, out,
+                                backup_solution=backup, fellow_groups=fellow_groups)
+        wb = openpyxl.load_workbook(out)
+        assert "Backup Schedule" in wb.sheetnames
+        assert "Backup Coverage" in wb.sheetnames
+        # Coverage sheet has the assigned fellow for week 1 Backup.
+        cov = wb["Backup Coverage"]
+        # header row 1: Week, Backup, Weekend Backup
+        assert cov.cell(row=1, column=2).value == "Backup"
+        assert cov.cell(row=1, column=3).value == "Weekend Backup"
+        assert cov.cell(row=2, column=2).value == "Alice"
+        assert cov.cell(row=2, column=3).value == "Bob"
