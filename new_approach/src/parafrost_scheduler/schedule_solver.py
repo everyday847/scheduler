@@ -198,11 +198,15 @@ class ScheduleSolverConfig:
     # Stroke" bug). Flip to True only if the surrounding constraints loosen.
     weekend_night_saturday_hard: bool = True
     weekend_night_sunday_hard: bool = False
-    # No fellow works weekend call in two back-to-back weeks. HARD by default: a
-    # hard at_most-1 over each adjacent weekend pair avoids needing a more complex
-    # "two straight weekends => mandatory time off after" rule. Flip to False to
-    # make it a soft distribution penalty (one slack per adjacent pair).
-    weekend_consecutive_hard: bool = True
+    # No fellow works weekend call in two back-to-back weeks unless the pair is
+    # BUFFERED (a weekend off before AND a light week w+1 or w+2 — see
+    # _encode_buffered_consecutive_pair). SOFT by default: both a blanket-hard
+    # and a buffered-hard rule are infeasible on workbook6 (proven UNSAT on
+    # Slurm), because coverage forces more consecutive pairs than there are light
+    # weeks to buffer. Soft mode penalizes only UN-buffered pairs, so the
+    # optimizer is nudged to buffer them. Flip to True (or SCHED_DIAG_CONSECUTIVE
+    # =hard) to forbid un-buffered pairs outright (for SAT experiments).
+    weekend_consecutive_hard: bool = False
     # Per-fellow weekend NCC/Stroke totals are enforced HARD within +/- this many
     # of the target (so the distribution can't collapse onto a few fellows).
     weekend_total_tolerance: int = 1
@@ -1383,38 +1387,65 @@ def _encode_buffered_consecutive_pair(
     xs: list[list[list[int]]],
     buffer_indices: list[int],
     num_weeks: int,
+    *,
+    hard: bool,
+    weight: int,
+    soft_violations: list[tuple[int, int]],
 ) -> None:
-    """Forbid the UNBUFFERED consecutive weekend pair (w, w+1) for fellow ``f``.
+    """Handle the consecutive weekend pair (w, w+1) for fellow ``f``.
 
-    A pair is permitted only when buffered on both sides so the fellow never
-    works 15+ days straight:
+    A pair is BUFFERED — exempt from penalty (soft) / permitted (hard) — when the
+    fellow never works a long unbroken stretch:
       * no weekend role in week w-1 (a weekend off before the pair), AND
-      * week w+2 weekday service is "light" (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS).
+      * a light rotation breaks the run: week w+2 weekday service is light, OR
+        the MIDDLE week w+1 weekday service is itself light
+        (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS).
 
-    Encoded as two forbidden combinations:
-      A) work[w-1] AND work[w] AND work[w+1]        (no weekend-off before)
-      B) work[w] AND work[w+1] AND NOT light[w+2]   (no light week after)
-    If week w+2 is past the horizon, or the fellow can hold no buffer shift that
-    week, the pair can never be buffered after, so it is forbidden outright.
+    The middle-week case matters because a light week w+1 means the fellow isn't
+    working those intervening weekdays, so the run is already broken without a
+    w+2 buffer. Blank weeks never count as light: a locked fellow's blank week
+    has all shift vars forbidden (filtered out below), so it offers no buffer var.
+
+    A pair is UN-buffered when it is active AND
+        ( worked weekend w-1 )  OR  ( no light week in {w+1, w+2} ).
+
+    hard=True forbids the un-buffered case; hard=False penalizes it once
+    (one slack of *weight* per un-buffered pair).
     """
-    # Combo A: the weekend before the pair must be off (no three-in-a-row).
+    # Light-shift vars that can break the run: middle week (w+1) or after (w+2).
+    light_vars: list[int] = []
+    for wk in (w + 1, w + 2):
+        if 0 <= wk < num_weeks:
+            light_vars += [xs[f][wk][si] for si in buffer_indices if xs[f][wk][si] != 0]
     prev = work_by_week.get(w - 1)
-    if prev is not None:
-        opb.at_most_k([prev, v_w, v_w1], 2)
 
-    # Combo B: the pair requires a light week after it.
-    w2 = w + 2
-    if w2 >= num_weeks:
-        opb.at_most_k([v_w, v_w1], 1)
+    if hard:
+        # Forbid the two un-buffered combinations.
+        # A) no weekend-off before: work[w-1] AND work[w] AND work[w+1] forbidden.
+        if prev is not None:
+            opb.at_most_k([prev, v_w, v_w1], 2)
+        # B) pair requires a light week in {w+1, w+2}.
+        if not light_vars:
+            opb.at_most_k([v_w, v_w1], 1)
+        else:
+            # work[w] AND work[w+1] -> OR(light): +1 ~v_w +1 ~v_w1 + sum(light) >= 1
+            opb.weighted_sum_at_least(
+                [(-v_w, 1), (-v_w1, 1)] + [(b, 1) for b in light_vars], 1
+            )
         return
-    buffer_vars = [xs[f][w2][si] for si in buffer_indices if xs[f][w2][si] != 0]
-    if not buffer_vars:
-        opb.at_most_k([v_w, v_w1], 1)
-        return
-    # work[w] AND work[w+1] -> OR(buffer_vars):
-    #   +1 ~v_w +1 ~v_w1 + sum(buffer) >= 1
+
+    # Soft: one penalty var, forced true when the pair is active and un-buffered.
+    p = opb.new_var()
+    soft_violations.append((p, weight))
+    # Condition A (no weekend-off before): p=1 when work[w-1]&work[w]&work[w+1].
+    #   p + ~work[w-1] + ~work[w] + ~work[w+1] >= 1
+    #   (= p - work[w-1] - work[w] - work[w+1] >= -2)
+    if prev is not None:
+        opb.weighted_sum_at_least([(p, 1), (-prev, 1), (-v_w, 1), (-v_w1, 1)], 1)
+    # Condition B (no light week in {w+1, w+2}): p=1 when pair active & no light.
+    #   p + sum(light) + ~work[w] + ~work[w+1] >= 1
     opb.weighted_sum_at_least(
-        [(-v_w, 1), (-v_w1, 1)] + [(b, 1) for b in buffer_vars], 1
+        [(p, 1)] + [(b, 1) for b in light_vars] + [(-v_w, 1), (-v_w1, 1)], 1
     )
 
 
@@ -1571,16 +1602,13 @@ def _encode_weekend_constraints(
             w2, v2 = work_vars[i + 1]
             if w2 - w1 != 1:
                 continue
-            if not consecutive_hard:
-                # Soft: flat per-pair distribution penalty.
-                _add_cardinality_constraint(
-                    opb, [v1, v2], "at_most", 1,
-                    is_soft=True, weight=config.weekend_mismatch_weight,
-                    soft_violations=soft_violations,
-                )
-                continue
+            # Both modes route through the buffer-aware helper: soft penalizes an
+            # un-buffered pair once; hard forbids it. A buffered pair (weekend
+            # off before + a light week w+1 or w+2) is exempt either way.
             _encode_buffered_consecutive_pair(
                 opb, f, w1, v1, v2, work_by_week, xs, buffer_indices, num_weeks,
+                hard=consecutive_hard, weight=config.weekend_mismatch_weight,
+                soft_violations=soft_violations,
             )
 
         # At most 2 in any 4-week window (hard — a fellow should never work 3+

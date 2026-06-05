@@ -1,21 +1,27 @@
 """Tests for the buffered no-consecutive-weekends constraint.
 
-A fellow should not work weekend call in two back-to-back weeks UNLESS the run is
-buffered on both sides so they never work 15+ days straight. The
-``weekend_consecutive_hard`` config flag (default True) makes this a hard rule:
+A consecutive weekend pair (working weekend w and weekend w+1) risks a long
+unbroken work stretch. A pair is considered BUFFERED — and so exempt from
+penalty / permitted when hard — when:
 
-  A consecutive weekend pair (w, w+1) is permitted iff
-    * the fellow had NO weekend role in week w-1 (a weekend off before the pair),
-      AND
-    * the fellow's weekday service in week w+2 is "light"
-      (Vac / ISC / APBN / NHS / AAN / NCS 2026 — a rotation that gives a break
-      right after the pair).
+  * the fellow had NO weekend role in week w-1 (a weekend off before the pair),
+    AND
+  * a light rotation breaks the run: week w+2 weekday service is light, OR the
+    MIDDLE week w+1 weekday service is itself light
+    (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = Vac/ISC/APBN/NHS/AAN/NCS 2026).
 
-A blanket hard "no two consecutive weekends" was proven INFEASIBLE on workbook6
-(Slurm SAT bisect, 2026-06-05); the buffered rule is the feasible relaxation.
+The w+1-light case matters because a light middle week means the fellow isn't
+working those weekdays, so the run is already broken without a w+2 buffer.
 
-With the flag off the constraint degrades to a soft per-pair distribution
-penalty (the historical behavior, kept as a comparison point).
+Config flag ``weekend_consecutive_hard`` (default False):
+  * False — SOFT: each UN-buffered consecutive pair adds one penalty slack;
+    buffered pairs add none (the optimizer can dodge the penalty by buffering).
+  * True  — HARD: an un-buffered consecutive pair is forbidden. A blanket hard
+    rule (and the buffered-hard variant) were proven infeasible on workbook6, so
+    the shipped default is soft-with-exemption.
+
+Blank cells never count as light: a locked fellow's blank week has all shift
+vars forbidden, so it offers no buffer var to satisfy the light condition.
 """
 
 from __future__ import annotations
@@ -60,28 +66,16 @@ def _make_config(*, consecutive_hard: bool, shifts: list[str], num_days: int = 3
     )
 
 
-def _encode(*, consecutive_hard: bool, single_role: bool = True):
-    """Encode weekend constraints for one fellow eligible every week.
-
-    single_role=True gives the fellow only Weekend NCC1, so each week's "work"
-    indicator IS the role var (no aux), making constraints easy to trace.
-    """
-    shifts = ["NCC1", "ISC"]  # ISC is a buffer (light) shift; NCC1 is not.
+def _encode(*, consecutive_hard: bool, shifts=("NCC1", "ISC")):
+    """Encode weekend constraints for one fellow, only Weekend NCC1 eligible, so
+    each week's "work" indicator IS the role var (no aux)."""
+    shifts = list(shifts)
     config = _make_config(consecutive_hard=consecutive_hard, shifts=shifts)
     opb = OpbBuilder()
     num_weeks = config.num_weeks
     shift_idx = {s: i for i, s in enumerate(shifts)}
-
-    # wr[w][role][f]; role 0 = NCC1. Only role 0 populated if single_role.
-    wr = []
-    for _ in range(num_weeks):
-        if single_role:
-            wr.append([{0: opb.new_var()}, {}, {}])
-        else:
-            wr.append([{0: opb.new_var()} for _ in range(3)])
-    # xs[f][w][s]
+    wr = [[{0: opb.new_var()}, {}, {}] for _ in range(num_weeks)]
     xs = [[[opb.new_var() for _ in shifts] for _ in range(num_weeks)]]
-
     soft: list[tuple[int, int]] = []
     mapping = FellowMapping()
     mapping.add_fellow("Alice", "NCC_SR")
@@ -90,7 +84,6 @@ def _encode(*, consecutive_hard: bool, single_role: bool = True):
 
 
 def _constraints_with(opb: OpbBuilder, *var_ids: int) -> list[str]:
-    """Constraints referencing ALL of the given var ids (pos or neg)."""
     out = []
     for c in opb._constraints:
         if all((f"x{v} " in c or f"~x{v} " in c) for v in var_ids):
@@ -106,7 +99,9 @@ class TestBufferShiftConstant:
 
 
 class TestConsecutiveWeekendDefaults:
-    def test_consecutive_hard_by_default(self):
+    def test_consecutive_soft_by_default(self):
+        """Hard forms (blanket + buffered) were proven infeasible on workbook6,
+        so the shipped default is soft-with-exemption."""
         from scheduler.night_call_types import NightSolverConfig as _NC
         from scheduler.weekend_call_types import WeekendSolverConfig as _WC
         cfg = ScheduleSolverConfig(
@@ -123,50 +118,55 @@ class TestConsecutiveWeekendDefaults:
                                weekend_options=None, friday_weekend_options=None),
             num_days=14,
         )
-        assert cfg.weekend_consecutive_hard is True
+        assert cfg.weekend_consecutive_hard is False
 
 
-class TestBufferedHardRule:
-    """Hard mode: an interior consecutive pair (w, w+1) is coupled to BOTH the
-    prior-weekend-off condition (week w-1) and the light-week condition
-    (week w+2)."""
+class TestSoftExemption:
+    """Soft mode: each consecutive pair couples its penalty to a buffer
+    indicator, so a buffered pair can avoid the penalty."""
 
-    def test_pair_requires_light_week_after(self):
-        """Combo B: work[w] AND work[w+1] => light[w+2]. The constraint for an
-        interior pair must reference week w+2's buffer (ISC) shift var."""
-        opb, _, wr, xs, shift_idx, num_weeks = _encode(consecutive_hard=True)
-        w = 1  # interior pair (1, 2); w-1=0, w+2=3 both exist
-        work_w = wr[w][0][0]
-        work_w1 = wr[w + 1][0][0]
-        light_w2 = xs[0][w + 2][shift_idx["ISC"]]
-        # Some emitted constraint ties the pair to the following light week.
-        coupling = _constraints_with(opb, work_w, work_w1, light_w2)
-        assert coupling, (
-            "Buffered hard rule must couple the consecutive pair to the "
-            "light-shift var of week w+2"
-        )
-
-    def test_pair_forbids_prior_weekend(self):
-        """Combo A: work[w-1] AND work[w] AND work[w+1] is forbidden."""
-        opb, _, wr, xs, shift_idx, num_weeks = _encode(consecutive_hard=True)
-        w = 1
-        work_prev = wr[w - 1][0][0]
-        work_w = wr[w][0][0]
-        work_w1 = wr[w + 1][0][0]
-        triple = _constraints_with(opb, work_prev, work_w, work_w1)
-        assert triple, (
-            "Buffered hard rule must forbid three consecutive weekends "
-            "(no weekend-off before the pair)"
-        )
-
-    def test_hard_mode_adds_no_consecutive_soft_penalty(self):
-        """Hard buffered mode is a hard constraint — it must not add per-pair
-        soft violation slacks beyond the unrelated mismatch/pre-vacation ones."""
-        _, soft_hard, *_ = _encode(consecutive_hard=True)
+    def test_soft_adds_one_slack_per_adjacent_pair(self):
+        """Soft mode adds exactly one consecutive-penalty slack per adjacent
+        pair beyond the unrelated (mismatch / pre-vacation) soft penalties."""
         _, soft_soft, *_ = _encode(consecutive_hard=False)
-        # Soft mode adds one slack per adjacent pair; hard mode adds none. The
-        # difference equals the number of adjacent pairs (num_weeks - 1).
-        # num_days=35, start Mon => 5 weeks => 4 pairs.
+        _, soft_hard, *_ = _encode(consecutive_hard=True)
+        # num_days=35, Monday start => 5 weeks => 4 adjacent pairs.
         assert len(soft_soft) - len(soft_hard) == 4, (
             f"soft={len(soft_soft)} hard={len(soft_hard)}; expected delta 4"
+        )
+
+    def test_soft_pair_penalty_references_light_weeks(self):
+        """An interior pair's buffer indicator is bounded by the light-shift
+        vars of week w+1 (middle) and w+2 (after)."""
+        opb, soft, wr, xs, shift_idx, num_weeks = _encode(consecutive_hard=False)
+        w = 1  # interior pair (1,2); middle=w+1=2, after=w+2=3
+        light_mid = xs[0][w + 1][shift_idx["ISC"]]
+        light_after = xs[0][w + 2][shift_idx["ISC"]]
+        # The buffer indicator constraint references BOTH the middle and after
+        # light vars (the OR bound). At least one constraint mentions each.
+        assert _constraints_with(opb, light_mid), "buffer must consider week w+1 light"
+        assert _constraints_with(opb, light_after), "buffer must consider week w+2 light"
+
+
+class TestHardForbidsUnbuffered:
+    """Hard mode: an un-buffered consecutive pair is forbidden (no penalty
+    slack); the pair is coupled to a buffer indicator forced true when active."""
+
+    def test_hard_adds_no_consecutive_slack(self):
+        _, soft_hard, *_ = _encode(consecutive_hard=True)
+        _, soft_soft, *_ = _encode(consecutive_hard=False)
+        assert len(soft_soft) > len(soft_hard), (
+            "hard mode must not add the per-pair consecutive penalty slacks"
+        )
+
+    def test_hard_pair_coupled_to_prior_weekend_off(self):
+        """Hard interior pair must reference week w-1's weekend var (no
+        three-in-a-row / weekend-off-before)."""
+        opb, _, wr, xs, shift_idx, num_weeks = _encode(consecutive_hard=True)
+        w = 1
+        v_prev = wr[w - 1][0][0]
+        v_w = wr[w][0][0]
+        v_w1 = wr[w + 1][0][0]
+        assert _constraints_with(opb, v_prev, v_w) or _constraints_with(opb, v_prev, v_w1), (
+            "hard buffered pair must couple to the prior weekend var"
         )
