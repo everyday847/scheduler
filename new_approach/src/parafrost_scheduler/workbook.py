@@ -18,20 +18,13 @@ from scheduler.call_schedule_common import (
     NIGHT_ROLES,
     WEEKEND_ROLES,
     ParsedCallScheduleCsv,
-    is_anaesthesia_service,
-    is_clinic_service,
-    is_preferred_sunday_following_service,
     parse_call_schedule_csv,
 )
 from scheduler.night_call_types import NightScheduleSolution
 from scheduler.weekend_call_types import WeekendScheduleSolution
 from scheduler.night_policy_types import (
-    CRITERION_ANAESTHESIA,
-    CRITERION_CLINIC,
-    CRITERION_FRIDAY_WEEKEND_NCC1,
-    CRITERION_STROKE,
-    CRITERION_SUNDAY_FOLLOWING,
     NightPolicyWeights,
+    criteria_for_assignment,
 )
 from parafrost_scheduler.night_solver_pb import _weeks_with_dual_stroke
 
@@ -151,9 +144,12 @@ def _has_soft_violation(
     hard_criteria: frozenset[str],
     dual_stroke_weeks: frozenset[int] | None = None,
 ) -> bool:
-    """Return True if the fellow has any un-hard-enforced soft violation that week."""
-    week_row = parsed.week_rows[week_index]
-    weekday_service = week_row.weekday_assignments.get(fellow_name, "")
+    """Return True if the fellow has any un-hard-enforced soft violation that week.
+
+    Delegates the per-night criteria decision to the single canonical evaluator
+    criteria_for_assignment (in night_policy_types) so the workbook coloring can
+    never drift from the reported violation counts.
+    """
     night_assignments = night_solution.assignments_by_week[week_index]
     if dual_stroke_weeks is None:
         dual_stroke_weeks = _weeks_with_dual_stroke(parsed)
@@ -161,45 +157,12 @@ def _has_soft_violation(
     for day_of_week, role in enumerate(NIGHT_ROLES):
         if night_assignments.get(role) != fellow_name:
             continue
-
-        is_weekday_night = day_of_week <= 4
-
-        # Anaesthesia criterion: weekday nights only
-        if is_weekday_night and CRITERION_ANAESTHESIA not in hard_criteria and is_anaesthesia_service(weekday_service):
+        criteria = criteria_for_assignment(
+            parsed, week_index, day_of_week, fellow_name,
+            weekend_solution=weekend_solution, dual_stroke_weeks=dual_stroke_weeks,
+        )
+        if any(c not in hard_criteria for c in criteria):
             return True
-
-        # Clinic criterion: weekday nights only
-        if is_weekday_night and CRITERION_CLINIC not in hard_criteria and is_clinic_service(weekday_service):
-            return True
-
-        # Stroke criterion: weekday stroke → weekday nights only (exempt dual-stroke weeks)
-        if is_weekday_night and CRITERION_STROKE not in hard_criteria:
-            if "Stroke" in weekday_service and "Telestroke" not in weekday_service:
-                if week_index not in dual_stroke_weeks:
-                    return True
-
-        # Stroke criterion: weekend stroke → weekend nights only (exempt dual-stroke weeks)
-        if not is_weekday_night and CRITERION_STROKE not in hard_criteria:
-            if weekend_solution is not None:
-                wknd_stroke = weekend_solution.assignments_by_week[week_index].get("Weekend Stroke")
-                if wknd_stroke == fellow_name and week_index not in dual_stroke_weeks:
-                    return True
-
-        # Friday / weekend NCC1 criterion
-        if day_of_week == 4 and CRITERION_FRIDAY_WEEKEND_NCC1 not in hard_criteria:
-            if weekend_solution is not None:
-                wknd = weekend_solution.assignments_by_week[week_index]
-                if wknd.get("Weekend NCC1") == fellow_name:
-                    return True
-            elif week_row.schedule_assignments.get("Weekend NCC1") == fellow_name:
-                return True
-
-        # Sunday-following criterion
-        if day_of_week == 6 and CRITERION_SUNDAY_FOLLOWING not in hard_criteria:
-            if week_index + 1 < len(parsed.week_rows):
-                next_service = parsed.week_rows[week_index + 1].weekday_assignments.get(fellow_name, "")
-                if not is_preferred_sunday_following_service(next_service):
-                    return True
 
     return False
 
@@ -348,33 +311,18 @@ def _has_shift_soft_violation(
     col_role: str,  # e.g. "Weekend NCC1" or "Night Fri"
     hard_criteria: frozenset[str],
 ) -> bool:
-    """Check whether this specific shift assignment (fellow, week, role) violates a soft criterion."""
-    week_row = parsed.week_rows[week_index]
-    weekday_service = week_row.weekday_assignments.get(fellow_name, "")
-
+    """Check whether this specific shift cell (fellow, week, role) violates a
+    soft criterion. Delegates to the canonical criteria_for_assignment so it
+    agrees with both _has_soft_violation and the reported violation counts."""
     if col_role.startswith("Night "):
-        # Night assignment — find the day_of_week
         day_abbr = col_role[len("Night "):]
         day_of_week = _DAY_ABBR.index(day_abbr)
-
-        if CRITERION_ANAESTHESIA not in hard_criteria and is_anaesthesia_service(weekday_service):
-            return True
-        if CRITERION_CLINIC not in hard_criteria and is_clinic_service(weekday_service):
-            return True
-        if CRITERION_STROKE not in hard_criteria and "Stroke" in weekday_service:
-            return True
-        if day_of_week == 4 and CRITERION_FRIDAY_WEEKEND_NCC1 not in hard_criteria:
-            if weekend_solution is not None:
-                wknd = weekend_solution.assignments_by_week[week_index]
-                if wknd.get("Weekend NCC1") == fellow_name:
-                    return True
-            elif week_row.schedule_assignments.get("Weekend NCC1") == fellow_name:
-                return True
-        if day_of_week == 6 and CRITERION_SUNDAY_FOLLOWING not in hard_criteria:
-            if week_index + 1 < len(parsed.week_rows):
-                next_service = parsed.week_rows[week_index + 1].weekday_assignments.get(fellow_name, "")
-                if not is_preferred_sunday_following_service(next_service):
-                    return True
+        criteria = criteria_for_assignment(
+            parsed, week_index, day_of_week, fellow_name,
+            weekend_solution=weekend_solution,
+            dual_stroke_weeks=_weeks_with_dual_stroke(parsed),
+        )
+        return any(c not in hard_criteria for c in criteria)
 
     # Weekend roles don't have direct soft violations (those are in the night solver)
     return False

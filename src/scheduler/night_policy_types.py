@@ -147,30 +147,63 @@ def parse_night_call_csv(path: str | Path) -> ParsedCallScheduleCsv:
     return parsed
 
 
-def _criteria_for_assignment(
+def criteria_for_assignment(
     parsed: ParsedCallScheduleCsv,
     week_index: int,
     day_of_week: int,
     fellow_name: str,
     *,
     config: NightSolverConfig | None = None,
+    weekend_solution=None,
+    dual_stroke_weeks: frozenset[int] | None = None,
 ) -> tuple[str, ...]:
+    """The SINGLE source of truth for which night-policy criteria a given
+    (week, day-of-week, fellow) night assignment triggers. Both the violation
+    counter (criteria_counts_for_solution) and the workbook cell-colorer call
+    this — do not re-implement the logic elsewhere.
+
+    weekend_solution:
+        The SOLVED weekend assignments. When provided, the Friday/Weekend-NCC1
+        and weekend-Stroke checks read it; otherwise they fall back to the
+        imported ``schedule_assignments`` on the parsed row.
+    dual_stroke_weeks:
+        Weeks with two Stroke fellows on service — the Stroke criterion is
+        exempt there (the second fellow covers the night). Empty/None = no
+        exemption.
+    """
+    if not fellow_name:
+        return ()
     week_row = parsed.week_rows[week_index]
-    weekday_service = week_row.weekday_assignments[fellow_name]
+    weekday_service = week_row.weekday_assignments.get(fellow_name, "")
+    dual = dual_stroke_weeks or frozenset()
     criteria = []
-    if is_anaesthesia_service(weekday_service):
+    is_weekday_night = day_of_week <= 4
+
+    if is_weekday_night and is_anaesthesia_service(weekday_service):
         criteria.append(CRITERION_ANAESTHESIA)
-    if is_clinic_service(weekday_service):
+    if is_weekday_night and is_clinic_service(weekday_service):
         criteria.append(CRITERION_CLINIC)
-    if "Stroke" in weekday_service:
+    # Stroke: weekday Stroke service (NOT Telestroke), exempt in dual-stroke weeks.
+    if ("Stroke" in weekday_service and "Telestroke" not in weekday_service
+            and week_index not in dual):
         criteria.append(CRITERION_STROKE)
-    if day_of_week == 4 and week_row.schedule_assignments.get("Weekend NCC1") == fellow_name:
-        criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
+    # Friday weekend-NCC1: prefer the solved weekend, fall back to imported.
+    if day_of_week == 4:
+        if weekend_solution is not None:
+            wknd_ncc1 = weekend_solution.assignments_by_week[week_index].get("Weekend NCC1")
+        else:
+            wknd_ncc1 = week_row.schedule_assignments.get("Weekend NCC1")
+        if wknd_ncc1 == fellow_name:
+            criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
     if day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
-        following_service = parsed.week_rows[week_index + 1].weekday_assignments[fellow_name]
+        following_service = parsed.week_rows[week_index + 1].weekday_assignments.get(fellow_name, "")
         if not is_preferred_sunday_following_service(following_service, config=config):
             criteria.append(CRITERION_SUNDAY_FOLLOWING)
     return tuple(criteria)
+
+
+# Backwards-compatible alias for existing callers/tests.
+_criteria_for_assignment = criteria_for_assignment
 
 
 def _validate_hard_criteria(hard_criteria: set[str] | frozenset[str]) -> frozenset[str]:

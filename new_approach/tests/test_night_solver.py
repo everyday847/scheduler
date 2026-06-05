@@ -376,3 +376,51 @@ def test_cli_reports_progress(tmp_path, capsys, monkeypatch):
     captured = capsys.readouterr()
     assert "Parsed" in captured.out
     assert "Wrote" in captured.out
+
+
+def test_workbook_colorer_agrees_with_counter():
+    """The workbook cell-colorer (_has_soft_violation) and the violation
+    counter (criteria_counts_for_solution) share ONE canonical evaluator, so
+    for any solved schedule they must agree on which (fellow, week) cells are
+    flagged. Build a schedule with a known stroke-criterion night and assert
+    both surface it identically."""
+    from parafrost_scheduler.workbook import _has_soft_violation
+
+    # Fellow A is on weekday Stroke service and works the Monday night (day 0):
+    # that is the CRITERION_STROKE soft violation.
+    fellows = ["A", "B"]
+    parsed = ParsedCallScheduleCsv(
+        fellow_names=fellows,
+        existing_schedule_columns=WEEKEND_ROLES,
+        week_rows=[
+            WeekRow(
+                weekday_assignments={"A": "Stroke", "B": "Elective"},
+                schedule_assignments={"Weekend NCC1": "B", "Weekend NCC2": "B",
+                                      "Weekend Stroke": "A"},
+                raw_row=[],
+            )
+        ],
+        trailing_rows=[],
+    )
+    # A works Monday night; B covers the rest.
+    night = NightScheduleSolution(assignments_by_week=[{
+        "Night Mon": "A", "Night Tue": "B", "Night Wed": "B", "Night Thu": "B",
+        "Night Fri": "B", "Night Sat": "B", "Night Sun": "B",
+    }])
+
+    counts = criteria_counts_for_solution(parsed, night)
+    counter_flags_A = counts.by_criterion[CRITERION_STROKE] > 0
+
+    colorer_flags_A = _has_soft_violation(
+        parsed, night, weekend_solution=None, week_index=0,
+        fellow_name="A", hard_criteria=frozenset(),
+    )
+    assert counter_flags_A and colorer_flags_A, (
+        "Both the counter and the colorer must flag A's Stroke-night violation"
+    )
+    # And when the criterion is hard, the colorer must NOT flag it (it's enforced).
+    colorer_hard = _has_soft_violation(
+        parsed, night, weekend_solution=None, week_index=0,
+        fellow_name="A", hard_criteria=frozenset({CRITERION_STROKE}),
+    )
+    assert not colorer_hard, "A hard criterion is enforced, not highlighted as soft"
