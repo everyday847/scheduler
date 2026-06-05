@@ -3666,35 +3666,7 @@ def solve_full_schedule_progressive(
     }
 
 
+from parafrost_scheduler.schedule_loader import load_schedule_config
+
+
 # ---------------------------------------------------------------------------
-# Config loading
-# ---------------------------------------------------------------------------
-
-def load_schedule_config(
-    annual_config_path: str | Path,
-    standing_config_path: str | Path,
-    *,
-    night_config: NightSolverConfig | None = None,
-    weekend_config: WeekendSolverConfig | None = None,
-    night_weights: NightPolicyWeights | None = None,
-    night_hard_criteria: frozenset[str] | None = None,
-) -> ScheduleSolverConfig:
-    """Load schedule solver config from YAML files."""
-    annual = yaml.safe_load(Path(annual_config_path).read_text())
-    standing = yaml.safe_load(Path(standing_config_path).read_text())
-
-    fellow_groups = annual["fellow_groups"]
-    shifts = annual["shifts"]
-    constraints = standing_constraints_from_config(standing)
-
-    return ScheduleSolverConfig(
-        fellow_groups=fellow_groups,
-        shifts=shifts,
-        constraints=constraints,
-        night_config=night_config or NightSolverConfig(),
-        weekend_config=weekend_config or WeekendSolverConfig(),
-        night_weights=night_weights or NightPolicyWeights(),
-        night_hard_criteria=night_hard_criteria or frozenset(
-            {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
-        ),
-    )
