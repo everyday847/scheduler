@@ -1631,10 +1631,17 @@ def _encode_weekend_constraints(
 
         work_by_week = dict(work_vars)
         buffer_indices = [shift_idx[s] for s in CONSECUTIVE_WEEKEND_BUFFER_SHIFTS if s in shift_idx]
+        # HARD every-other-weekend for flagged fellows (e.g. CCM): a strict
+        # at_most-1 over each adjacent weekend pair, NO buffer exemption. Only
+        # feasible with proportionate weekend ranges (see ncc_ranges).
+        eow = fellow_names[f] in wk_config.every_other_weekend_fellows
         for i in range(len(work_vars) - 1):
             w1, v1 = work_vars[i]
             w2, v2 = work_vars[i + 1]
             if w2 - w1 != 1:
+                continue
+            if eow:
+                opb.at_most_k([v1, v2], 1)
                 continue
             # Both modes route through the buffer-aware helper: soft penalizes an
             # un-buffered pair once; hard forbids it. A buffered pair (weekend

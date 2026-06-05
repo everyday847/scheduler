@@ -50,6 +50,9 @@ class WeekendSolverConfig:
     # Group-sum constraints: (fellow_names, exact_total). Pairs with ncc_ranges
     # so a range group still hits its combined weekend-NCC total exactly.
     ncc_group_sums: tuple[tuple[tuple[str, ...], int], ...] = ()
+    # Fellows under a HARD every-other-weekend rule (no two consecutive weekends,
+    # no buffer exemption). Feasible only with proportionate ncc_ranges.
+    every_other_weekend_fellows: frozenset[str] = frozenset()
     stroke_cohort: tuple[str, ...] = DEFAULT_STROKE_COHORT
     stroke_cohort_total: int | None = 45
     stroke_cohort_min: int = 11

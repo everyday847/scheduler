@@ -105,6 +105,16 @@ weekend_call:
 - group: CCM
   ncc_total: 22
   stroke_total: 0
+  # CCM weekend load is proportionate to on-service weeks (per-fellow ranges),
+  # not an even split — the fellows differ greatly in weekend-eligible weeks.
+  # ncc_total (22) is kept as the hard group-sum across the trio.
+  ncc_ranges:
+    Pulmonary/Cardio CCM Fellow (Core NCC) 1: [15, 22]
+    Pulmonary/Cardio CCM Fellow (Core NCC) 2: [4, 7]
+    CCM  Fellow (Elective) 1: [0, 4]
+  # Strict every-other-weekend (hard, no buffer). Feasible only with the
+  # proportionate ranges above (SAT-verified 2026-06-05, penalty ~6078).
+  every_other_weekend: true
 holiday_dates:
 - '2026-07-04'
 - '2026-09-07'

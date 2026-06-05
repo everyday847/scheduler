@@ -283,6 +283,24 @@ def test_build_weekend_config_ncc_ranges():
     assert config.ncc_totals["Cara"] == 5
 
 
+def test_build_weekend_config_every_other_weekend_flag():
+    """A weekend_call entry with every_other_weekend: true marks its fellows for
+    the hard alternating-weekend constraint."""
+    request = {
+        "fellow_groups": {"CCM": ["A", "B"], "NCC_JR": ["Bob"]},
+        "shifts": ["NCC1"],
+        "fellow_week_pairs": {},
+        "weekend_call": [
+            {"group": "CCM", "ncc_total": 4, "stroke_total": 0,
+             "ncc_ranges": {"A": [0, 4], "B": [0, 4]},
+             "every_other_weekend": True},
+            {"group": "NCC_JR", "ncc_total": 4, "stroke_total": 0},
+        ],
+    }
+    config = build_solver_config_from_request(request).weekend_config
+    assert config.every_other_weekend_fellows == frozenset({"A", "B"})
+
+
 def test_build_weekend_config_ncc_ranges_infeasible_sum_rejected():
     """If the group total can't fit inside the summed ranges, raise at load."""
     request = {

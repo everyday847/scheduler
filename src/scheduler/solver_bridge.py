@@ -350,6 +350,7 @@ def _build_weekend_config(
     stroke_eligible: set[str] = set()
     ncc_ranges: dict[str, tuple[int, int]] = {}
     ncc_group_sums: list[tuple[tuple[str, ...], int]] = []
+    every_other_weekend_fellows: set[str] = set()
 
     for entry in weekend_call:
         group = entry.get("group")
@@ -359,6 +360,9 @@ def _build_weekend_config(
         group_size = len(fellows)
         if group_size == 0:
             continue
+
+        if entry.get("every_other_weekend"):
+            every_other_weekend_fellows.update(fellows)
 
         group_ncc = entry.get("ncc_total", 0)
         entry_ranges = entry.get("ncc_ranges")
@@ -427,6 +431,7 @@ def _build_weekend_config(
         stroke_totals=stroke_totals or None,
         ncc_ranges=ncc_ranges or None,
         ncc_group_sums=tuple(ncc_group_sums),
+        every_other_weekend_fellows=frozenset(every_other_weekend_fellows),
         stroke_cohort=(),
         stroke_cohort_total=None,
         stroke_cohort_min=0,
