@@ -100,6 +100,40 @@ class TestNccTelestrokeEligibility:
         assert gated, "NCC_SR Backup must be gated on Telestroke/Clinic"
 
 
+class TestHolidayWeekBackup:
+    """In holiday weeks (0-indexed 25, 26 = 1-indexed 26, 27), both Backup and
+    Weekend Backup must be the Telestroke/Clinic fellow only — Elec and
+    Clinic/Elective do NOT qualify those two weeks."""
+
+    def test_holiday_week_backup_gated_only_on_telestroke(self):
+        # 28 weeks so week 25/26 exist; need num_days >= 27*7.
+        opb, bk, xs, wr, names, shift_idx, nw = _setup(
+            {"NCC_SR": ["Alice"]}, ["Elec", "Telestroke/Clinic"], num_days=27 * 7,
+        )
+        hol_w = 25  # 0-indexed holiday week
+        bk_var = bk[hol_w][_BACKUP_WEEKDAY][0]
+        elec_var = xs[0][hol_w][shift_idx["Elec"]]
+        tele_var = xs[0][hol_w][shift_idx["Telestroke/Clinic"]]
+        # Gated on Telestroke/Clinic...
+        tele_gate = [c for c in opb._constraints
+                     if f"x{bk_var} " in c.replace("~", "") and f"x{tele_var} " in c.replace("~", "")]
+        assert tele_gate, "holiday-week Backup must be gated on Telestroke/Clinic"
+        # ...but NOT on Elec (excluded this week).
+        elec_gate = [c for c in opb._constraints
+                     if f"x{bk_var} " in c.replace("~", "") and f"x{elec_var} " in c.replace("~", "")]
+        assert not elec_gate, "holiday-week Backup must NOT accept Elec"
+
+    def test_non_holiday_week_still_accepts_elec(self):
+        opb, bk, xs, wr, names, shift_idx, nw = _setup(
+            {"NCC_SR": ["Alice"]}, ["Elec", "Telestroke/Clinic"], num_days=27 * 7,
+        )
+        bk_var = bk[10][_BACKUP_WEEKDAY][0]  # ordinary week
+        elec_var = xs[0][10][shift_idx["Elec"]]
+        elec_gate = [c for c in opb._constraints
+                     if f"x{bk_var} " in c.replace("~", "") and f"x{elec_var} " in c.replace("~", "")]
+        assert elec_gate, "ordinary-week Backup must still accept Elec"
+
+
 class TestBackupShiftGating:
     def test_ncc_backup_requires_elec(self):
         """Alice's weekday Backup var must imply she is on Elec that week:

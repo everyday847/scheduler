@@ -124,6 +124,11 @@ _BACKUP_MAX_CONSECUTIVE_WEEKS = 2
 # Week 0 is exempt from hard Backup coverage: the Stroke fellows are pinned to
 # orientation Elec, so no fellow is backup-eligible (cf. NCC2/Telestroke wk0).
 _BACKUP_COVERAGE_FIRST_WEEK = 1
+# Holiday weeks (0-indexed) where BOTH Backup and Weekend Backup must be the
+# Telestroke/Clinic fellow specifically — Elec / Clinic/Elective do not qualify.
+# 1-indexed weeks 26 & 27 (the Christmas / New Year fortnight).
+_BACKUP_HOLIDAY_WEEKS = frozenset({25, 26})
+_BACKUP_HOLIDAY_SHIFTS = frozenset({"Telestroke/Clinic"})
 
 DEFAULT_WEEKLY_SOFT_WEIGHT = 100
 DEFAULT_WEEKEND_MISMATCH_WEIGHT = 20
@@ -1494,12 +1499,17 @@ def _encode_backup_constraints(
     num_weeks = config.num_weeks
     group_of = _backup_group_of(config, fellow_names)
     eligible_shifts = _backup_eligible_shift_indices(group_of, shift_idx)
+    # Holiday weeks: every backup-eligible fellow is gated on Telestroke/Clinic
+    # only (overrides the per-group eligible-shift set).
+    holiday_si = [shift_idx[s] for s in _BACKUP_HOLIDAY_SHIFTS if s in shift_idx]
 
     opb.add_comment("Backup: weekday-shift gating + weekend-role exclusion")
     for w in range(num_weeks):
+        is_holiday = w in _BACKUP_HOLIDAY_WEEKS
         for kind in (_BACKUP_WEEKDAY, _BACKUP_WEEKEND):
             for f, bk_var in bk[w][kind].items():
-                shift_vars = [xs[f][w][si] for si in eligible_shifts.get(f, []) if xs[f][w][si] != 0]
+                allowed_si = holiday_si if is_holiday else eligible_shifts.get(f, [])
+                shift_vars = [xs[f][w][si] for si in allowed_si if xs[f][w][si] != 0]
                 if not shift_vars:
                     # No eligible weekday shift available -> cannot be backup.
                     opb.add_unit(-bk_var)
