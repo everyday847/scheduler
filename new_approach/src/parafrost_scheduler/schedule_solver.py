@@ -1689,6 +1689,48 @@ def _encode_buffered_consecutive_pair(
     )
 
 
+def _encode_ncc_weekend_alignment(
+    opb: OpbBuilder,
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """SOFT nudge toward NCC weekday/weekend role alignment: a fellow on weekday
+    NCC1 should take Weekend NCC1 (not NCC2), and vice versa. The two NCC weekend
+    roles are interchangeable to every other constraint, so this is the only
+    signal distinguishing them by the holder's weekday NCC service.
+    """
+    weight = config.ncc_weekend_misalign_penalty
+    if weight == 0:
+        return
+    s_ncc1 = shift_idx.get("NCC1")
+    s_ncc2 = shift_idx.get("NCC2")
+    if s_ncc1 is None or s_ncc2 is None:
+        return
+    num_weeks = config.num_weeks
+
+    def _and_penalty(a: int, b: int) -> None:
+        pen = opb.new_var()
+        opb.weighted_sum_at_most([(a, 1), (b, 1), (-pen, 1)], 2)
+        opb.weighted_sum_at_least([(a, 1), (-pen, 1)], 1)
+        opb.weighted_sum_at_least([(b, 1), (-pen, 1)], 1)
+        soft_violations.append((pen, weight))
+
+    for w in range(num_weeks):
+        for f in range(len(fellow_names)):
+            wd1 = xs[f][w][s_ncc1]
+            wd2 = xs[f][w][s_ncc2]
+            # Weekday NCC1 but Weekend NCC2.
+            if wd1 != 0 and f in wr[w][_ROLE_NCC2]:
+                _and_penalty(wd1, wr[w][_ROLE_NCC2][f])
+            # Weekday NCC2 but Weekend NCC1.
+            if wd2 != 0 and f in wr[w][_ROLE_NCC1]:
+                _and_penalty(wd2, wr[w][_ROLE_NCC1][f])
+
+
 def _encode_weekend_constraints(
     opb: OpbBuilder,
     wr: list[list[dict[int, int]]],
@@ -1728,6 +1770,12 @@ def _encode_weekend_constraints(
             vars_for_f = [wr[w][role_idx][f] for role_idx in range(3) if f in wr[w][role_idx]]
             if len(vars_for_f) > 1:
                 opb.at_most_k(vars_for_f, 1)
+
+    # NCC weekday/weekend role alignment (soft nudge).
+    opb.add_comment("Weekend: NCC1/NCC2 weekday-weekend alignment (soft)")
+    _encode_ncc_weekend_alignment(
+        opb, wr, xs, config, fellow_names, shift_idx, soft_violations,
+    )
 
     # Weekend eligibility gated by weekly shift (dynamic)
     opb.add_comment("Weekend: dynamic eligibility based on weekly shift")

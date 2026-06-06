@@ -16,8 +16,7 @@ from parafrost_scheduler.schedule_solver import (
     _ROLE_STROKE,
     _week_day,
     _encode_nh_courtesy_weeks,
-    # TODO(task4): uncomment
-    # _encode_ncc_weekend_alignment,
+    _encode_ncc_weekend_alignment,
 )
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
@@ -110,3 +109,43 @@ class TestNhCourtesyWeeks:
         soft = []
         _encode_nh_courtesy_weeks(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
         assert soft == [], "Zero weights must add no penalties"
+
+
+class TestNccWeekendAlignment:
+    def test_misalignment_penalized_weight_10(self):
+        config = _config()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
+        soft = []
+        _encode_ncc_weekend_alignment(opb, wr, xs, config, ["Jin"], shift_idx, soft)
+        # Weekday NCC1 (week 0) crossed with Weekend NCC2 (week 0) must be penalized.
+        wd_ncc1 = xs[0][0][shift_idx["NCC1"]]
+        we_ncc2 = wr[0][_ROLE_NCC2][0]
+        assert _links(opb, wd_ncc1, we_ncc2), "weekday-NCC1/weekend-NCC2 must be penalized"
+        # Weekday NCC2 crossed with Weekend NCC1 must be penalized.
+        wd_ncc2 = xs[0][0][shift_idx["NCC2"]]
+        we_ncc1 = wr[0][_ROLE_NCC1][0]
+        assert _links(opb, wd_ncc2, we_ncc1), "weekday-NCC2/weekend-NCC1 must be penalized"
+        assert soft and all(w == 10 for _, w in soft), "misalign weight must be 10"
+
+    def test_aligned_not_penalized(self):
+        config = _config()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
+        soft = []
+        _encode_ncc_weekend_alignment(opb, wr, xs, config, ["Jin"], shift_idx, soft)
+        # The aligned pairing weekday-NCC1 + weekend-NCC1 must NOT be linked.
+        wd_ncc1 = xs[0][0][shift_idx["NCC1"]]
+        we_ncc1 = wr[0][_ROLE_NCC1][0]
+        assert not _links(opb, wd_ncc1, we_ncc1), "aligned NCC1/NCC1 must not be penalized"
+
+    def test_zero_weight_disables(self):
+        config = _config(ncc_align=0)
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
+        soft = []
+        _encode_ncc_weekend_alignment(opb, wr, xs, config, ["Jin"], shift_idx, soft)
+        assert soft == [], "Zero weight must add no penalties"
