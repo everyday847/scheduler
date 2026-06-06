@@ -66,6 +66,10 @@ def _apply_variant(config, variant: str):
     if variant == "aan_hard":
         # NH AAN-week call avoidance becomes HARD (no night/weekend that week).
         return dataclasses.replace(config, nh_aan_week_call_hard=True)
+    if variant == "no_stroke_align":
+        # Disable the dedicated Stroke weekday->weekend alignment nudge (for the
+        # prereq-only isolation run; the shared mismatch-20 penalty still applies).
+        return dataclasses.replace(config, stroke_weekend_misalign_penalty=0)
     if variant == "abpn_block":
         # ABPN night-block + dual-stroke-Helena preference + wk26/27 on-off toggle.
         return dataclasses.replace(
