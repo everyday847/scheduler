@@ -265,6 +265,52 @@ class TestNightBlockingSunThu:
         assert len(week0_refs) == 0, "Sunday night should NOT check same-day's week for NS"
 
 
+class TestAbpnBlocksWeekdayNightsByDefault:
+    """ABPN hard-blocks weekday (Sun-Thu) night call for ALL fellows by default
+    (abpn_night_block defaults True), not just NH fellows. Like other weekday-only
+    services, it does NOT block Fri/Sat nights.
+    """
+
+    def test_abpn_blocks_wednesday_night_by_default(self):
+        # No flag set -> default config. Day 2 = Wednesday; next morning Thursday
+        # is in week 0, so ABPN in week 0 must block the Wednesday night.
+        shifts = ["NCC1", "ABPN"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
+        assert config.abpn_night_block, "abpn_night_block must default True"
+        shift_idx = {s: i for i, s in enumerate(shifts)}
+        num_weeks = config.num_weeks
+        opb = OpbBuilder()
+        xs, xn, wr = _make_vars(opb, 1, 14, len(shifts), num_weeks)
+        soft = []
+
+        _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
+
+        abpn_var_week0 = xs[0][0][shift_idx["ABPN"]]
+        night_var_day2 = xn[2][0]
+        constraints = _get_constraints_containing(opb, night_var_day2)
+        abpn_constraints = [c for c in constraints if f"x{abpn_var_week0} " in c]
+        assert len(abpn_constraints) > 0, "ABPN should block Wednesday night by default"
+
+    def test_abpn_does_not_block_friday_night(self):
+        shifts = ["NCC1", "ABPN"]
+        config = _make_config(shifts, start_dow=0, num_days=14, full_assignment=True)
+        shift_idx = {s: i for i, s in enumerate(shifts)}
+        num_weeks = config.num_weeks
+        opb = OpbBuilder()
+        xs, xn, wr = _make_vars(opb, 1, 14, len(shifts), num_weeks)
+        soft = []
+
+        _encode_night_constraints(opb, xn, xs, wr, config, ["Alice"], shift_idx, soft)
+
+        abpn_var_week0 = xs[0][0][shift_idx["ABPN"]]
+        abpn_var_week1 = xs[0][1][shift_idx["ABPN"]]
+        night_var_day4 = xn[4][0]
+        constraints = _get_constraints_containing(opb, night_var_day4)
+        abpn_constraints = [c for c in constraints
+                            if f"x{abpn_var_week0} " in c or f"x{abpn_var_week1} " in c]
+        assert len(abpn_constraints) == 0, "ABPN should NOT block Friday night"
+
+
 class TestAllWeekBlockedServices:
     """SICU, MICU, Vac, and NS block ALL 7 nights (via the current week),
     including Fri/Sat — the all-week policy, distinct from the Sun-Thu-only

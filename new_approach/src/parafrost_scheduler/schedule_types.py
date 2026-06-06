@@ -175,8 +175,10 @@ class ScheduleSolverConfig:
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
     call_rules: list[dict] = field(default_factory=list)
     # --- Experimental variant flags (default off; the shipped config is unchanged) ---
-    # ABPN blocks prior-Sun..Thu weekday night call (like the generic night-block).
-    abpn_night_block: bool = False
+    # ABPN hard-blocks prior-Sun..Thu weekday night call (like the generic
+    # night-block) for ALL fellows. Default ON: an ABPN week should be free of
+    # weekday (next-morning-is-a-workday) night call. Set False to allow it.
+    abpn_night_block: bool = True
     # Preferred fellow for dual-Stroke weeks (soft, two-tier early/late). None = off.
     dual_stroke_helena: str | None = None
     # Stroke wk26/27 (1-indexed) on/off toggle: "off" | "hard" | "soft".
