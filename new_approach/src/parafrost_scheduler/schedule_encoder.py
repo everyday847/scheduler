@@ -1675,10 +1675,12 @@ def _encode_weekend_constraints(
                     soft_violations=soft_violations,
                 )
 
-    # Weekend role prerequisites (must have done weekday service before weekend role)
-    opb.add_comment("Weekend: role prerequisites (Stroke/NCC)")
-    _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx,
-                                  soft_violations=soft_violations)
+    # Weekend role prerequisites: weekday service in some week w' <= w before a
+    # weekend role. HARD by default (omit soft_violations so the no-service-possible
+    # dead-end forbids rather than penalizes). To override to soft (e.g. if a
+    # hardened config fails SAT), pass soft_violations=soft_violations here.
+    opb.add_comment("Weekend: role prerequisites (Stroke/NCC), hard")
+    _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx)
 
     # Weekend role matches weekday service (soft bonus for matching)
     opb.add_comment("Weekend: prefer role matches weekday service (soft)")
@@ -2521,10 +2523,14 @@ def _encode_weekend_prerequisites(
     shift_idx: dict[str, int],
     soft_violations: list[tuple[int, int]] | None = None,
 ) -> None:
-    """Require prior weekday service before weekend role assignment.
+    """Require weekday service in some week w' <= w before a weekend role (the
+    same week counts: a Mon-Fri service satisfies that weekend).
 
-    weekend_stroke_prerequisite: wr[w][STROKE][f] <= sum(xs[f][w'][stroke] for w' < w)
-    weekend_ncc_prerequisite: wr[w][NCC][f] <= sum(xs[f][w'][ncc1]+xs[f][w'][ncc2] for w' < w)
+    weekend_stroke_prerequisite: wr[w][STROKE][f] <= sum(xs[f][w'][stroke] for w' <= w)
+    weekend_ncc_prerequisite: wr[w][NCC][f] <= sum(xs[f][w'][ncc1]+xs[f][w'][ncc2] for w' <= w)
+
+    When no weekday service is possible in any w' <= w, the weekend role is HARD
+    forbidden if soft_violations is None (the shipped default), else softened.
     """
     num_weeks = config.num_weeks
     stroke_si = shift_idx.get("Stroke")
@@ -2549,7 +2555,8 @@ def _encode_weekend_prerequisites(
                 for w in range(num_weeks):
                     if fi not in wr[w][_ROLE_STROKE]:
                         continue
-                    prior_stroke = [xs[fi][wp][stroke_si] for wp in range(w)
+                    # Inclusive window (w' <= w): same-week weekday Stroke counts.
+                    prior_stroke = [xs[fi][wp][stroke_si] for wp in range(w + 1)
                                     if xs[fi][wp][stroke_si] != 0]
                     if not prior_stroke:
                         if soft_violations is not None:
@@ -2579,8 +2586,9 @@ def _encode_weekend_prerequisites(
                     for role_idx in (_ROLE_NCC1, _ROLE_NCC2):
                         if fi not in wr[w][role_idx]:
                             continue
+                        # Inclusive window (w' <= w): same-week weekday NCC counts.
                         prior_ncc = []
-                        for wp in range(w):
+                        for wp in range(w + 1):
                             if ncc1_si is not None and xs[fi][wp][ncc1_si] != 0:
                                 prior_ncc.append(xs[fi][wp][ncc1_si])
                             if ncc2_si is not None and xs[fi][wp][ncc2_si] != 0:

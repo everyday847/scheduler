@@ -137,8 +137,10 @@ def _get_units(opb: OpbBuilder) -> list[int]:
 class TestWeekendStrokePrerequisite:
     """wr[w][STROKE][f] requires prior weekday Stroke assignment."""
 
-    def test_non_exempt_blocked_in_week_0(self):
-        """A non-exempt fellow cannot do Weekend Stroke in week 0 (no prior weeks)."""
+    def test_non_exempt_blocked_when_no_stroke_service_through_week(self):
+        """A non-exempt fellow with NO possible weekday Stroke in any week w' <= w
+        is hard-blocked from Weekend Stroke that week. Under the inclusive (<= w)
+        window, we forbid the week-0 weekday Stroke var so no same-week path exists."""
         config = _make_config(
             num_weeks=5,
             fellow_groups={"OTHER": ["Helena"]},
@@ -153,13 +155,38 @@ class TestWeekendStrokePrerequisite:
         fellow_names = ["Helena"]
         xs = _make_xs(opb, 1, 5, len(config.shifts))
         wr = _make_wr(opb, 5, 1)
+        # Forbid week-0 weekday Stroke so there is no <= w service path in week 0.
+        xs[0][0][shift_idx["Stroke"]] = 0
 
-        constraint_start = len(opb._constraints)
         _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx)
 
         units = _get_units(opb)
         stroke_var_w0 = wr[0][_ROLE_STROKE][0]
-        assert -stroke_var_w0 in units, "Non-exempt fellow should be blocked from Weekend Stroke in week 0"
+        assert -stroke_var_w0 in units, "No Stroke service through week 0 => Weekend Stroke blocked"
+
+    def test_same_week_stroke_service_satisfies_prereq(self):
+        """Inclusive window: a weekday Stroke var present in week 0 (same week) lets
+        the fellow hold Weekend Stroke in week 0 via a conditional, NOT a hard block."""
+        config = _make_config(
+            num_weeks=5,
+            fellow_groups={"OTHER": ["Helena"]},
+            call_rules=[{
+                "type": "weekend_stroke_prerequisite",
+                "exempt_fellows": [],
+                "active": True,
+            }],
+        )
+        opb = OpbBuilder()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        fellow_names = ["Helena"]
+        xs = _make_xs(opb, 1, 5, len(config.shifts))  # week-0 Stroke var present (free)
+        wr = _make_wr(opb, 5, 1)
+
+        _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx)
+
+        units = _get_units(opb)
+        stroke_var_w0 = wr[0][_ROLE_STROKE][0]
+        assert -stroke_var_w0 not in units, "Same-week Stroke service must satisfy the prereq (no hard block)"
 
     def test_non_exempt_allowed_with_prior_stroke(self):
         """Non-exempt fellow in week 5 with Stroke in week 3 gets a conditional (not a block)."""
@@ -215,8 +242,10 @@ class TestWeekendStrokePrerequisite:
 class TestWeekendNccPrerequisite:
     """wr[w][NCC][f] requires prior weekday NCC1 or NCC2 assignment."""
 
-    def test_non_exempt_blocked_in_week_0(self):
-        """A non-exempt fellow can't do Weekend NCC in week 0."""
+    def test_non_exempt_blocked_when_no_ncc_service_through_week(self):
+        """Non-exempt fellow with NO possible weekday NCC1/NCC2 in any week w' <= w
+        is hard-blocked from Weekend NCC that week. Forbid week-0 NCC vars so no
+        same-week path exists under the inclusive (<= w) window."""
         config = _make_config(
             num_weeks=5,
             fellow_groups={"STROKE": ["Helena"]},
@@ -231,14 +260,41 @@ class TestWeekendNccPrerequisite:
         fellow_names = ["Helena"]
         xs = _make_xs(opb, 1, 5, len(config.shifts))
         wr = _make_wr(opb, 5, 1)
+        # Forbid week-0 weekday NCC1/NCC2 so there is no <= w service path in week 0.
+        xs[0][0][shift_idx["NCC1"]] = 0
+        xs[0][0][shift_idx["NCC2"]] = 0
 
         _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx)
 
         units = _get_units(opb)
         ncc1_var_w0 = wr[0][_ROLE_NCC1][0]
         ncc2_var_w0 = wr[0][_ROLE_NCC2][0]
-        assert -ncc1_var_w0 in units, "Non-exempt fellow blocked from Weekend NCC1 in week 0"
-        assert -ncc2_var_w0 in units, "Non-exempt fellow blocked from Weekend NCC2 in week 0"
+        assert -ncc1_var_w0 in units, "No NCC service through week 0 => Weekend NCC1 blocked"
+        assert -ncc2_var_w0 in units, "No NCC service through week 0 => Weekend NCC2 blocked"
+
+    def test_same_week_ncc_service_satisfies_prereq(self):
+        """Inclusive window: a weekday NCC var present in week 0 lets the fellow hold
+        Weekend NCC in week 0 via a conditional, NOT a hard block."""
+        config = _make_config(
+            num_weeks=5,
+            fellow_groups={"STROKE": ["Helena"]},
+            call_rules=[{
+                "type": "weekend_ncc_prerequisite",
+                "exempt_groups": [],
+                "active": True,
+            }],
+        )
+        opb = OpbBuilder()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        fellow_names = ["Helena"]
+        xs = _make_xs(opb, 1, 5, len(config.shifts))  # week-0 NCC1/NCC2 vars present
+        wr = _make_wr(opb, 5, 1)
+
+        _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx)
+
+        units = _get_units(opb)
+        assert -wr[0][_ROLE_NCC1][0] not in units, "Same-week NCC service must satisfy NCC1 prereq"
+        assert -wr[0][_ROLE_NCC2][0] not in units, "Same-week NCC service must satisfy NCC2 prereq"
 
     def test_exempt_group_allowed_in_week_0(self):
         """NCC_SR group fellows are exempt from NCC prerequisite."""
