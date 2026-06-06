@@ -272,6 +272,15 @@ class ScheduleSolverConfig:
     dual_stroke_helena: str | None = None
     # Stroke wk26/27 (1-indexed) on/off toggle: "off" | "hard" | "soft".
     stroke_wk2627_toggle: str = "off"
+    # --- NH courtesy + NCC alignment soft penalties (set weight 0 to deactivate) ---
+    # NH-group fellow on AAN/ABPN that week: per-occurrence soft penalty for each
+    # night worked and each weekend role held (we only manage part of their time;
+    # their primary fellowship may rely on a light AAN/ABPN week).
+    nh_aan_week_call_penalty: int = 100
+    nh_abpn_week_call_penalty: int = 100
+    # Fellow on weekday NCC1 but Weekend NCC2 (or weekday NCC2 but Weekend NCC1):
+    # soft nudge toward weekday/weekend NCC role alignment.
+    ncc_weekend_misalign_penalty: int = 10
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', _num_weeks_for(self.start_dow, self.num_days))
