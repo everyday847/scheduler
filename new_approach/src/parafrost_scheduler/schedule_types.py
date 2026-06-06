@@ -195,6 +195,10 @@ class ScheduleSolverConfig:
     # Fellow on weekday NCC1 but Weekend NCC2 (or weekday NCC2 but Weekend NCC1):
     # soft nudge toward weekday/weekend NCC role alignment.
     ncc_weekend_misalign_penalty: int = 10
+    # Dedicated soft nudge: Weekend Stroke should be held by that week's weekday
+    # Stroke fellow. Stacks on the shared weekend_mismatch_weight (20) so Stroke
+    # gets a stronger pull than NCC matching. Set 0 to deactivate.
+    stroke_weekend_misalign_penalty: int = 40
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))

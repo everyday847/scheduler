@@ -1461,6 +1461,44 @@ def _encode_ncc_weekend_alignment(
                 _and_penalty(wd2, wr[w][_ROLE_NCC1][f])
 
 
+def _encode_stroke_weekend_alignment(
+    opb: OpbBuilder,
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Dedicated SOFT nudge: the Weekend Stroke role should be held by that week's
+    weekday-Stroke fellow. A fellow holding Weekend Stroke while NOT on weekday
+    Stroke that week is penalized at stroke_weekend_misalign_penalty. This stacks
+    on the shared _encode_weekend_mismatch_penalty (weekend_mismatch_weight), so
+    Stroke gets a stronger pull toward alignment than NCC1/NCC2 matching.
+    """
+    weight = config.stroke_weekend_misalign_penalty
+    if weight == 0:
+        return
+    s_stroke = shift_idx.get("Stroke")
+    if s_stroke is None:
+        return
+    num_weeks = config.num_weeks
+    for w in range(num_weeks):
+        for f, wr_var in wr[w][_ROLE_STROKE].items():
+            wd_stroke = xs[f][w][s_stroke]
+            if wd_stroke == 0:
+                # Can't be on weekday Stroke this week -> holding the role is always
+                # a mismatch.
+                soft_violations.append((wr_var, weight))
+            else:
+                # mismatch = wr_stroke AND NOT wd_stroke.
+                mismatch = opb.new_var()
+                opb.weighted_sum_at_most([(wr_var, 1), (-wd_stroke, 1), (-mismatch, 1)], 2)
+                opb.weighted_sum_at_least([(wr_var, 1), (-mismatch, 1)], 1)
+                opb.weighted_sum_at_least([(-wd_stroke, 1), (-mismatch, 1)], 1)
+                soft_violations.append((mismatch, weight))
+
+
 def _encode_weekend_constraints(
     opb: OpbBuilder,
     wr: list[list[dict[int, int]]],
@@ -1504,6 +1542,13 @@ def _encode_weekend_constraints(
     # NCC weekday/weekend role alignment (soft nudge).
     opb.add_comment("Weekend: NCC1/NCC2 weekday-weekend alignment (soft)")
     _encode_ncc_weekend_alignment(
+        opb, wr, xs, config, fellow_names, shift_idx, soft_violations,
+    )
+
+    # Stroke weekday->weekend alignment (dedicated soft nudge, stronger than the
+    # shared weekend mismatch penalty).
+    opb.add_comment("Weekend: Stroke weekday-weekend alignment (soft)")
+    _encode_stroke_weekend_alignment(
         opb, wr, xs, config, fellow_names, shift_idx, soft_violations,
     )
 
