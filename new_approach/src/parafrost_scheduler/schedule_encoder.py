@@ -1954,6 +1954,10 @@ def _encode_nh_courtesy_weeks(
     primary fellowship may rely on the AAN/ABPN week being light. Per-occurrence
     SOFT penalty (each night worked + each weekend role held that week). Gated on
     the AAN/ABPN weekly shift var, so only the pinned fellow/week is affected.
+
+    If config.nh_aan_week_call_hard is set, the AAN family becomes a HARD forbid
+    (at-most-1 of gate + each night/weekend var) instead of a soft penalty; ABPN
+    stays soft regardless.
     """
     nh_indices = set()
     for name in config.fellow_groups.get("NH", []):
@@ -1975,7 +1979,10 @@ def _encode_nh_courtesy_weeks(
 
     for shift_name, weight in (("AAN", config.nh_aan_week_call_penalty),
                                ("ABPN", config.nh_abpn_week_call_penalty)):
-        if weight == 0:
+        # AAN may be promoted to a HARD forbid; ABPN is always soft. In hard mode
+        # the soft weight is ignored (a 0 weight does NOT disable the hard forbid).
+        hard = shift_name == "AAN" and config.nh_aan_week_call_hard
+        if weight == 0 and not hard:
             continue
         si = shift_idx.get(shift_name)
         if si is None:
@@ -1989,11 +1996,17 @@ def _encode_nh_courtesy_weeks(
                 for dow in range(7):
                     d = _week_day(w, dow, start_dow)
                     if 0 <= d < num_days and xn[d][f] != 0:
-                        _and_penalty(gate, xn[d][f], weight)
+                        if hard:
+                            opb.at_most_k([gate, xn[d][f]], 1)
+                        else:
+                            _and_penalty(gate, xn[d][f], weight)
                 # Each weekend role the fellow holds that week.
                 for role_idx in range(3):
                     if f in wr[w][role_idx]:
-                        _and_penalty(gate, wr[w][role_idx][f], weight)
+                        if hard:
+                            opb.at_most_k([gate, wr[w][role_idx][f]], 1)
+                        else:
+                            _and_penalty(gate, wr[w][role_idx][f], weight)
 
 
 def _encode_night_constraints(

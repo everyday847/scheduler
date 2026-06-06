@@ -187,6 +187,11 @@ class ScheduleSolverConfig:
     # their primary fellowship may rely on a light AAN/ABPN week).
     nh_aan_week_call_penalty: int = 100
     nh_abpn_week_call_penalty: int = 100
+    # When True, the AAN-week avoidance is HARD: an NH fellow on AAN is forbidden
+    # any night/weekend role that week (overrides nh_aan_week_call_penalty). ABPN
+    # stays soft regardless. (Mon-Thu AAN nights are already hard-blocked via
+    # NIGHT_BLOCKED_SHIFTS; this newly forbids Fri/Sat/Sun nights + weekend roles.)
+    nh_aan_week_call_hard: bool = False
     # Fellow on weekday NCC1 but Weekend NCC2 (or weekday NCC2 but Weekend NCC1):
     # soft nudge toward weekday/weekend NCC role alignment.
     ncc_weekend_misalign_penalty: int = 10

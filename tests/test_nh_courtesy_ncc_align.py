@@ -25,7 +25,7 @@ from scheduler.weekend_call_types import WeekendSolverConfig
 
 
 def _config(num_days=28, nh_aan=100, nh_abpn=100, ncc_align=10,
-            fellow_groups=None, shifts=None):
+            nh_aan_hard=False, fellow_groups=None, shifts=None):
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
@@ -43,6 +43,7 @@ def _config(num_days=28, nh_aan=100, nh_abpn=100, ncc_align=10,
         night_config=night_config, weekend_config=weekend_config,
         night_hard_criteria=frozenset(), start_dow=0, num_days=num_days,
         nh_aan_week_call_penalty=nh_aan, nh_abpn_week_call_penalty=nh_abpn,
+        nh_aan_week_call_hard=nh_aan_hard,
         ncc_weekend_misalign_penalty=ncc_align,
     )
 
@@ -111,6 +112,65 @@ class TestNhCourtesyWeeks:
         soft = []
         _encode_nh_courtesy_weeks(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
         assert soft == [], "Zero weights must add no penalties"
+
+
+def _hard_forbid(opb, a, b):
+    """A hard at-most-1 over exactly vars a and b: '+1 x.. +1 x.. <= 1 ;'."""
+    out = []
+    for c in opb._constraints:
+        bare = c.replace("~", "")
+        if f"x{a} " in bare and f"x{b} " in bare and c.strip().endswith("<= 1 ;"):
+            out.append(c)
+    return out
+
+
+class TestNhAanWeekHard:
+    def test_aan_week_call_hard_forbidden_no_soft(self):
+        config = _config(nh_aan_hard=True)
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
+        soft = []
+        _encode_nh_courtesy_weeks(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
+
+        aan = xs[0][2][shift_idx["AAN"]]  # AAN in week 2
+        # Fri night (dow 4) of the AAN week must be HARD-forbidden when on AAN.
+        d = _week_day(2, 4, config.start_dow)
+        assert _hard_forbid(opb, aan, xn[d][0]), "AAN-week Fri night must be hard-forbidden"
+        # A weekend role in the AAN week must be HARD-forbidden.
+        assert _hard_forbid(opb, aan, wr[2][_ROLE_NCC1][0]), "AAN-week weekend role must be hard-forbidden"
+        # No SOFT penalties from the AAN family in hard mode (ABPN may still add some,
+        # but here the only AAN/ABPN-gated soft terms would be ABPN — assert none weigh
+        # the AAN courtesy weight from an AAN gate). Simplest: hard mode emits no soft
+        # penalty linking the AAN var.
+        aan_soft = [pv for pv, _ in soft
+                    if any(f"x{aan} " in c.replace("~", "") and f"x{pv} " in c.replace("~", "")
+                           for c in opb._constraints)]
+        assert aan_soft == [], "AAN hard mode must not add soft penalties gated on the AAN var"
+
+    def test_abpn_still_soft_when_aan_hard(self):
+        config = _config(nh_aan_hard=True)
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
+        soft = []
+        _encode_nh_courtesy_weeks(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
+        abpn = xs[0][1][shift_idx["ABPN"]]  # ABPN in week 1
+        d = _week_day(1, 2, config.start_dow)  # Wed night, week 1
+        assert _links(opb, abpn, xn[d][0]), "ABPN must stay SOFT even when AAN is hard"
+        assert not _hard_forbid(opb, abpn, xn[d][0]), "ABPN must NOT be hard-forbidden"
+
+    def test_soft_when_flag_off(self):
+        config = _config(nh_aan_hard=False)
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
+        soft = []
+        _encode_nh_courtesy_weeks(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
+        aan = xs[0][2][shift_idx["AAN"]]
+        d = _week_day(2, 4, config.start_dow)
+        assert not _hard_forbid(opb, aan, xn[d][0]), "flag off -> AAN must stay soft, no hard forbid"
+        assert soft, "flag off -> soft penalties present"
 
 
 class TestNccWeekendAlignment:
