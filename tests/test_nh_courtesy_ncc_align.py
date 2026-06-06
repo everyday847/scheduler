@@ -9,12 +9,14 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _ROLE_NCC1,
     _ROLE_NCC2,
     _ROLE_STROKE,
     _week_day,
+)
+from parafrost_scheduler.schedule_encoder import (
     _encode_nh_courtesy_weeks,
     _encode_ncc_weekend_alignment,
 )

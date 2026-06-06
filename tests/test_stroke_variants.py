@@ -10,11 +10,13 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
+    STROKE_WK2627_ON_SHIFTS,
+)
+from parafrost_scheduler.schedule_encoder import (
     _encode_stroke_wk2627_toggle,
     _encode_dual_stroke_helena,
-    STROKE_WK2627_ON_SHIFTS,
 )
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig

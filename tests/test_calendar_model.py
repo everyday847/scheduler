@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     _day_of_week,
     _day_to_week,
     _num_weeks_for,
@@ -226,7 +226,7 @@ class TestScheduleSolverConfigDerivedNumWeeks:
 
     def test_num_weeks_derived_from_start_dow_and_num_days(self):
         """num_weeks is always consistent with _num_weeks_for(start_dow, num_days)."""
-        from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+        from parafrost_scheduler.schedule_types import ScheduleSolverConfig
         from scheduler.night_call_types import NightSolverConfig
         from scheduler.weekend_call_types import WeekendSolverConfig
 
@@ -244,7 +244,7 @@ class TestScheduleSolverConfigDerivedNumWeeks:
 
     def test_num_weeks_default_365_monday(self):
         """Default config (start_dow=0, num_days=365) gives 53 weeks."""
-        from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+        from parafrost_scheduler.schedule_types import ScheduleSolverConfig
         from scheduler.night_call_types import NightSolverConfig
         from scheduler.weekend_call_types import WeekendSolverConfig
 
@@ -263,10 +263,8 @@ class TestBuildFullScheduleOpbNonMondayStart:
 
     def test_wednesday_start_builds_without_error(self):
         """Config with start_dow=2 (Wednesday) builds a valid OPB formula."""
-        from parafrost_scheduler.schedule_solver import (
-            ScheduleSolverConfig,
-            build_full_schedule_opb,
-        )
+        from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+        from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
         from scheduler.night_call_types import NightSolverConfig
         from scheduler.weekend_call_types import WeekendSolverConfig
 

@@ -16,14 +16,16 @@ from datetime import date
 import pytest
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     NIGHT_BLOCKED_SHIFTS,
     ScheduleSolverConfig,
     _day_of_week,
     _day_to_week,
+    _num_weeks_for,
+)
+from parafrost_scheduler.schedule_encoder import (
     _encode_night_constraints,
     _encode_night_policy_criteria,
-    _num_weeks_for,
 )
 from scheduler.night_call_types import NightSolverConfig, CountMultiset
 from scheduler.weekend_call_types import WeekendSolverConfig
@@ -873,7 +875,7 @@ class TestNightHardCriteriaDefaults:
         cfg = _make_config(["NCC1"], num_days=14, night_hard_criteria=None)
         # _make_config passes None -> frozenset(); assert the PRODUCTION default
         # by constructing a config without overriding the field.
-        from parafrost_scheduler.schedule_solver import ScheduleSolverConfig
+        from parafrost_scheduler.schedule_types import ScheduleSolverConfig
         from scheduler.night_call_types import NightSolverConfig as _NC
         from scheduler.weekend_call_types import WeekendSolverConfig as _WC
         prod = ScheduleSolverConfig(

@@ -35,9 +35,11 @@ from parafrost_scheduler.experiment import (
     solution_to_parsed, swap_ncc_weekend_roles, write_csv,
 )
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb, optimize_stream, soft_penalty_breakdown,
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb,
+    soft_penalty_breakdown,
 )
+from parafrost_scheduler.schedule_optimizer import optimize_stream
 from parafrost_scheduler.workbook import write_schedule_workbook
 from scheduler.night_policy_types import (
     CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING,

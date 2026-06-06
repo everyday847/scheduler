@@ -31,8 +31,9 @@ from dataclasses import dataclass, asdict, field
 import run_v3_optimize_wb2 as wb2
 from scheduler.solver_bridge import build_solver_config_from_request
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
-from parafrost_scheduler.schedule_solver import (
-    build_full_schedule_opb, soft_penalty_breakdown,
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb,
+    soft_penalty_breakdown,
 )
 
 ROUNDINGSAT = wb2.ROUNDINGSAT

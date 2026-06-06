@@ -11,11 +11,13 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
+from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _BACKUP_WEEKDAY,
     _BACKUP_WEEKEND,
     _ROLE_NCC1,
+)
+from parafrost_scheduler.schedule_encoder import (
     _allocate_backup_vars,
     _encode_backup_constraints,
     build_full_schedule_opb,

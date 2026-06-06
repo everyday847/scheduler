@@ -11,10 +11,8 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_solver import (
-    ScheduleSolverConfig,
-    _encode_weekend_constraints,
-)
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+from parafrost_scheduler.schedule_encoder import _encode_weekend_constraints
 from scheduler.fellow_mapping import FellowMapping
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
