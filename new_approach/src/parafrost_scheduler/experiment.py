@@ -145,6 +145,37 @@ def solution_to_parsed(sol, fellow_order: list[str]) -> ParsedCallScheduleCsv:
                                  week_rows=week_rows, trailing_rows=[])
 
 
+def swap_ncc_weekend_roles(parsed, weekend_solution, night_solution):
+    """Return a new WeekendScheduleSolution with NCC1/NCC2 weekend roles swapped
+    per week WHEN the swap strictly improves weekday<->weekend NCC alignment and
+    does NOT put the incoming Weekend-NCC1 fellow on that week's Friday night
+    (a friday_weekend_ncc1 HARD violation). The two NCC weekend roles are
+    interchangeable to every other constraint, so this Friday check is the only
+    guard needed to guarantee the result never scores worse. Weekend Stroke is
+    never touched. Pure function -- does not mutate its inputs.
+    """
+    from scheduler.weekend_call_types import WeekendScheduleSolution
+
+    new_weeks = []
+    for w, assignments in enumerate(weekend_solution.assignments_by_week):
+        a = assignments.get("Weekend NCC1", "")
+        b = assignments.get("Weekend NCC2", "")
+        new = dict(assignments)
+        if a and b:
+            wd = parsed.week_rows[w].weekday_assignments
+            wd_a = wd.get(a, "")
+            wd_b = wd.get(b, "")
+            cur = (1 if wd_a == "NCC1" else 0) + (1 if wd_b == "NCC2" else 0)
+            swp = (1 if wd_b == "NCC1" else 0) + (1 if wd_a == "NCC2" else 0)
+            if swp > cur:
+                fri = night_solution.assignments_by_week[w].get("Night Fri", "")
+                # After swap, b would hold Weekend NCC1; forbid if b is on Friday night.
+                if fri != b:
+                    new["Weekend NCC1"], new["Weekend NCC2"] = b, a
+        new_weeks.append(new)
+    return WeekendScheduleSolution(assignments_by_week=new_weeks)
+
+
 def write_csv(sol, output_path: Path) -> None:
     """Write the solved schedule as a CSV (fellows | weekend roles | night roles)."""
     fellow_names = list(sol.weekly_assignments.keys())
