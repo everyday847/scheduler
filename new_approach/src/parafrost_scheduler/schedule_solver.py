@@ -2161,6 +2161,63 @@ def _encode_pre_aan_forbid(
                     opb.at_most_k([aan_var, xn[d][f]], 1)
 
 
+def _encode_nh_courtesy_weeks(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Courtesy penalty: an NH-group fellow on AAN (or ABPN) for a week should
+    avoid call that week. We only manage part of the NH fellows' time, and their
+    primary fellowship may rely on the AAN/ABPN week being light. Per-occurrence
+    SOFT penalty (each night worked + each weekend role held that week). Gated on
+    the AAN/ABPN weekly shift var, so only the pinned fellow/week is affected.
+    """
+    nh_indices = set()
+    for name in config.fellow_groups.get("NH", []):
+        if name in fellow_names:
+            nh_indices.add(fellow_names.index(name))
+    if not nh_indices:
+        return
+    num_weeks = config.num_weeks
+    start_dow = config.start_dow
+    num_days = config.num_days
+
+    def _and_penalty(a: int, b: int, weight: int) -> None:
+        # pen = a AND b: pen >= a + b - 1; pen <= a; pen <= b.
+        pen = opb.new_var()
+        opb.weighted_sum_at_most([(a, 1), (b, 1), (-pen, 1)], 2)
+        opb.weighted_sum_at_least([(a, 1), (-pen, 1)], 1)
+        opb.weighted_sum_at_least([(b, 1), (-pen, 1)], 1)
+        soft_violations.append((pen, weight))
+
+    for shift_name, weight in (("AAN", config.nh_aan_week_call_penalty),
+                               ("ABPN", config.nh_abpn_week_call_penalty)):
+        if weight == 0:
+            continue
+        si = shift_idx.get(shift_name)
+        if si is None:
+            continue
+        for w in range(num_weeks):
+            for f in nh_indices:
+                gate = xs[f][w][si]
+                if gate == 0:
+                    continue
+                # Each night the fellow works that week.
+                for dow in range(7):
+                    d = _week_day(w, dow, start_dow)
+                    if 0 <= d < num_days and xn[d][f] != 0:
+                        _and_penalty(gate, xn[d][f], weight)
+                # Each weekend role the fellow holds that week.
+                for role_idx in range(3):
+                    if f in wr[w][role_idx]:
+                        _and_penalty(gate, wr[w][role_idx][f], weight)
+
+
 def _encode_night_constraints(
     opb: OpbBuilder,
     xn: list[list[int]],
