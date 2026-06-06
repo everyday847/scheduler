@@ -32,7 +32,7 @@ from pathlib import Path
 
 from parafrost_scheduler.experiment import (
     DEFAULT_ANNUAL, DEFAULT_STANDING, assemble_config,
-    solution_to_parsed, write_csv,
+    solution_to_parsed, swap_ncc_weekend_roles, write_csv,
 )
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.schedule_solver import (
@@ -83,6 +83,15 @@ def _write_outputs(sol, config, out_prefix: Path):
     write_schedule_workbook(
         parsed, sol.night_solution, sol.weekend_solution,
         out_prefix.parent / f"{out_prefix.name}_workbook.xlsx",
+        hard_criteria=_COLOR_HARD,
+        backup_solution=getattr(sol, "backup_solution", None),
+        fellow_groups=config.fellow_groups)
+    # Guarded NCC weekend-role swap -> second workbook (a no-op when the model
+    # already aligns NCC weekday/weekend roles).
+    swapped = swap_ncc_weekend_roles(parsed, sol.weekend_solution, sol.night_solution)
+    write_schedule_workbook(
+        parsed, sol.night_solution, swapped,
+        out_prefix.parent / f"{out_prefix.name}_workbook_swapped.xlsx",
         hard_criteria=_COLOR_HARD,
         backup_solution=getattr(sol, "backup_solution", None),
         fellow_groups=config.fellow_groups)
