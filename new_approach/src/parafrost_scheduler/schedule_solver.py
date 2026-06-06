@@ -2318,6 +2318,10 @@ def _encode_night_constraints(
     opb.add_comment("Night/Weekend: forbid the weekend before AAN")
     _encode_pre_aan_forbid(opb, xn, wr, xs, config, fellow_names, shift_idx)
 
+    # NH courtesy: AAN/ABPN week call penalty (soft, per-occurrence).
+    opb.add_comment("Night/Weekend: NH AAN/ABPN-week courtesy penalty")
+    _encode_nh_courtesy_weeks(opb, xn, wr, xs, config, fellow_names, shift_idx, soft_violations)
+
     # First-week restriction: NCC_JR and STROKE fellows blocked until first Friday
     opb.add_comment("Night: first-week restriction for NCC_JR and STROKE")
     first_friday = next((d for d in range(num_days) if _day_of_week(d, start_dow) == 4), None)
