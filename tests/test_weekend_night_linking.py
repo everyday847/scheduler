@@ -25,8 +25,7 @@ from parafrost_scheduler.schedule_types import (
     _day_of_week,
     _day_to_week,
     _num_weeks_for,
-    _week_day,
-)
+    _week_day)
 from parafrost_scheduler.schedule_encoder import _encode_weekend_night_linking
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
@@ -41,8 +40,7 @@ def _make_config(
     num_days: int = 14,
     fellow_groups: dict[str, list[str]] | None = None,
     stroke_eligible: frozenset[str] = frozenset(),
-    weekend_night_hard: bool | None = None,
-) -> ScheduleSolverConfig:
+    weekend_night_hard: bool | None = None) -> ScheduleSolverConfig:
     # weekend_night_hard=None -> production defaults (Sat hard, Sun soft).
     # Pass True/False to force BOTH Sat and Sun to that hardness (for tests that
     # exercise pure hard or pure soft mode).
@@ -60,8 +58,7 @@ def _make_config(
         friday_night_multisets=(),
         ccm_fellows=frozenset(),
         holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     weekend_config = WeekendSolverConfig(
         ncc_totals={},
         stroke_totals={},
@@ -70,11 +67,7 @@ def _make_config(
         ccm_fellows=frozenset(),
         always_stroke_eligible=stroke_eligible,
         telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(),
-        total_weekends={},
-        weekend_options=None,
-        friday_weekend_options=None,
-    )
+        stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=["NCC1"],
@@ -85,8 +78,7 @@ def _make_config(
         start_dow=start_dow,
         num_days=num_days,
         weekend_night_saturday_hard=sat_hard,
-        weekend_night_sunday_hard=sun_hard,
-    )
+        weekend_night_sunday_hard=sun_hard)
 
 
 def _make_xn(opb: OpbBuilder, num_days: int, num_fellows: int) -> list[list[int]]:
@@ -100,8 +92,7 @@ def _make_wr(
     num_fellows: int,
     *,
     ncc_eligible: set[int] | None = None,
-    stroke_eligible: set[int] | None = None,
-) -> list[list[dict[int, int]]]:
+    stroke_eligible: set[int] | None = None) -> list[list[dict[int, int]]]:
     """Allocate weekend role variables wr[w][role][f].
 
     By default all fellows are eligible for all roles.
@@ -164,10 +155,8 @@ class TestWeekendNightDefaults:
                                stroke_cohort_total=None, ccm_fellows=frozenset(),
                                always_stroke_eligible=frozenset(),
                                telestroke_stroke_eligible=frozenset(),
-                               stroke_only_eligible=frozenset(), total_weekends={},
-                               weekend_options=None, friday_weekend_options=None),
-            num_days=14,
-        )
+                                stroke_only_eligible=frozenset()),
+            num_days=14)
         # Saturday is hard (feasible); Sunday is soft (a hard Sunday rule is
         # infeasible on the production schedule — see schedule_solver comment).
         assert cfg.weekend_night_saturday_hard is True

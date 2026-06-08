@@ -39,7 +39,7 @@ SHIFT_MAP = {
 }
 
 # Default config locations (repo-relative).
-_REPO = Path(__file__).resolve().parents[3]
+_REPO = Path(__file__).resolve().parents[2]
 DEFAULT_ANNUAL = _REPO / "config/annual/my-2026-2027-v3.yaml"
 DEFAULT_STANDING = _REPO / "config/standing/stanford-fellowship-v3.yaml"
 # Locked groups: the fellows whose weekly schedule is frozen from the workbook.

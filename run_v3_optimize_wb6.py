@@ -27,7 +27,7 @@ from parafrost_scheduler.workbook import write_schedule_workbook
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")
 STANDING = Path("config/standing/stanford-fellowship-v3.yaml")
 WORKBOOK = Path("workbook_partial_input6.xlsx")
-ROUNDINGSAT = Path("new_approach/vendor/roundingsat/build/roundingsat")
+ROUNDINGSAT = Path("vendor/roundingsat/build/roundingsat")
 OUTPUT_WORKBOOK = Path("output_v3_wb6_workbook.xlsx")
 OUTPUT_CSV = Path("output_v3_wb6.csv")
 

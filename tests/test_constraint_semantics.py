@@ -7,7 +7,7 @@ This is the foundation for trusting the encoding. Until every encoder is
 proven faithful here, an UNSAT in the full problem is uninterpretable.
 
 Run:
-    PYTHONPATH=src:new_approach/src pytest tests/test_constraint_semantics.py -v
+    PYTHONPATH=src pytest tests/test_constraint_semantics.py -v
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ from scheduler.weekend_call_types import WeekendSolverConfig
 
 ROUNDINGSAT = (
     Path(__file__).resolve().parents[1]
-    / "new_approach" / "vendor" / "roundingsat" / "build" / "roundingsat"
+    / "vendor" / "roundingsat" / "build" / "roundingsat"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -632,7 +632,7 @@ class TestSoftNightCriterionIsNotHard:
 # Bridge-level: weekend Stroke eligibility derivation
 # ---------------------------------------------------------------------------
 
-from scheduler.solver_bridge import _build_weekend_config
+from parafrost_scheduler.orchestrator import build_weekend_config_from_request as _build_weekend_config
 
 
 class TestWeekendStrokeServiceEligibility:

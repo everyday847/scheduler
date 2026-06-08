@@ -29,7 +29,7 @@ from parafrost_scheduler.schedule_encoder import (
 ANNUAL = Path("config/annual/my-2026-2027-v3.yaml")
 STANDING = Path("config/standing/stanford-fellowship-v3.yaml")
 WORKBOOK = Path("workbook_partial_input2.xlsx")
-ROUNDINGSAT = Path("new_approach/vendor/roundingsat/build/roundingsat")
+ROUNDINGSAT = Path("vendor/roundingsat/build/roundingsat")
 COVERAGE_WEIGHT = 100000
 
 SHIFT_MAP = {

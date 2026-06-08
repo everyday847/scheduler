@@ -31,8 +31,7 @@ from datetime import date
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.schedule_types import (
     CONSECUTIVE_WEEKEND_BUFFER_SHIFTS,
-    ScheduleSolverConfig,
-)
+    ScheduleSolverConfig)
 from parafrost_scheduler.schedule_encoder import _encode_weekend_constraints
 from scheduler.fellow_mapping import FellowMapping
 from scheduler.night_call_types import NightSolverConfig
@@ -44,15 +43,12 @@ def _make_config(*, consecutive_hard: bool, shifts: list[str], num_days: int = 3
         total_nights={}, friday_nights={},
         total_night_multisets=(), friday_night_multisets=(),
         ccm_fellows=frozenset(), holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     weekend_config = WeekendSolverConfig(
         ncc_totals={}, stroke_totals={}, stroke_cohort=(),
         stroke_cohort_total=None, ccm_fellows=frozenset(),
         always_stroke_eligible=frozenset(), telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(), total_weekends={},
-        weekend_options=None, friday_weekend_options=None,
-    )
+        stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups={"NCC_SR": ["Alice"]},
         shifts=shifts,
@@ -62,8 +58,7 @@ def _make_config(*, consecutive_hard: bool, shifts: list[str], num_days: int = 3
         night_hard_criteria=frozenset(),
         start_dow=0,
         num_days=num_days,
-        weekend_consecutive_hard=consecutive_hard,
-    )
+        weekend_consecutive_hard=consecutive_hard)
 
 
 def _encode(*, consecutive_hard: bool, shifts=("NCC1", "ISC")):
@@ -114,10 +109,8 @@ class TestConsecutiveWeekendDefaults:
                                stroke_cohort_total=None, ccm_fellows=frozenset(),
                                always_stroke_eligible=frozenset(),
                                telestroke_stroke_eligible=frozenset(),
-                               stroke_only_eligible=frozenset(), total_weekends={},
-                               weekend_options=None, friday_weekend_options=None),
-            num_days=14,
-        )
+                                stroke_only_eligible=frozenset()),
+            num_days=14)
         assert cfg.weekend_consecutive_hard is False
 
 

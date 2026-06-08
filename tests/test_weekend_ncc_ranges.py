@@ -26,21 +26,16 @@ def _encode(num_weeks_days: int = 28):
         stroke_cohort=(), stroke_cohort_total=None,
         ccm_fellows=frozenset(fellows),
         always_stroke_eligible=frozenset(), telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(), total_weekends={},
-        weekend_options=None, friday_weekend_options=None,
-        ncc_ranges={"A": (3, 4), "B": (1, 2), "C": (0, 1)},
-        ncc_group_sums=((("A", "B", "C"), 4),),
-    )
+        stroke_only_eligible=frozenset(), ncc_ranges={"A": (3, 4), "B": (1, 2), "C": (0, 1)},
+        ncc_group_sums=(((("A", "B", "C"), 4),)),)
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     config = ScheduleSolverConfig(
         fellow_groups={"CCM": fellows}, shifts=["NCC1"], constraints=[],
         night_config=night_config, weekend_config=weekend_config,
-        night_hard_criteria=frozenset(), start_dow=0, num_days=num_weeks_days,
-    )
+        night_hard_criteria=frozenset(), start_dow=0, num_days=num_weeks_days)
     opb = OpbBuilder()
     num_weeks = config.num_weeks
     # wr[w][role][f] — give all 3 fellows NCC1 + NCC2 weekend vars each week.
@@ -67,22 +62,17 @@ def _encode_with_eow(eow_fellows, num_weeks_days: int = 28):
         ncc_totals={}, stroke_totals={}, stroke_cohort=(), stroke_cohort_total=None,
         ccm_fellows=frozenset(fellows),
         always_stroke_eligible=frozenset(), telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(), total_weekends={},
-        weekend_options=None, friday_weekend_options=None,
-        ncc_ranges={"A": (0, 9), "B": (0, 9), "C": (0, 9)},
-        ncc_group_sums=((("A", "B", "C"), 6),),
-        every_other_weekend_fellows=frozenset(eow_fellows),
-    )
+        stroke_only_eligible=frozenset(), ncc_ranges={"A": (0, 9), "B": (0, 9), "C": (0, 9)},
+        ncc_group_sums=(((("A", "B", "C"), 6),)),
+        every_other_weekend_fellows=frozenset(eow_fellows))
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     config = ScheduleSolverConfig(
         fellow_groups={"CCM": fellows}, shifts=["NCC1"], constraints=[],
         night_config=night_config, weekend_config=weekend_config,
-        night_hard_criteria=frozenset(), start_dow=0, num_days=num_weeks_days,
-    )
+        night_hard_criteria=frozenset(), start_dow=0, num_days=num_weeks_days)
     opb = OpbBuilder()
     num_weeks = config.num_weeks
     wr = []
