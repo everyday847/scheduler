@@ -2,6 +2,8 @@
 
 This repo models a fellowship schedule as domain rules that are eventually encoded for a solver. The language here keeps scheduling policy separate from solver mechanics.
 
+This glossary is the **tool's** institution-agnostic language. It defines the *kinds* of things the scheduler reasons about (Fellow Groups, Shifts, service requirements, …), not the specific groups, shifts, or people of any one fellowship. A concrete instance (which groups and shifts exist, their counts and cadences, who supervises whom) lives in `config/` — `config/standing/` for program structure, `config/annual/` for a given year — which is the authoritative source for instance facts. Where a definition shows a concrete name, it is a clearly-marked illustration (`e.g.`), never part of the definition.
+
 ## Language
 
 **Schedule**:
@@ -9,10 +11,10 @@ A full year (≈52 weeks) of assignments across three layers: each **Fellow**'s 
 _Avoid_: a 52-week fellow→shift assignment (understates the three layers)
 
 **Weekly Assignment**:
-The Mon–Fri service a **Fellow** holds in a week — exactly one **Shift** (NCC1, MICU, Vac, …), or none. The layer **Management Mode** governs.
+The Mon–Fri service a **Fellow** holds in a week — exactly one **Shift** (e.g. NCC1, MICU, Vac), or none. The layer **Management Mode** governs.
 
 **Weekend Role**:
-A weekend-specific coverage assignment for a week: Weekend NCC1, Weekend NCC2, or Weekend Stroke. Distinct from the weekday **Shift** of the same name — "Weekend NCC1" the role is not "NCC1" the Weekly Assignment, and a fellow may hold one without the other. Solver-assigned in both **Management Modes**.
+A weekend-specific coverage assignment for a week, drawn from an instance's defined weekend roles (e.g. Stanford: Weekend NCC1, Weekend NCC2, Weekend Stroke). Distinct from the weekday **Shift** of the same name — a "Weekend NCC1" role is not the "NCC1" Weekly Assignment, and a fellow may hold one without the other. Solver-assigned in both **Management Modes**.
 _Avoid_: conflating Weekend NCC1 (role) with NCC1 (shift)
 
 **Night**:
@@ -22,7 +24,7 @@ A single day's overnight call assignment for a **Fellow** (one fellow per night)
 A clinician who may hold a **Weekly Assignment**, a **Weekend Role**, and one or more **Nights** in a given week.
 
 **Fellow Group**:
-A named cohort declared by Annual YAML and used by Constraints, such as junior NCC, senior NCC, Stroke, CCM, NH, or Lia. The legal group names for a Schedule come from that Schedule's Annual YAML.
+A named cohort of **Fellows** declared by a Schedule's config and referenced by **Constraints**. The legal group names for a Schedule come from that Schedule's config — they are instance data, not fixed by the tool. (e.g. Stanford 2026 has junior/senior NCC, Stroke, CCM, NH.)
 
 **Shift**:
 A named **Weekly Assignment** option, such as NCC1, NCC2, Swing, MICU, Stroke, or Vacation. A Shift carries **Shift Attributes** that drive scheduling policy (including how it permits or penalizes **Night** and **Weekend Role** assignments). A Shift is a weekday-service concept; it is not a **Weekend Role**.
@@ -37,6 +39,9 @@ _Avoid_: priority, importance
 
 **Block**:
 A contiguous span of weeks treated as a scheduling unit.
+
+**Home Service**:
+The service a **Fellow Group** predominantly staffs and returns to across the year; away-from-home **Blocks** are defined relative to it. Which services are home — and how many a Schedule manages — is instance data, not fixed by the tool. (e.g. Stanford 2026 jointly manages two: NCC, and Stroke spanning Stroke / Telestroke-Clinic / Clinic-Elective.)
 
 **Constraint**:
 A rule that restricts which schedules are valid or preferred.
@@ -115,3 +120,4 @@ _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 - "Rule" and "constraint" are often used interchangeably in code. Use **Constraint** for the general concept, then classify it as a **Solver Invariant**, **Standing Rule**, or **Annual Rule** when discussing where it belongs.
 - "Violation" / "red cell" were used to mean a **Criterion**. Resolved: a Criterion is the function; a *violation* is a forbidden or penalized value of it. Presentation (e.g. red Excel cells) consumes evaluated Criterion values and is a separate concern from the Criterion's meaning — current display is coupled to what spreadsheets support, which is an implementation limitation, not part of the domain.
 - A constraint's **tier** (Solver Invariant / Standing Rule / Annual Rule — where it lives, how often it changes) is orthogonal to its **Strength** (hard, or soft-with-weight). Do not conflate "rarely configured" with "hard."
+- "Rotation" is informal English for a **Block** spent *away* from a **Fellow**'s **Home Service** (e.g. an NCC fellow's MICU block), not a distinct modeled concept — a home-service block is structurally the same object. Use **Block** + **Home Service**; don't mint a "Rotation" type.
