@@ -2,8 +2,9 @@
 
 Provides a clean API that accepts structured domain parameters and returns
 a FullScheduleSolution.  This is the only module that should import solver
-internals (schedule_optimizer, roundingsat_runner); consumers such as
-solver_bridge, conflict_diagnosis, web_app, and experiment route through it.
+internals (schedule_optimizer, schedule_encoder, roundingsat_runner);
+consumers such as solver_bridge, conflict_diagnosis, web_app, and
+experiment route through it.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
 from parafrost_scheduler.schedule_optimizer import (
     solve_full_schedule,
     solve_full_schedule_progressive,
@@ -58,6 +60,26 @@ def solve_schedule(
         max_soft=max_soft,
         emit_progress=emit_progress,
     )
+
+
+def check_schedule_feasibility(
+    config: ScheduleSolverConfig,
+    runner: RoundingSatRunner | None = None,
+    *,
+    timeout: float = 5.0,
+) -> bool:
+    """Check if a ScheduleSolverConfig is feasible (SAT check, no optimization).
+
+    Builds an OPB encoding and runs a single SAT probe.  Returns True if the
+    config is satisfiable within *timeout* seconds.
+    """
+    if runner is None:
+        runner = get_runner()
+    opb, var_map = build_full_schedule_opb(config, soft_bound=None)
+    upper = sum(w for _, w in var_map.soft_violations)
+    opb_probe, _ = build_full_schedule_opb(config, soft_bound=upper)
+    result = runner.solve(opb_probe, timeout=timeout)
+    return result.satisfiable
 
 
 def solve_schedule_progressive(
