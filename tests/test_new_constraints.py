@@ -19,14 +19,12 @@ from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _ROLE_NCC1,
     _ROLE_NCC2,
-    _ROLE_STROKE,
-)
+    _ROLE_STROKE)
 from parafrost_scheduler.schedule_encoder import (
     _encode_call_rules,
     _encode_dual_stroke_window,
     _encode_weekend_eligibility,
-    _encode_weekend_prerequisites,
-)
+    _encode_weekend_prerequisites)
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 
@@ -39,8 +37,7 @@ def _make_config(
     num_weeks: int = 10,
     fellow_groups: dict[str, list[str]] | None = None,
     call_rules: list[dict] | None = None,
-    shifts: list[str] | None = None,
-) -> ScheduleSolverConfig:
+    shifts: list[str] | None = None) -> ScheduleSolverConfig:
     if fellow_groups is None:
         fellow_groups = {"STROKE": ["Alice"], "NCC_SR": ["Bob"], "NCC_JR": ["Carol"]}
     if shifts is None:
@@ -54,8 +51,7 @@ def _make_config(
         friday_night_multisets=(),
         ccm_fellows=frozenset(),
         holiday_dates=(),
-        horizon_start_date=date(2026, 7, 6),
-    )
+        horizon_start_date=date(2026, 7, 6))
     weekend_config = WeekendSolverConfig(
         ncc_totals={},
         stroke_totals={},
@@ -64,11 +60,7 @@ def _make_config(
         ccm_fellows=frozenset(),
         always_stroke_eligible=frozenset(),
         telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(),
-        total_weekends={},
-        weekend_options=None,
-        friday_weekend_options=None,
-    )
+        stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
@@ -78,8 +70,7 @@ def _make_config(
         night_hard_criteria=frozenset(),
         start_dow=0,
         num_days=num_days,
-        call_rules=call_rules or [],
-    )
+        call_rules=call_rules or [])
 
 
 def _make_xs(opb: OpbBuilder, num_fellows: int, num_weeks: int, num_shifts: int) -> list[list[list[int]]]:
@@ -146,8 +137,7 @@ class TestWeekendStrokePrerequisite:
                 "type": "weekend_stroke_prerequisite",
                 "exempt_fellows": ["Aditya"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Helena"]
@@ -170,8 +160,7 @@ class TestWeekendStrokePrerequisite:
                 "type": "weekend_stroke_prerequisite",
                 "exempt_fellows": [],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Helena"]
@@ -193,8 +182,7 @@ class TestWeekendStrokePrerequisite:
                 "type": "weekend_stroke_prerequisite",
                 "exempt_fellows": ["Aditya"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Aditya"]
@@ -224,8 +212,7 @@ class TestWeekendNccPrerequisite:
                 "type": "weekend_ncc_prerequisite",
                 "exempt_groups": ["NCC_SR"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Helena"]
@@ -249,8 +236,7 @@ class TestWeekendNccPrerequisite:
                 "type": "weekend_ncc_prerequisite",
                 "exempt_groups": ["NCC_SR"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Bob"]
@@ -272,8 +258,7 @@ class TestWeekendNccPrerequisite:
                 "type": "weekend_ncc_prerequisite",
                 "exempt_groups": [],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Helena"]
@@ -295,8 +280,7 @@ class TestWeekendNccPrerequisite:
                 "type": "weekend_ncc_prerequisite",
                 "exempt_groups": [],
                 "active": False,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Helena"]
@@ -355,8 +339,7 @@ class TestDualStrokeWindow:
                 "window": window,
                 "supervisors": supervisors,
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Alice", "Bob", "Carol"]
@@ -396,8 +379,7 @@ class TestDualStrokeWindow:
                 "window": [1, 11],
                 "supervisors": ["Alice"],
                 "active": False,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Alice", "Bob"]
@@ -424,8 +406,7 @@ class TestGroupNightRequirement:
                 "groups": ["NCC_JR", "NCC_SR"],
                 "dates": ["2026-07-08"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob"]
         num_days = 53 * 7
@@ -449,8 +430,7 @@ class TestGroupNightRequirement:
                 "groups": ["NCC_JR", "NCC_SR"],
                 "dates": ["2026-07-08"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob"]
         num_days = 53 * 7
@@ -473,8 +453,7 @@ class TestGroupNightRequirement:
                 "groups": ["NCC_JR"],
                 "dates": ["2026-07-08"],
                 "active": False,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob"]
         num_days = 53 * 7
@@ -506,8 +485,7 @@ class TestPerFellowShiftTotal:
                 "count": 2,
                 "strength": "hard",
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Jinyuan"]
@@ -546,8 +524,7 @@ class TestPerFellowShiftTotal:
                     "strength": "hard",
                     "active": True,
                 },
-            ],
-        )
+            ])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Sokena"]
@@ -575,8 +552,7 @@ class TestPerFellowShiftTotal:
                 "count": 2,
                 "strength": "hard",
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Jinyuan"]
@@ -603,8 +579,7 @@ class TestPerFellowShiftTotal:
                 "count": 2,
                 "strength": "soft",
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         fellow_names = ["Jinyuan"]

@@ -25,8 +25,7 @@ from parafrost_scheduler.schedule_types import (
     _ROLE_STROKE,
     _date_to_day_index,
     _num_weeks_for,
-    _week_day,
-)
+    _week_day)
 from parafrost_scheduler.schedule_encoder import _encode_call_rules
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
@@ -41,8 +40,7 @@ def _make_config(
     num_days: int = 21,
     fellow_groups: dict[str, list[str]] | None = None,
     call_rules: list[dict] | None = None,
-    horizon_start: date | None = None,
-) -> ScheduleSolverConfig:
+    horizon_start: date | None = None) -> ScheduleSolverConfig:
     """Build a minimal ScheduleSolverConfig for testing call rules."""
     if fellow_groups is None:
         fellow_groups = {"NCC_SR": ["Alice", "Bob", "Carol"]}
@@ -55,8 +53,7 @@ def _make_config(
         friday_night_multisets=(),
         ccm_fellows=frozenset(),
         holiday_dates=(),
-        horizon_start_date=horizon_start,
-    )
+        horizon_start_date=horizon_start)
     weekend_config = WeekendSolverConfig(
         ncc_totals={},
         stroke_totals={},
@@ -65,11 +62,7 @@ def _make_config(
         ccm_fellows=frozenset(),
         always_stroke_eligible=frozenset({"Alice", "Bob", "Carol"}),
         telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(),
-        total_weekends={},
-        weekend_options=None,
-        friday_weekend_options=None,
-    )
+        stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=["NCC1"],
@@ -79,8 +72,7 @@ def _make_config(
         night_hard_criteria=frozenset(),
         start_dow=start_dow,
         num_days=num_days,
-        call_rules=call_rules or [],
-    )
+        call_rules=call_rules or [])
 
 
 def _make_xn(opb: OpbBuilder, num_days: int, num_fellows: int) -> list[list[int]]:
@@ -169,8 +161,7 @@ class TestSpecificNightAssignment:
                 "fellow": "Alice",
                 "dates": ["2026-07-10"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -196,8 +187,7 @@ class TestSpecificNightAssignment:
                 "fellow": "Bob",
                 "dates": ["2026-07-07", "2026-07-08"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -228,8 +218,7 @@ class TestBlockedNight:
                 "fellow": "Bob",
                 "dates": ["2026-07-12"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -259,8 +248,7 @@ class TestSpecificWeekendAssignment:
                 "role": "NCC1",
                 "weeks": [1],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -284,8 +272,7 @@ class TestSpecificWeekendAssignment:
                 "role": "Stroke",
                 "weeks": [0],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -309,8 +296,7 @@ class TestSpecificWeekendAssignment:
                 "role": "InvalidRole",
                 "weeks": [0],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -338,8 +324,7 @@ class TestBlockedWeekend:
                 "fellow": "Bob",
                 "weeks": [2],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -371,8 +356,7 @@ class TestFridayCallAssignment:
                 "fellow": "Alice",
                 "weeks": [0],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -397,8 +381,7 @@ class TestFridayCallAssignment:
                 "fellow": "Carol",
                 "weeks": [1],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -429,8 +412,7 @@ class TestInactiveAndInvalidRules:
                 "fellow": "Alice",
                 "dates": ["2026-07-10"],
                 "active": False,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -453,8 +435,7 @@ class TestInactiveAndInvalidRules:
                 "fellow": "NonexistentPerson",
                 "dates": ["2026-07-10"],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)
@@ -478,8 +459,7 @@ class TestInactiveAndInvalidRules:
                 "fellow": "Alice",
                 "dates": ["2026-08-01"],  # Way past 7 days
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 7, 3)
@@ -502,8 +482,7 @@ class TestInactiveAndInvalidRules:
                 "role": "NCC1",
                 "weeks": [99],
                 "active": True,
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 7, 3)
@@ -527,8 +506,7 @@ class TestInactiveAndInvalidRules:
                 "fellow": "Alice",
                 "dates": ["2026-07-08"],
                 # No "active" key
-            }],
-        )
+            }])
         opb = OpbBuilder()
         fellow_names = ["Alice", "Bob", "Carol"]
         xn = _make_xn(opb, 21, 3)

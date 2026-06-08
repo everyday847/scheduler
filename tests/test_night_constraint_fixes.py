@@ -21,12 +21,10 @@ from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _day_of_week,
     _day_to_week,
-    _num_weeks_for,
-)
+    _num_weeks_for)
 from parafrost_scheduler.schedule_encoder import (
     _encode_night_constraints,
-    _encode_night_policy_criteria,
-)
+    _encode_night_policy_criteria)
 from scheduler.night_call_types import NightSolverConfig, CountMultiset
 from scheduler.weekend_call_types import WeekendSolverConfig
 from scheduler.night_policy_types import (
@@ -35,14 +33,12 @@ from scheduler.night_policy_types import (
     CRITERION_FRIDAY_WEEKEND_NCC1,
     CRITERION_STROKE,
     CRITERION_SUNDAY_FOLLOWING,
-    NightPolicyWeights,
-)
+    NightPolicyWeights)
 from scheduler.semantic_constraints import (
     ConstraintLifecycle,
     ConstraintStrength,
     FellowSelector,
-    SemanticConstraint,
-)
+    SemanticConstraint)
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +51,7 @@ def _make_config(
     start_dow: int = 0,
     num_days: int = 14,
     night_hard_criteria: frozenset[str] | None = None,
-    full_assignment: bool = False,
-) -> ScheduleSolverConfig:
+    full_assignment: bool = False) -> ScheduleSolverConfig:
     """Build a minimal ScheduleSolverConfig for testing.
 
     Set full_assignment=True to model NCC/STROKE fellows (who are full_assignment
@@ -74,8 +69,7 @@ def _make_config(
         friday_night_multisets=(),
         ccm_fellows=frozenset(),
         holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     weekend_config = WeekendSolverConfig(
         ncc_totals={},
         stroke_totals={},
@@ -84,11 +78,7 @@ def _make_config(
         ccm_fellows=frozenset(),
         always_stroke_eligible=frozenset(),
         telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(),
-        total_weekends={},
-        weekend_options=None,
-        friday_weekend_options=None,
-    )
+        stroke_only_eligible=frozenset())
     if night_hard_criteria is None:
         night_hard_criteria = frozenset()
     constraints = []
@@ -97,8 +87,7 @@ def _make_config(
             kind="full_assignment", lifecycle=ConstraintLifecycle.STANDING_RULE,
             strength=ConstraintStrength.HARD,
             fellows=FellowSelector.by_groups(*fellow_groups.keys()),
-            params={"name": "full_assignment"},
-        ))
+            params={"name": "full_assignment"}))
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
@@ -107,8 +96,7 @@ def _make_config(
         weekend_config=weekend_config,
         night_hard_criteria=night_hard_criteria,
         start_dow=start_dow,
-        num_days=num_days,
-    )
+        num_days=num_days)
 
 
 def _make_vars(opb: OpbBuilder, num_fellows: int, num_days: int, num_shifts: int, num_weeks: int):
@@ -372,8 +360,7 @@ class TestStrokeCriterionNextDay:
         shifts = ["NCC1", "Stroke"]
         config = _make_config(
             shifts, start_dow=0, num_days=14,
-            night_hard_criteria=frozenset({CRITERION_STROKE}),
-        )
+            night_hard_criteria=frozenset({CRITERION_STROKE}))
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -395,8 +382,7 @@ class TestStrokeCriterionNextDay:
         shifts = ["NCC1", "Stroke"]
         config = _make_config(
             shifts, start_dow=0, num_days=14,
-            night_hard_criteria=frozenset({CRITERION_STROKE}),
-        )
+            night_hard_criteria=frozenset({CRITERION_STROKE}))
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -419,8 +405,7 @@ class TestStrokeCriterionNextDay:
         shifts = ["NCC1", "Stroke"]
         config = _make_config(
             shifts, start_dow=0, num_days=14,
-            night_hard_criteria=frozenset({CRITERION_STROKE}),
-        )
+            night_hard_criteria=frozenset({CRITERION_STROKE}))
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -443,8 +428,7 @@ class TestStrokeCriterionNextDay:
         shifts = ["NCC1", "Stroke"]
         config = _make_config(
             shifts, start_dow=0, num_days=14,
-            night_hard_criteria=frozenset({CRITERION_STROKE}),
-        )
+            night_hard_criteria=frozenset({CRITERION_STROKE}))
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -474,8 +458,7 @@ class TestClinicCriterionDays:
         shifts = ["NCC1", "Clinic/Elective"]
         config = _make_config(
             shifts, start_dow=start_dow, num_days=14,
-            night_hard_criteria=frozenset({CRITERION_CLINIC}),
-        )
+            night_hard_criteria=frozenset({CRITERION_CLINIC}))
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -547,8 +530,7 @@ class TestTelestrokeClinicNotPenalized:
         shifts = ["NCC1", "Telestroke/Clinic"]
         config = _make_config(
             shifts, start_dow=start_dow, num_days=14,
-            night_hard_criteria=frozenset({CRITERION_CLINIC}),
-        )
+            night_hard_criteria=frozenset({CRITERION_CLINIC}))
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -592,8 +574,7 @@ class TestFirstWeekRestriction:
             shifts,
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,  # Monday
-            num_days=14,
-        )
+            num_days=14)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -618,8 +599,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,
             num_days=14,
-            full_assignment=True,
-        )
+            full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -643,8 +623,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"STROKE": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,
             num_days=14,
-            full_assignment=True,
-        )
+            full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -667,8 +646,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=0,
             num_days=14,
-            full_assignment=True,
-        )
+            full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -692,8 +670,7 @@ class TestFirstWeekRestriction:
             fellow_groups={"NCC_JR": ["Alice"], "NCC_SR": ["Bob"]},
             start_dow=2,  # Wednesday
             num_days=14,
-            full_assignment=True,
-        )
+            full_assignment=True)
         shift_idx = {s: i for i, s in enumerate(shifts)}
         num_weeks = config.num_weeks
         opb = OpbBuilder()
@@ -888,10 +865,8 @@ class TestNightHardCriteriaDefaults:
                                stroke_cohort_total=None, ccm_fellows=frozenset(),
                                always_stroke_eligible=frozenset(),
                                telestroke_stroke_eligible=frozenset(),
-                               stroke_only_eligible=frozenset(), total_weekends={},
-                               weekend_options=None, friday_weekend_options=None),
-            num_days=14,
-        )
+                                stroke_only_eligible=frozenset()),
+            num_days=14)
         assert prod.night_hard_criteria == frozenset(
             {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
         )
