@@ -63,8 +63,14 @@ A **Constraint** that when a *supervisee* **Fellow** is on a supervised shift-se
 _Avoid_: pairing (the relationship is asymmetric — a supervisor is required when a supervisee is present, not vice versa)
 
 **External Coverage Pool**:
-A set of interchangeable outside fellows who contribute coverage blocks without needing individualized schedule semantics.
-_Avoid_: named fellow cohort
+A source of coverage whose individual people don't matter to the **Schedule**, only the quantity of service it supplies and the cadence it supplies it in. A pool is represented by one or more placeholder **Fellow** columns, each a **Capacity Bucket** — a collapse of several real people, so a column may legitimately hold more service (weeks, **Weekend Roles**) than any one person could. The pool's total load divides *proportionately* across its buckets; differing per-bucket loads reflect capacity, not individual preference. Collapsing many people into few buckets is itself the symmetry break (fewer **Fellows** to permute). Pooling is independent of **Management Mode**: a pool is generically **Managed** (the solver arranges its blocks) and may *later* become **Imported** if external parties commit fixed coverage.
+_Avoid_: named fellow cohort, treating a bucket as a real person
+
+**Capacity Bucket**:
+A placeholder **Fellow** column standing for part of an **External Coverage Pool**. Distinguished from other buckets by its coverage capacity and its **Block Cadence**, not by identity. (CCM is two "core" buckets at ~4–5-week blocks — two because they sometimes cover simultaneously — and one "elective" bucket at 2-week blocks.)
+
+**Block Cadence**:
+The **Block** length in which a **Capacity Bucket** (or a rotation generally) delivers its service — e.g. 4-week core CCM blocks vs. 2-week elective CCM blocks.
 
 **Management Mode**:
 How a **Fellow**'s **Weekly Assignment** layer is determined. A fellow is **Imported** when their Weekly Assignments are frozen exactly as supplied by an external workbook (empty weeks stay empty; their per-fellow weekly **Constraints** are skipped because the layer is managed elsewhere), or **Managed** when the solver assigns their Weekly Assignments and **Annual Rules** may pin specific weeks (vacation, exam, conference). **Weekend Roles** and **Nights** are solver-assigned for both modes — Management Mode governs only the Weekly Assignment layer. The mode is set from provenance (a workbook import makes a fellow Imported) and resolved in exactly one place, never re-inferred per call site.
@@ -78,8 +84,10 @@ _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 - A **Shift** carries zero or more **Shift Attributes**; the set of attribute *types* is a fixed, code-defined vocabulary, while which shifts carry which attributes (and at what **Strength**) is configuration.
 - A **Shift Attribute**'s presence is a **Standing Rule**; its **Strength** has a Standing default and may be overridden transiently per run.
 - A **Fellow Group** selects cohorts of **Fellows** for **Standing Rules** and **Annual Rules**.
-- An **External Coverage Pool** may be represented by placeholder **Fellows** when the individual identities do not matter to the **Schedule**.
-- A **Block** contains one or more consecutive weeks.
+- An **External Coverage Pool** is represented by one or more **Capacity Buckets** (placeholder **Fellows**); the pool's load divides proportionately across them and each bucket has its own **Block Cadence**.
+- A **Capacity Bucket** may hold more service than any single real person, because it collapses several; its differing load is capacity, not preference.
+- Pooling is orthogonal to **Management Mode**: a pool is generically **Managed** and may later become **Imported** when external coverage is committed.
+- A **Block** contains one or more consecutive weeks; a **Block Cadence** is the block length a bucket or rotation uses.
 - Each **Fellow** has a **Management Mode** (Imported or Managed) that governs how their weekly schedule is produced.
 - A **Solver Invariant** is independent of **Fellow Group** policy.
 - A **Standing Rule** may mention **Fellow Groups**, **Shifts**, and **Blocks**.
@@ -91,7 +99,10 @@ _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 > **Domain expert:** "No. That is a **Solver Invariant**. NCC four-week block structure is a **Standing Rule**, and Adam needing Victoria supervision this year is an **Annual Rule**."
 >
 > **Dev:** "Do we care which CCM fellow covers a month?"
-> **Domain expert:** "No. CCM is an **External Coverage Pool** for our purposes: someone covers a consecutive block, but identities are interchangeable."
+> **Domain expert:** "No. CCM is an **External Coverage Pool**: someone covers a consecutive block, but identities are interchangeable."
+>
+> **Dev:** "Then why does one CCM column do 22 weekends and another do 4? Aren't those just unfair?"
+> **Domain expert:** "They aren't people — they're **Capacity Buckets**. One bucket collapses several real CCM fellows, so it can carry far more service than a human could. The 22 is proportionate to that bucket's weeks. What distinguishes the buckets is **Block Cadence** — the two core buckets run 4-week blocks, the elective bucket runs 2-week blocks — not who they are."
 >
 > **Dev:** "Raya is on **Shift** Stroke, holds the **Weekend Role** Weekend Stroke, and takes Sunday **Night** — all the same week. Is that a conflict?"
 > **Domain expert:** "No. Those are three layers in disjoint time. Whether the Sunday Night is good is a **Criterion** relating the Night to her Weekend Role — and we decided the weekend-Stroke holder taking Sunday is fine, so it's not penalized."
