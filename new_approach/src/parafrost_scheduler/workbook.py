@@ -26,7 +26,20 @@ from scheduler.night_policy_types import (
     NightPolicyWeights,
     criteria_for_assignment,
 )
-from parafrost_scheduler.night_solver_pb import _weeks_with_dual_stroke
+from scheduler.call_schedule_common import ParsedCallScheduleCsv
+
+
+def _weeks_with_dual_stroke(parsed: ParsedCallScheduleCsv) -> frozenset[int]:
+    """Return week indices where 2+ fellows are on Stroke service (not Telestroke)."""
+    dual = set()
+    for week_index, row in enumerate(parsed.week_rows):
+        stroke_count = sum(
+            1 for svc in row.weekday_assignments.values()
+            if "Stroke" in svc and "Telestroke" not in svc
+        )
+        if stroke_count >= 2:
+            dual.add(week_index)
+    return frozenset(dual)
 
 
 # ---------------------------------------------------------------------------
