@@ -7,7 +7,7 @@ This is the foundation for trusting the encoding. Until every encoder is
 proven faithful here, an UNSAT in the full problem is uninterpretable.
 
 Run:
-    PYTHONPATH=src:new_approach/src pytest tests/test_constraint_semantics.py -v
+    PYTHONPATH=src pytest tests/test_constraint_semantics.py -v
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ from scheduler.weekend_call_types import WeekendSolverConfig
 
 ROUNDINGSAT = (
     Path(__file__).resolve().parents[1]
-    / "new_approach" / "vendor" / "roundingsat" / "build" / "roundingsat"
+    / "vendor" / "roundingsat" / "build" / "roundingsat"
 )
 
 pytestmark = pytest.mark.skipif(

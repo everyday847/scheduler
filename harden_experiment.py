@@ -15,9 +15,9 @@ output_v3_wb2.* — it only builds configs in memory and (optionally) emits a JS
 results file you name.
 
 Usage examples:
-  PYTHONPATH=src:new_approach/src python harden_experiment.py --phase a
-  PYTHONPATH=src:new_approach/src python harden_experiment.py --only "NCC1 Coverage" --no-lock
-  PYTHONPATH=src:new_approach/src python harden_experiment.py --phase both --json results.json
+  PYTHONPATH=src python harden_experiment.py --phase a
+  PYTHONPATH=src python harden_experiment.py --only "NCC1 Coverage" --no-lock
+  PYTHONPATH=src python harden_experiment.py --phase both --json results.json
 """
 from __future__ import annotations
 

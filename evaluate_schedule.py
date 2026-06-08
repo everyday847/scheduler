@@ -4,7 +4,7 @@ Reports which constraints are violated, by how much, and the penalty contributio
 Works with either a FullScheduleSolution object or a CSV file.
 
 Usage:
-    PYTHONPATH=src:new_approach/src python evaluate_schedule.py output_v3.csv
+    PYTHONPATH=src python evaluate_schedule.py output_v3.csv
 """
 from __future__ import annotations
 

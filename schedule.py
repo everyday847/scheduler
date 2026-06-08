@@ -46,7 +46,7 @@ from scheduler.night_policy_types import (
     CRITERION_STROKE,
 )
 
-ROUNDINGSAT = Path("new_approach/vendor/roundingsat/build/roundingsat")
+ROUNDINGSAT = Path("vendor/roundingsat/build/roundingsat")
 # Workbook-coloring hard criteria (matches the shipped night_hard_criteria plus
 # sunday_following, which is now soft for the solve but still shown un-red here).
 _COLOR_HARD = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1,

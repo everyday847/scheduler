@@ -1,7 +1,3 @@
-[submodule "new_approach/vendor/roundingsat"]
-	path = new_approach/vendor/roundingsat
+[submodule "vendor/roundingsat"]
+	path = vendor/roundingsat
 	url = https://gitlab.com/MIAOresearch/software/roundingsat.git
-[submodule "new_approach/vendor/ParaFROST"]
-	path = new_approach/vendor/ParaFROST
-	url = https://github.com/muhos/ParaFROST.git
-	fetchRecurseSubmodules = false

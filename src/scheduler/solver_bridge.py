@@ -18,10 +18,11 @@ from .weekend_call_types import WeekendSolverConfig
 from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+_REPO = Path(__file__).resolve().parents[4]
+CONFIG_DIR = _REPO / "config"
 STANDING_RULE_CONFIG = CONFIG_DIR / "standing" / "stanford-fellowship-v3.yaml"
 DEFAULT_ANNUAL_CONFIG = CONFIG_DIR / "annual" / "my-2026-2027-v3.yaml"
-ROUNDINGSAT_BINARY = Path(__file__).resolve().parents[2] / "new_approach" / "vendor" / "roundingsat" / "build" / "roundingsat"
+ROUNDINGSAT_BINARY = Path(__file__).resolve().parents[2] / "vendor" / "roundingsat" / "build" / "roundingsat"
 
 
 def build_solver_config_from_request(
