@@ -204,7 +204,10 @@ def criteria_for_assignment(
     #       the week containing the NEXT morning (Mon-Thu night => same week,
     #       Sunday night => next week's Monday). Fri/Sat nights are NOT penalized
     #       (the morning after is not a stroke workday).
-    #   (2) The Weekend STROKE role holder is penalized for Sat/Sun night.
+    #   (2) The Weekend STROKE role holder is penalized for Saturday night only.
+    #       Sunday is intentionally NOT penalized: the weekend-night-linking
+    #       encoder steers Sunday night TO the weekend-Stroke fellow, so a Sunday
+    #       penalty here would contradict that intended outcome.
     if week_index not in dual:
         stroke_added = False
         # Rule 1: night before a stroke workday.
@@ -219,8 +222,9 @@ def criteria_for_assignment(
             if "Stroke" in svc and "Telestroke" not in svc:
                 criteria.append(CRITERION_STROKE)
                 stroke_added = True
-        # Rule 2: Weekend Stroke role holder on Sat/Sun night.
-        if not stroke_added and day_of_week in (5, 6):
+        # Rule 2: Weekend Stroke role holder on Saturday night (Sun is steered to
+        # the weekend-Stroke fellow elsewhere; mirror encoder Rule 2).
+        if not stroke_added and day_of_week == 5:
             if weekend_solution is not None:
                 wknd_stroke = weekend_solution.assignments_by_week[week_index].get("Weekend Stroke")
             else:

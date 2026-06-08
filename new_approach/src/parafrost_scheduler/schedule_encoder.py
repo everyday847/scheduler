@@ -2376,7 +2376,9 @@ def _encode_night_policy_criteria(
                         CRITERION_STROKE, hard_criteria, weights, soft_violations,
                     )
 
-    # Weekend stroke → weekend night penalty (Sat/Sun)
+    # Weekend stroke → weekend night penalty (Saturday only; Sunday is steered to
+    # the weekend-Stroke fellow by _encode_weekend_night_linking, so penalizing it
+    # here would contradict that intended outcome)
     if stroke_idx is not None:
         for w in range(num_weeks):
             ds_var = dual_stroke_vars[w]
@@ -2384,7 +2386,7 @@ def _encode_night_policy_criteria(
                 if f not in wr[w][_ROLE_STROKE]:
                     continue
                 wr_stroke = wr[w][_ROLE_STROKE][f]
-                for dow_target in (5, 6):  # Sat, Sun
+                for dow_target in (5,):  # Sat only (Sunday is steered to the weekend-Stroke fellow by _encode_weekend_night_linking)
                     d = _week_day(w, dow_target, start_dow)
                     if d < 0 or d >= num_days or xn[d][f] == 0:
                         continue

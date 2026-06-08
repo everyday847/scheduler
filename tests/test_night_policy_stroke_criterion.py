@@ -102,6 +102,22 @@ class TestWeekendStrokeRole:
         assert CRITERION_STROKE not in criteria_for_assignment(
             parsed, 0, _SAT, "J", weekend_solution=wknd)
 
+    def test_weekend_stroke_holder_sunday_not_penalized(self):
+        """Raya w49: holds Weekend Stroke, following week is NON-stroke (Elective),
+        so Rule 1 cannot fire; with Rule 2 now Saturday-only the Sunday night must
+        NOT be flagged stroke (Sunday is steered to the weekend-Stroke fellow by the
+        weekend-night-linking encoder, so penalizing it here contradicts that)."""
+        parsed = _parsed([
+            {"A": "Telestroke/Clinic", "J": "Stroke"},
+            {"A": "Elective", "J": "Elective"},
+        ])
+        wknd = _weekend([
+            {"Weekend Stroke": "A", "Weekend NCC1": "J"},
+            {"Weekend Stroke": "A", "Weekend NCC1": "J"},
+        ])
+        assert CRITERION_STROKE not in criteria_for_assignment(
+            parsed, 0, _SUN, "A", weekend_solution=wknd)
+
 
 class TestDualStrokeExemption:
     def test_dual_stroke_week_exempts_weekday(self):
