@@ -110,3 +110,25 @@ class TestDualStrokeHelena:
         soft = []
         _encode_dual_stroke_helena(opb, xs, config, fellows, shift_idx, soft)
         assert not soft
+
+
+class TestShippedDualStrokeWindowActive:
+    """Guard: the shipped supervised-dual-Stroke rule must stay ACTIVE so Helena's
+    early Stroke weeks get a senior co-fellow (Aditya/Cameron/Harneet), not an
+    NH/NCC_SR junior. Guards against an accidental revert to active:false."""
+
+    def test_supervised_dual_stroke_rule_is_active(self):
+        import yaml
+        from pathlib import Path
+        annual = yaml.safe_load(
+            Path("/cv/scratch/u/watkina6/scheduler/config/annual/my-2026-2027-v3.yaml").read_text()
+        )
+        rules = [r for r in annual.get("call_rules", [])
+                 if r.get("type") == "dual_stroke_window"]
+        assert rules, "expected a dual_stroke_window call_rule in the shipped config"
+        rule = rules[0]
+        assert rule.get("active") is True, "Supervised dual Stroke window must be active"
+        # Supervisors must be exactly the three seniors (STROKE minus Helena).
+        assert set(rule.get("supervisors", [])) == {
+            "Aditya Srivatsan", "Cameron Schmidt", "Harneet Dhillon"
+        }

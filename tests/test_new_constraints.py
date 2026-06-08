@@ -462,6 +462,71 @@ class TestDualStrokeWindow:
         _encode_dual_stroke_window(opb, xs, config, fellow_names, shift_idx)
         assert len(opb._constraints) == before
 
+    def test_in_window_caps_nonsupervisors_so_pinned_junior_forces_senior(self):
+        """The Helena/Sokena bug: in a window week, the non-supervisor cap is an
+        at_most_1 over ALL non-supervisor Stroke vars (juniors + outsiders). When a
+        junior is pinned to Stroke that week, that junior saturates the slot, so any
+        OTHER non-supervisor (e.g. an NH fellow) is forced off Stroke — and a ">=2
+        on Stroke" staffing rule can then only be met by a senior supervisor."""
+        # Supervisors = the three seniors; juniors = Helena + an NH-like outsider.
+        fellow_groups = {
+            "STROKE": ["Aditya", "Cameron", "Harneet", "Helena"],
+            "NH": ["Sokena"],
+        }
+        config = _make_config(
+            num_weeks=12,
+            fellow_groups=fellow_groups,
+            call_rules=[{
+                "type": "dual_stroke_window",
+                "window": [0, 10],
+                "supervisors": ["Aditya", "Cameron", "Harneet"],
+                "active": True,
+            }],
+        )
+        opb = OpbBuilder()
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        fellow_names = ["Aditya", "Cameron", "Harneet", "Helena", "Sokena"]
+        nf = len(fellow_names)
+        xs = _make_xs(opb, nf, 12, len(config.shifts))
+        _encode_dual_stroke_window(opb, xs, config, fellow_names, shift_idx)
+
+        stroke_si = shift_idx["Stroke"]
+        helena = fellow_names.index("Helena")
+        sokena = fellow_names.index("Sokena")
+        seniors = [fellow_names.index(n) for n in ("Aditya", "Cameron", "Harneet")]
+
+        # at_most_k is emitted directly in "<= k" form: "+1 xA +1 xB ... <= k ;".
+        def _at_most_clauses():
+            out = []
+            for line in opb._constraints:
+                s = line.strip()
+                if not s.endswith(";") or "<=" not in s:
+                    continue
+                lhs, rhs = s[:-1].split("<=")
+                k = int(rhs.strip())
+                vars_ = [int(tok[1:]) for tok in lhs.split()
+                         if tok.startswith("x")]
+                out.append((set(vars_), k))
+            return out
+
+        clauses = _at_most_clauses()
+        h_var = xs[helena][1][stroke_si]
+        s_var = xs[sokena][1][stroke_si]
+        sup_vars_w1 = {xs[sidx][1][stroke_si] for sidx in seniors}
+
+        # Non-supervisor cap (week 1): at_most_1 containing BOTH Helena and Sokena,
+        # and NO senior Stroke var.
+        nonsup_caps = [(vs, k) for (vs, k) in clauses
+                       if k == 1 and h_var in vs and s_var in vs]
+        assert nonsup_caps, "expected an at_most_1 over non-supervisor Stroke vars in week 1"
+        capped = nonsup_caps[0][0]
+        assert not (capped & sup_vars_w1), "senior must not be in the non-supervisor cap"
+
+        # Supervisor cap (week 1): a SEPARATE at_most_1 over the senior Stroke vars.
+        sup_caps = [(vs, k) for (vs, k) in clauses
+                    if k == 1 and sup_vars_w1.issubset(vs) and h_var not in vs]
+        assert sup_caps, "expected a separate at_most_1 over supervisor Stroke vars in week 1"
+
 
 # ---------------------------------------------------------------------------
 # Tests: Group Night Requirement

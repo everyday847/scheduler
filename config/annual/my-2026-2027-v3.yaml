@@ -888,7 +888,7 @@ call_rules:
   - Aditya Srivatsan
   - Cameron Schmidt
   - Harneet Dhillon
-  active: false
+  active: true
 - type: group_night_requirement
   name: NCC night call June 2027
   groups:
