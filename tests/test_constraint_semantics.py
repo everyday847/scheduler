@@ -632,7 +632,7 @@ class TestSoftNightCriterionIsNotHard:
 # Bridge-level: weekend Stroke eligibility derivation
 # ---------------------------------------------------------------------------
 
-from scheduler.solver_bridge import _build_weekend_config
+from parafrost_scheduler.orchestrator import build_weekend_config_from_request as _build_weekend_config
 
 
 class TestWeekendStrokeServiceEligibility:
