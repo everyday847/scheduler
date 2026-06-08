@@ -11,13 +11,11 @@ from .call_schedule_common import (
     DEFAULT_CCM_FELLOWS,
     NIGHT_ROLES,
     ParsedCallScheduleCsv,
-    WEEKEND_ROLES,
     is_anaesthesia_service,
     is_clinic_service,
     is_night_blocked as common_is_night_blocked,
     is_night_holiday_eligible as common_is_night_holiday_eligible,
     is_preferred_sunday_following_service as common_is_preferred_sunday_following_service,
-    parse_call_schedule_csv,
 )
 
 
@@ -139,14 +137,6 @@ def is_preferred_sunday_following_service(weekday_assignment: str, *, config: Ni
     if config is not None:
         return common_is_preferred_sunday_following_service(weekday_assignment, preferred=config.sunday_preferred_services)
     return common_is_preferred_sunday_following_service(weekday_assignment)
-
-
-def parse_night_call_csv(path: str | Path) -> ParsedCallScheduleCsv:
-    parsed = parse_call_schedule_csv(path)
-    missing = [role for role in WEEKEND_ROLES if role not in parsed.existing_schedule_columns]
-    if missing:
-        raise ValueError(f"Night solver requires weekend columns: {', '.join(missing)}")
-    return parsed
 
 
 def summarize_night_solution(parsed: ParsedCallScheduleCsv, solution: NightScheduleSolution, *, config: NightSolverConfig | None = None) -> NightSummary:

@@ -15,14 +15,12 @@ from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _BACKUP_WEEKDAY,
     _BACKUP_WEEKEND,
-    _ROLE_NCC1,
-)
+    _ROLE_NCC1)
 from parafrost_scheduler.schedule_encoder import (
     _allocate_backup_vars,
     _encode_backup_constraints,
     build_full_schedule_opb,
-    decode_solution,
-)
+    decode_solution)
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig, BackupScheduleSolution
 
@@ -31,19 +29,15 @@ def _config(fellow_groups, shifts, num_days=21):
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     weekend_config = WeekendSolverConfig(
         ncc_totals={}, stroke_totals={}, stroke_cohort=(), stroke_cohort_total=None,
         ccm_fellows=frozenset(), always_stroke_eligible=frozenset(),
-        telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset(),
-        total_weekends={}, weekend_options=None, friday_weekend_options=None,
-    )
+        telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups, shifts=shifts, constraints=[],
         night_config=night_config, weekend_config=weekend_config,
-        night_hard_criteria=frozenset(), start_dow=0, num_days=num_days,
-    )
+        night_hard_criteria=frozenset(), start_dow=0, num_days=num_days)
 
 
 def _setup(fellow_groups, shifts, *, num_days=21, weekend_holders=None):
@@ -79,8 +73,7 @@ class TestBackupEligibilityAllocation:
     def test_ncc_and_stroke_fellows_get_backup_vars(self):
         opb, bk, *_ = _setup(
             {"NCC_SR": ["Alice"], "STROKE": ["Stan"], "CCM": ["Cara"]},
-            ["Elec", "Clinic/Elective", "Telestroke/Clinic", "MICU"],
-        )
+            ["Elec", "Clinic/Elective", "Telestroke/Clinic", "MICU"])
         # Alice (idx 0) and Stan (idx 1) eligible; Cara (idx 2, CCM) NOT.
         assert 0 in bk[0][_BACKUP_WEEKDAY]
         assert 1 in bk[0][_BACKUP_WEEKDAY]
@@ -93,8 +86,7 @@ class TestNccTelestrokeEligibility:
         """An NCC_SR on Telestroke/Clinic qualifies for Backup (covers weeks
         where Stroke fellows are pinned off Clinic/Telestroke, e.g. wk32)."""
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"NCC_SR": ["Joseph"]}, ["Telestroke/Clinic", "NS"],
-        )
+            {"NCC_SR": ["Joseph"]}, ["Telestroke/Clinic", "NS"])
         bk_var = bk[1][_BACKUP_WEEKDAY][0]  # week 1 (week 0 forbids backup)
         tele_var = xs[0][1][shift_idx["Telestroke/Clinic"]]
         gated = [c for c in opb._constraints
@@ -106,8 +98,7 @@ class TestStrokeElecEligibility:
     def test_stroke_on_elec_is_backup_eligible_in_ordinary_week(self):
         """A STROKE fellow on Elec qualifies for weekday Backup (ordinary week)."""
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"STROKE": ["Stan"]}, ["Elec", "Stroke"], num_days=21,
-        )
+            {"STROKE": ["Stan"]}, ["Elec", "Stroke"], num_days=21)
         bk_var = bk[1][_BACKUP_WEEKDAY][0]  # week 1 (not exempt/holiday)
         elec_var = xs[0][1][shift_idx["Elec"]]
         gated = [c for c in opb._constraints
@@ -121,8 +112,7 @@ class TestWeek0BackupForbidden:
         fellows pinned to Elec must NOT serve as backup), even though Elec is
         now an eligible backup shift in general."""
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"STROKE": ["Stan"]}, ["Elec", "Stroke"], num_days=21,
-        )
+            {"STROKE": ["Stan"]}, ["Elec", "Stroke"], num_days=21)
         for kind in (_BACKUP_WEEKDAY, _BACKUP_WEEKEND):
             for f, bk_var in bk[0][kind].items():
                 # Forced false: a unit clause +1 ~x{bk_var} >= 1 ;
@@ -139,8 +129,7 @@ class TestHolidayWeekBackup:
     def test_holiday_week_backup_gated_only_on_telestroke(self):
         # 28 weeks so week 25/26 exist; need num_days >= 27*7.
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"NCC_SR": ["Alice"]}, ["Elec", "Telestroke/Clinic"], num_days=27 * 7,
-        )
+            {"NCC_SR": ["Alice"]}, ["Elec", "Telestroke/Clinic"], num_days=27 * 7)
         hol_w = 25  # 0-indexed holiday week
         bk_var = bk[hol_w][_BACKUP_WEEKDAY][0]
         elec_var = xs[0][hol_w][shift_idx["Elec"]]
@@ -156,8 +145,7 @@ class TestHolidayWeekBackup:
 
     def test_non_holiday_week_still_accepts_elec(self):
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"NCC_SR": ["Alice"]}, ["Elec", "Telestroke/Clinic"], num_days=27 * 7,
-        )
+            {"NCC_SR": ["Alice"]}, ["Elec", "Telestroke/Clinic"], num_days=27 * 7)
         bk_var = bk[10][_BACKUP_WEEKDAY][0]  # ordinary week
         elec_var = xs[0][10][shift_idx["Elec"]]
         elec_gate = [c for c in opb._constraints
@@ -170,8 +158,7 @@ class TestBackupShiftGating:
         """Alice's weekday Backup var must imply she is on Elec that week:
         a constraint linking bk var to the Elec shift var exists."""
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"NCC_SR": ["Alice"]}, ["Elec", "MICU"],
-        )
+            {"NCC_SR": ["Alice"]}, ["Elec", "MICU"])
         bk_var = bk[1][_BACKUP_WEEKDAY][0]  # week 1 (week 0 forbids backup)
         elec_var = xs[0][1][shift_idx["Elec"]]
         micu_var = xs[0][1][shift_idx["MICU"]]
@@ -202,8 +189,7 @@ class TestWeekendBackupExcludesWeekendRole:
 class TestBackupHardCoverage:
     def test_exactly_one_backup_per_week(self):
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"NCC_SR": ["Alice", "Bob"]}, ["Elec"],
-        )
+            {"NCC_SR": ["Alice", "Bob"]}, ["Elec"])
         # Week 1 (not the exempt week 0): exactly_one over its weekday backup
         # vars => a "= 1 ;" constraint covering exactly Alice+Bob's bk vars.
         wd_vars = set(bk[1][_BACKUP_WEEKDAY].values())
@@ -215,8 +201,7 @@ class TestBackupHardCoverage:
         """Week 0 must NOT get a hard exactly-one Backup coverage constraint
         (Stroke fellows pinned to Elec -> no eligible backup)."""
         opb, bk, xs, wr, names, shift_idx, nw = _setup(
-            {"NCC_SR": ["Alice", "Bob"]}, ["Elec"],
-        )
+            {"NCC_SR": ["Alice", "Bob"]}, ["Elec"])
         wd_vars0 = set(bk[0][_BACKUP_WEEKDAY].values())
         eq1_wk0 = [c for c in opb._constraints if c.strip().endswith("= 1 ;")
                    and {int(t[1:]) for t in c.replace("~", "").split() if t.startswith("x")} == wd_vars0]

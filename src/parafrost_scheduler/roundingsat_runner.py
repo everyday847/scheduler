@@ -22,7 +22,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.parafrost_runner import SolveResult  # reuse the same dataclass
+
+
+@dataclass(frozen=True)
+class SolveResult:
+    satisfiable: bool
+    assignment: dict[int, bool] | None
+    runtime_seconds: float
+    stdout: str
+    stderr: str
 
 
 @dataclass(frozen=True)

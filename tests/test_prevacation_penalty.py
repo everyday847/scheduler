@@ -19,8 +19,7 @@ from parafrost_scheduler.schedule_types import (
     ScheduleSolverConfig,
     _ROLE_NCC1,
     _ROLE_NCC2,
-    _ROLE_STROKE,
-)
+    _ROLE_STROKE)
 from parafrost_scheduler.schedule_encoder import _encode_prevacation_weekend_penalty
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
@@ -32,8 +31,7 @@ from scheduler.weekend_call_types import WeekendSolverConfig
 
 def _make_config(
     num_weeks: int = 4,
-    fellow_groups: dict[str, list[str]] | None = None,
-) -> ScheduleSolverConfig:
+    fellow_groups: dict[str, list[str]] | None = None) -> ScheduleSolverConfig:
     """Build a minimal ScheduleSolverConfig for testing."""
     if fellow_groups is None:
         fellow_groups = {"NCC_SR": ["Alice", "Bob"]}
@@ -44,8 +42,7 @@ def _make_config(
         friday_night_multisets=(),
         ccm_fellows=frozenset(),
         holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     weekend_config = WeekendSolverConfig(
         ncc_totals={},
         stroke_totals={},
@@ -54,11 +51,7 @@ def _make_config(
         ccm_fellows=frozenset(),
         always_stroke_eligible=frozenset(),
         telestroke_stroke_eligible=frozenset(),
-        stroke_only_eligible=frozenset(),
-        total_weekends={},
-        weekend_options=None,
-        friday_weekend_options=None,
-    )
+        stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=["NCC1", "Vac"],
@@ -67,8 +60,7 @@ def _make_config(
         weekend_config=weekend_config,
         night_hard_criteria=frozenset(),
         start_dow=0,
-        num_days=num_weeks * 7,
-    )
+        num_days=num_weeks * 7)
 
 
 def _make_xs(opb: OpbBuilder, num_fellows: int, num_weeks: int, num_shifts: int) -> list[list[list[int]]]:

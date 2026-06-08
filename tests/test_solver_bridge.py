@@ -7,13 +7,13 @@ import pytest
 import yaml
 
 from scheduler.night_call_types import NightSolverConfig
-from scheduler.solver_bridge import (
+from parafrost_scheduler.orchestrator import (
     _apply_night_rules,
     _apply_weekend_rules,
     _validate_night_config,
     _validate_weekend_config,
-    build_solver_config_from_request,
 )
+from scheduler.solver_bridge import build_solver_config_from_request
 from scheduler.weekend_call_types import WeekendSolverConfig
 
 

@@ -18,12 +18,10 @@ from parafrost_scheduler.schedule_types import (
     _ROLE_NCC1,
     _ROLE_STROKE,
     _day_of_week,
-    _week_day,
-)
+    _week_day)
 from parafrost_scheduler.schedule_encoder import (
     _encode_nhs_week_nights,
-    _encode_pre_aan_forbid,
-)
+    _encode_pre_aan_forbid)
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 
@@ -32,19 +30,15 @@ def _config(num_days=21):
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
-        horizon_start_date=date(2026, 7, 1),
-    )
+        horizon_start_date=date(2026, 7, 1))
     weekend_config = WeekendSolverConfig(
         ncc_totals={}, stroke_totals={}, stroke_cohort=(), stroke_cohort_total=None,
         ccm_fellows=frozenset(), always_stroke_eligible=frozenset(),
-        telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset(),
-        total_weekends={}, weekend_options=None, friday_weekend_options=None,
-    )
+        telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset())
     return ScheduleSolverConfig(
         fellow_groups={"NH": ["Jin"]}, shifts=["NHS", "AAN", "Elec"], constraints=[],
         night_config=night_config, weekend_config=weekend_config,
-        night_hard_criteria=frozenset(), start_dow=0, num_days=num_days,
-    )
+        night_hard_criteria=frozenset(), start_dow=0, num_days=num_days)
 
 
 def _make_xs_xn(opb, config):

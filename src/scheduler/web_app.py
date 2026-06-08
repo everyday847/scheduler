@@ -341,7 +341,7 @@ def schedule_stream():
 
     def generate():
         from .solver_bridge import build_solver_config_from_request, get_runner
-        from parafrost_scheduler.schedule_optimizer import solve_full_schedule_progressive
+        from parafrost_scheduler.orchestrator import solve_schedule_progressive
 
         try:
             config = build_solver_config_from_request(body)
@@ -351,7 +351,7 @@ def schedule_stream():
             return
 
         try:
-            for event in solve_full_schedule_progressive(config, runner):
+            for event in solve_schedule_progressive(config, runner):
                 yield _sse(event["type"], event)
         except GeneratorExit:
             pass

@@ -36,7 +36,6 @@ def _config(num_days=28, nh_aan=100, nh_abpn=100, ncc_align=10,
         ncc_totals={}, stroke_totals={}, stroke_cohort=(), stroke_cohort_total=None,
         ccm_fellows=frozenset(), always_stroke_eligible=frozenset(),
         telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset(),
-        total_weekends={}, weekend_options=None, friday_weekend_options=None,
     )
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups or {"NH": ["Jin"]},

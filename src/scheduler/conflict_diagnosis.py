@@ -22,9 +22,9 @@ from .semantic_constraints import (
 from .night_call_types import NightSolverConfig
 from .weekend_call_types import WeekendSolverConfig
 
-from parafrost_scheduler.schedule_types import ScheduleSolverConfig
-from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
+from parafrost_scheduler.orchestrator import check_schedule_feasibility
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 
 
 def extract_mus_cores(
@@ -214,11 +214,8 @@ def _check_feasible(
     )
 
     try:
-        opb, var_map = build_full_schedule_opb(config, soft_bound=None)
-        upper = sum(w for _, w in var_map.soft_violations)
-        opb_probe, _ = build_full_schedule_opb(config, soft_bound=upper)
-        result = runner.solve(opb_probe, timeout=timeout)
-        return result.satisfiable, 1
+        sat = check_schedule_feasibility(config, runner, timeout=timeout)
+        return sat, 1
     except Exception:
         return False, 1
 

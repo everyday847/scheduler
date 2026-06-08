@@ -33,7 +33,6 @@ def _config(*, num_days=28 * 7, dual_stroke_helena=None, stroke_wk2627_toggle="o
         ncc_totals={}, stroke_totals={}, stroke_cohort=(), stroke_cohort_total=None,
         ccm_fellows=frozenset(), always_stroke_eligible=frozenset(),
         telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset(),
-        total_weekends={}, weekend_options=None, friday_weekend_options=None,
     )
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups or {"STROKE": ["Helena", "Aditya"]},
