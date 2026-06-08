@@ -30,12 +30,24 @@ A named cohort of **Fellows** declared by a Schedule's config and referenced by 
 A named **Weekly Assignment** option, such as NCC1, NCC2, Swing, MICU, Stroke, or Vacation. A Shift carries **Shift Attributes** that drive scheduling policy (including how it permits or penalizes **Night** and **Weekend Role** assignments). A Shift is a weekday-service concept; it is not a **Weekend Role**.
 
 **Shift Attribute**:
-A named, institution-contingent property of a **Shift** that selects an already-implemented scheduling behavior — for example, that a shift blocks its holder from weekend call, blocks certain weekday nights, or makes the following week non-preferred for a Sunday-night holder. The *presence* of an attribute on a shift is a static fact (a **Standing Rule**); its enforcement **Strength** is a separately-tunable dial with a Standing default that a run may override. An attribute may carry parameters (e.g. which nights it blocks).
+A named, institution-contingent property of a **Shift** that selects an already-implemented scheduling behavior — for example, that a shift blocks its holder from weekend call, blocks certain weekday nights, makes the following week non-preferred for a Sunday-night holder, or tolerates being uncovered some weeks (its **Coverage** floor is softly minimized rather than hard). The *presence* of an attribute on a shift is a static fact (a **Standing Rule**); its enforcement **Strength** is a separately-tunable dial with a Standing default that a run may override. An attribute may carry parameters (e.g. which nights it blocks).
 _Avoid_: hardcoded shift-name set, blocked-shift list
 
 **Strength**:
 How forcefully a **Constraint** (including a **Shift Attribute**'s behavior) is enforced: **hard** (must hold) or **soft** with a weight (a penalty the solver minimizes). Strength is orthogonal to a constraint's tier — a static **Shift Attribute** may be soft, and a transient **Annual Rule** may be hard. Strength carries a Standing default and is overridable per run.
 _Avoid_: priority, importance
+
+**Bounded-Preference Policy**:
+A composite **Strength** shape that pairs a HARD bound on a count with a SOFT penalty for acceptable-but-non-ideal outcomes inside that bound — giving the solver both a guarantee and a gradient. Recurs across unrelated constraints: a **Vacation Request** rank cutoff (top-N picks hard, remaining picks soft) and a per-fellow service-count band (hard `[target±tol]`, soft nudge toward the exact target inside the band) are the same shape. The soft part may be flat (each overage costs equally, as in vacation) or graded by deviation (as in the band).
+_Avoid_: flat soft "exactly N" (no gradient — equal cost for off-by-1 and off-by-many)
+
+**Vacation Request**:
+A **Fellow**-supplied preferred "Vac" week, ranked per fellow. Honored under a **Bounded-Preference Policy**: a fellow's top-N requests are HARD pins, lower-ranked ones SOFT. The only fellow-originated input the scheduler models — there is no general "request" concept beyond vacation.
+_Avoid_: request (as a general term — it has no project-specific meaning outside vacation)
+
+**Coverage**:
+The per-week staffing requirement for a **Shift**, expressed as a band over the eligible **Fellows**: a floor (at least N on the shift) and a ceiling (at most M). Whether an unmet floor is hard or best-effort is not a separate kind of Coverage — it is the **Strength** of the floor, which for a shift that tolerates gaps (a **Shift Attribute**) is softly minimized rather than required.
+_Avoid_: separate "required" vs "best-effort" coverage concepts (it's one Coverage, differentiated by Strength)
 
 **Block**:
 A contiguous span of weeks treated as a scheduling unit.
