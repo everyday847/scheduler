@@ -5,16 +5,27 @@ This repo models a fellowship schedule as domain rules that are eventually encod
 ## Language
 
 **Schedule**:
-A 52-week assignment of fellows to shifts.
+A full year (≈52 weeks) of assignments across three layers: each **Fellow**'s **Weekly Assignment**, **Weekend Role**, and **Night** coverage. The three layers occupy disjoint time slots (weekday-days, weekend-days, nights), so a fellow may simultaneously hold a Weekly Assignment, a Weekend Role, and one or more Nights in the same week without conflict.
+_Avoid_: a 52-week fellow→shift assignment (understates the three layers)
+
+**Weekly Assignment**:
+The Mon–Fri service a **Fellow** holds in a week — exactly one **Shift** (NCC1, MICU, Vac, …), or none. The layer **Management Mode** governs.
+
+**Weekend Role**:
+A weekend-specific coverage assignment for a week: Weekend NCC1, Weekend NCC2, or Weekend Stroke. Distinct from the weekday **Shift** of the same name — "Weekend NCC1" the role is not "NCC1" the Weekly Assignment, and a fellow may hold one without the other. Solver-assigned in both **Management Modes**.
+_Avoid_: conflating Weekend NCC1 (role) with NCC1 (shift)
+
+**Night**:
+A single day's overnight call assignment for a **Fellow** (one fellow per night). Solver-assigned in both **Management Modes**. Whether a Night is permitted or penalized depends on the holder's **Weekly Assignment** (its **Shift Attributes**) and **Weekend Role** that week — these relationships are **Criteria**.
 
 **Fellow**:
-A clinician who may be assigned to one shift in a week.
+A clinician who may hold a **Weekly Assignment**, a **Weekend Role**, and one or more **Nights** in a given week.
 
 **Fellow Group**:
 A named cohort declared by Annual YAML and used by Constraints, such as junior NCC, senior NCC, Stroke, CCM, NH, or Lia. The legal group names for a Schedule come from that Schedule's Annual YAML.
 
 **Shift**:
-A named weekly assignment option, such as NCC1, NCC2, Swing, MICU, Stroke, or Vacation. A Shift carries **Shift Attributes** that drive scheduling policy.
+A named **Weekly Assignment** option, such as NCC1, NCC2, Swing, MICU, Stroke, or Vacation. A Shift carries **Shift Attributes** that drive scheduling policy (including how it permits or penalizes **Night** and **Weekend Role** assignments). A Shift is a weekday-service concept; it is not a **Weekend Role**.
 
 **Shift Attribute**:
 A named, institution-contingent property of a **Shift** that selects an already-implemented scheduling behavior — for example, that a shift blocks its holder from weekend call, blocks certain weekday nights, or makes the following week non-preferred for a Sunday-night holder. The *presence* of an attribute on a shift is a static fact (a **Standing Rule**); its enforcement **Strength** is a separately-tunable dial with a Standing default that a run may override. An attribute may carry parameters (e.g. which nights it blocks).
@@ -56,12 +67,14 @@ A set of interchangeable outside fellows who contribute coverage blocks without 
 _Avoid_: named fellow cohort
 
 **Management Mode**:
-How a **Fellow**'s weekly schedule is determined. A fellow is **Imported** when their weekly schedule is frozen exactly as supplied by an external workbook (empty weeks stay empty; their per-fellow weekly **Constraints** are skipped because the schedule is managed elsewhere), or **Managed** when the solver assigns their weekly schedule and **Annual Rules** may pin specific weeks (vacation, exam, conference). Nights and weekends are solver-assigned for both modes. The mode is set from provenance (a workbook import makes a fellow Imported) and resolved in exactly one place, never re-inferred per call site.
+How a **Fellow**'s **Weekly Assignment** layer is determined. A fellow is **Imported** when their Weekly Assignments are frozen exactly as supplied by an external workbook (empty weeks stay empty; their per-fellow weekly **Constraints** are skipped because the layer is managed elsewhere), or **Managed** when the solver assigns their Weekly Assignments and **Annual Rules** may pin specific weeks (vacation, exam, conference). **Weekend Roles** and **Nights** are solver-assigned for both modes — Management Mode governs only the Weekly Assignment layer. The mode is set from provenance (a workbook import makes a fellow Imported) and resolved in exactly one place, never re-inferred per call site.
 _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 
 ## Relationships
 
-- A **Schedule** assigns each **Fellow** to zero or one **Shift** per week unless a specific **Constraint** allows an exception.
+- A **Schedule** has three layers per week: a **Weekly Assignment** (zero or one **Shift**), zero or one **Weekend Role**, and zero or more **Nights** per **Fellow**.
+- The three layers are independent in time, so a **Fellow** may hold all three in one week; **Criteria** express the desirable/forbidden *relationships* across layers (e.g. a **Night** relative to that week's **Shift** or **Weekend Role**).
+- **Management Mode** governs only the **Weekly Assignment** layer; **Weekend Roles** and **Nights** are solver-assigned for every fellow.
 - A **Shift** carries zero or more **Shift Attributes**; the set of attribute *types* is a fixed, code-defined vocabulary, while which shifts carry which attributes (and at what **Strength**) is configuration.
 - A **Shift Attribute**'s presence is a **Standing Rule**; its **Strength** has a Standing default and may be overridden transiently per run.
 - A **Fellow Group** selects cohorts of **Fellows** for **Standing Rules** and **Annual Rules**.
@@ -79,6 +92,12 @@ _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 >
 > **Dev:** "Do we care which CCM fellow covers a month?"
 > **Domain expert:** "No. CCM is an **External Coverage Pool** for our purposes: someone covers a consecutive block, but identities are interchangeable."
+>
+> **Dev:** "Raya is on **Shift** Stroke, holds the **Weekend Role** Weekend Stroke, and takes Sunday **Night** — all the same week. Is that a conflict?"
+> **Domain expert:** "No. Those are three layers in disjoint time. Whether the Sunday Night is good is a **Criterion** relating the Night to her Weekend Role — and we decided the weekend-Stroke holder taking Sunday is fine, so it's not penalized."
+>
+> **Dev:** "Helena must have a senior with her on early Stroke weeks. Is that a **Shift Attribute**?"
+> **Domain expert:** "No — a Shift Attribute is about one Shift alone. This is **Supervision**: a relationship between **Fellows** on the same Shift. It's an **Annual Rule** because the roster changes yearly, and it's windowed to early weeks."
 
 ## Flagged Ambiguities
 
