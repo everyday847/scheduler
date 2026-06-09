@@ -56,12 +56,20 @@ A contiguous span of weeks treated as a scheduling unit.
 The service a **Fellow Group** predominantly staffs and returns to across the year; away-from-home **Blocks** are defined relative to it. Which services are home — and how many a Schedule manages — is instance data, not fixed by the tool. (e.g. Stanford 2026 jointly manages two: NCC, and Stroke spanning Stroke / Telestroke-Clinic / Clinic-Elective.)
 
 **Constraint**:
-A rule that restricts which schedules are valid or preferred.
-_Avoid_: ad hoc Z3 expression
+A rule that restricts which schedules are valid or preferred. A Constraint and a **Criterion** are the *same thing* differentiated by **Strength**: every rule has two co-located manifestations — it is *encoded* (compiled to pseudo-Boolean form for the solver) and *evaluated* (run against a concrete **Schedule** to yield a value) — and its Strength decides what an evaluated violation means (hard ⇒ the Schedule is invalid; soft ⇒ the Schedule is penalized). "Constraint" emphasizes the hard/structural reading; "Criterion" emphasizes the value-bearing reading; the underlying object is one. A rule's behavior is selected from a fixed **Rule Shape** vocabulary and parameterized by config — it is never hardcoded inline in the encoder.
+_Avoid_: ad hoc Z3 expression; encoder-only rule (a rule with no evaluate manifestation)
 
 **Criterion**:
-A function over a **Schedule**'s assignments whose value distinguishes schedules: under a hard **Strength** some values are strictly forbidden, under a soft **Strength** some values are penalized relative to others. A Criterion may judge a single assignment or a relationship among several (e.g. a night relative to the following week's shift, or to a weekend role the same fellow holds). Evaluating a Criterion is distinct from presenting it to humans.
-_Avoid_: red cell, violation (a violation is a forbidden/penalized *value* of a Criterion, not the Criterion itself)
+A **Constraint** read as a function over a **Schedule**'s assignments whose value distinguishes schedules: under a hard **Strength** some values are strictly forbidden, under a soft **Strength** some values are penalized relative to others. A Criterion may judge a single assignment or a relationship among several (e.g. a night relative to the following week's shift, or to a weekend role the same fellow holds). Evaluation runs against *any* **Schedule**, not only solver output — including an **Imported** fellow's frozen weeks (whose weekly layer the encoder skips) and externally-supplied or hand-edited schedules fed back in for validation. Evaluating a Criterion is distinct from presenting it to humans.
+_Avoid_: red cell, violation (a violation is a forbidden/penalized *value* of a Criterion, not the Criterion itself); treating evaluation as solver-output-only
+
+**Rule Shape**:
+A code-defined *archetype* of constraint behavior — a parameterized pattern such as "night before a gating service," "weekend-role holder on a given night," "following-week service is non-preferred," "weekend-role alignment," "per-fellow count band," or "block rotation." The set of shapes is a fixed vocabulary owned by code; configuration selects a shape and supplies its parameters (day-of-week filter, gating week offset, **Shift** set, **Weekend Role**, exemption, weight). A rule that fits an existing shape is pure config (no code); a genuinely new shape is one new code location carrying both manifestations (encode + evaluate) and a contract test pinning them. This is the **declarative archetype** of [ADR-0003](docs/adr/0003-shift-attribute-policy.md): config may only select and parameterize behaviors code already knows how to encode, never invent new ones (so it is *not* an open expression language — [ADR-0005](docs/adr/0005-criterion-single-definition.md)).
+_Avoid_: hardcoded inline encoder logic; arbitrary config expression language
+
+**Constraint Sink**:
+The abstract emitter a **Rule**'s encode manifestation writes to — a small interface (`forbid` literals, add a `soft` penalty term, allocate a fresh variable) that the solver's pseudo-Boolean builder satisfies. Rules depend on the sink, not on the concrete builder, so the **Rule Shape** vocabulary carries no dependency on the solver package and the encoder becomes a generic interpreter that walks the rule registry and injects its builder as the sink.
+_Avoid_: rules importing the concrete OPB builder directly
 
 **Solver Invariant**:
 A constraint required to make the schedule representation coherent for optimization, independent of fellowship policy.
@@ -109,6 +117,10 @@ _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 - A **Solver Invariant** is independent of **Fellow Group** policy.
 - A **Standing Rule** may mention **Fellow Groups**, **Shifts**, and **Blocks**.
 - An **Annual Rule** may mention specific **Fellows**, dates, vacation requests, supervision requirements, or exam weeks.
+- A **Constraint** and a **Criterion** are one object read two ways; which reading applies is its **Strength** (hard ⇒ validity, soft ⇒ penalty). The tier (**Solver Invariant** / **Standing Rule** / **Annual Rule**) is orthogonal to both.
+- Every **Constraint** has two manifestations — encode (to the **Constraint Sink**) and evaluate (against a **Schedule**) — selected from the **Rule Shape** vocabulary; the two are co-located and pinned by a contract test ([ADR-0005](docs/adr/0005-criterion-single-definition.md)).
+- A **Rule Shape** is code; its selection and parameters are configuration (the **declarative archetype** of [ADR-0003](docs/adr/0003-shift-attribute-policy.md)). A **Shift Attribute** is the **Shift**-scoped special case of this same select-and-parameterize discipline.
+- Evaluation of a **Constraint** runs against any **Schedule**, including an **Imported** fellow's frozen weeks and externally-supplied schedules, not only solver output.
 
 ## Example Dialogue
 
@@ -126,6 +138,12 @@ _Avoid_: locked fellow, frozen fellow (as ad hoc, unscoped terms)
 >
 > **Dev:** "Helena must have a senior with her on early Stroke weeks. Is that a **Shift Attribute**?"
 > **Domain expert:** "No — a Shift Attribute is about one Shift alone. This is **Supervision**: a relationship between **Fellows** on the same Shift. It's an **Annual Rule** because the roster changes yearly, and it's windowed to early weeks."
+>
+> **Dev:** "Someone hand-edited the workbook and gave Aditya two **Shifts** in one week. The solver would never do that — do we even check?"
+> **Domain expert:** "We should, and that's the point of evaluation running against *any* **Schedule**. 'At most one Shift per week' is a hard **Constraint**; evaluating it on the edited Schedule yields a forbidden value, so the Schedule is invalid. The solver guarantees it on its own output, but an **Imported** or hand-edited Schedule has no such guarantee — same rule, evaluated rather than encoded."
+>
+> **Dev:** "So is 'night before a Stroke day is discouraged' a **Constraint** or a **Criterion**?"
+> **Domain expert:** "Both — it's one rule. Read as a **Criterion** it's soft, so a violation is a penalty. If we hardened its **Strength** it would forbid the value outright. Either way it's the same **Rule Shape** — 'night before a gating service' — parameterized with the Stroke **Shift** and the dual-stroke exemption. None of that lives inline in the encoder; it's config selecting a shape."
 
 ## Flagged Ambiguities
 
