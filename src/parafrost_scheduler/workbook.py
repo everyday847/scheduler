@@ -25,6 +25,7 @@ from scheduler.weekend_call_types import WeekendScheduleSolution, BackupSchedule
 from scheduler.night_policy_types import (
     NightPolicyWeights,
     criteria_for_assignment,
+    weekend_criteria_for_role,
 )
 from scheduler.call_schedule_common import ParsedCallScheduleCsv
 
@@ -285,8 +286,16 @@ def _build_fellow_schedule_sheet(
             if color:
                 wd_cell.fill = _make_fill(color)
 
-            # Weekend cell
-            ws.cell(row=row, column=base_col + 1, value=weekend_role)
+            # Weekend cell (red font when the weekend itself is at fault:
+            # role/weekday mismatch, or weekend call before a vacation)
+            weekend_cell = ws.cell(row=row, column=base_col + 1, value=weekend_role)
+            if weekend_role:
+                full_role = "Weekend " + weekend_role
+                if weekend_criteria_for_role(
+                    parsed, week_index, full_role, fellow,
+                    weekend_solution=weekend_solution,
+                ):
+                    weekend_cell.font = _normal_font(_RED_FONT)
 
             # Nights cell
             night_cell = ws.cell(row=row, column=base_col + 2, value=nights_str)

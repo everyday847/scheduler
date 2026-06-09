@@ -7,17 +7,29 @@ from .call_schedule_common import (
     NIGHT_ROLES,
     ParsedCallScheduleCsv,
     WEEKEND_ROLES,
-    is_anaesthesia_service,
     parse_call_schedule_csv,
 )
 from .night_call_types import (
     NightScheduleSolution,
     NightSolverConfig,
-    is_night_blocked,
-    is_night_holiday_eligible,
-    is_preferred_sunday_following_service,
     summarize_night_solution,
 )
+from .schedule_view import ParsedScheduleView
+from schedule_rules.criteria.stroke import StrokeCriterion
+from schedule_rules.criteria.anaesthesia import AnaesthesiaCriterion
+from schedule_rules.criteria.clinic import ClinicCriterion
+from schedule_rules.criteria.friday_weekend_ncc1 import FridayWeekendNcc1Criterion
+from schedule_rules.criteria.sunday_following import SundayFollowingCriterion
+from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
+from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
+
+_STROKE_CRITERION = StrokeCriterion()
+_ANAESTHESIA_CRITERION = AnaesthesiaCriterion()
+_CLINIC_CRITERION = ClinicCriterion()
+_FRIDAY_CRITERION = FridayWeekendNcc1Criterion()
+_SUNDAY_CRITERION = SundayFollowingCriterion()
+_WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
+_PREVACATION_CRITERION = PrevacationWeekendCriterion()
 
 
 CRITERION_ANAESTHESIA = "anaesthesia"
@@ -172,82 +184,64 @@ def criteria_for_assignment(
     """
     if not fellow_name:
         return ()
-    week_row = parsed.week_rows[week_index]
-    weekday_service = week_row.weekday_assignments.get(fellow_name, "")
     dual = dual_stroke_weeks or frozenset()
+    # All five night criteria are delegated to their single co-located
+    # definitions (ADR-0005), so this evaluator and the solver encoder consume
+    # ONE shared geometry per criterion and cannot drift. The Stroke criterion
+    # takes the legacy dual-stroke exemption set; the others read the view.
+    view = ParsedScheduleView(parsed, weekend_solution=weekend_solution)
     criteria = []
-    is_weekday_night = day_of_week <= 4
-
-    if is_weekday_night and is_anaesthesia_service(weekday_service):
+    if _ANAESTHESIA_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
         criteria.append(CRITERION_ANAESTHESIA)
-    # Clinic/Elective fellows are softly discouraged from the nights before a
-    # clinic day (Mon/Wed/Thu clinic → previous-Sun/Tue/Wed nights), but MAY take
-    # Monday and Thursday nights. Telestroke/Clinic fellows are exempt entirely
-    # (they may take any weekday night). The clinic service that gates a night
-    # lives in the week containing the NEXT morning: Tue/Wed nights read the same
-    # week, the Sunday night reads the following week (its Monday). Mirrors the
-    # encoder's clinic criterion in schedule_solver._encode_night_policy_criteria.
-    if day_of_week in (1, 2):  # Tue/Wed night → clinic day is same week
-        clinic_week = week_index
-    elif day_of_week == 6:  # Sun night → clinic day (Mon) is next week
-        clinic_week = week_index + 1
-    else:
-        clinic_week = None
-    if clinic_week is not None and clinic_week < len(parsed.week_rows):
-        clinic_service = parsed.week_rows[clinic_week].weekday_assignments.get(fellow_name, "")
-        if clinic_service == "Clinic/Elective":
-            criteria.append(CRITERION_CLINIC)
-    # Stroke: mirrors the encoder's TWO rules (schedule_solver). Exempt in
-    # dual-stroke weeks (the second Stroke fellow covers the night).
-    #   (1) Weekday Stroke service penalizes only the nights BEFORE a stroke
-    #       workday — Sun/Mon/Tue/Wed/Thu nights — reading the Stroke service of
-    #       the week containing the NEXT morning (Mon-Thu night => same week,
-    #       Sunday night => next week's Monday). Fri/Sat nights are NOT penalized
-    #       (the morning after is not a stroke workday).
-    #   (2) The Weekend STROKE role holder is penalized for Saturday night only.
-    #       Sunday is intentionally NOT penalized: the weekend-night-linking
-    #       encoder steers Sunday night TO the weekend-Stroke fellow, so a Sunday
-    #       penalty here would contradict that intended outcome.
-    if week_index not in dual:
-        stroke_added = False
-        # Rule 1: night before a stroke workday.
-        if day_of_week in (0, 1, 2, 3):  # Mon-Thu night -> next morning same week
-            stroke_week = week_index
-        elif day_of_week == 6:  # Sun night -> Monday of next week
-            stroke_week = week_index + 1
-        else:  # Fri/Sat -> next morning is not a stroke workday
-            stroke_week = None
-        if stroke_week is not None and stroke_week < len(parsed.week_rows):
-            svc = parsed.week_rows[stroke_week].weekday_assignments.get(fellow_name, "")
-            if "Stroke" in svc and "Telestroke" not in svc:
-                criteria.append(CRITERION_STROKE)
-                stroke_added = True
-        # Rule 2: Weekend Stroke role holder on Saturday night (Sun is steered to
-        # the weekend-Stroke fellow elsewhere; mirror encoder Rule 2).
-        if not stroke_added and day_of_week == 5:
-            if weekend_solution is not None:
-                wknd_stroke = weekend_solution.assignments_by_week[week_index].get("Weekend Stroke")
-            else:
-                wknd_stroke = week_row.schedule_assignments.get("Weekend Stroke")
-            if wknd_stroke == fellow_name:
-                criteria.append(CRITERION_STROKE)
-    # Friday weekend-NCC1: prefer the solved weekend, fall back to imported.
-    if day_of_week == 4:
-        if weekend_solution is not None:
-            wknd_ncc1 = weekend_solution.assignments_by_week[week_index].get("Weekend NCC1")
-        else:
-            wknd_ncc1 = week_row.schedule_assignments.get("Weekend NCC1")
-        if wknd_ncc1 == fellow_name:
-            criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
-    if day_of_week == 6 and week_index + 1 < len(parsed.week_rows):
-        following_service = parsed.week_rows[week_index + 1].weekday_assignments.get(fellow_name, "")
-        if not is_preferred_sunday_following_service(following_service, config=config):
-            criteria.append(CRITERION_SUNDAY_FOLLOWING)
+    if _CLINIC_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
+        criteria.append(CRITERION_CLINIC)
+    if _STROKE_CRITERION.evaluate(view, week_index, day_of_week, fellow_name, exempt_weeks=dual):
+        criteria.append(CRITERION_STROKE)
+    if _FRIDAY_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
+        criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
+    if _SUNDAY_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
+        criteria.append(CRITERION_SUNDAY_FOLLOWING)
     return tuple(criteria)
 
 
 # Backwards-compatible alias for existing callers/tests.
 _criteria_for_assignment = criteria_for_assignment
+
+
+CRITERION_WEEKEND_ROLE_MISMATCH = "weekend_role_mismatch"
+CRITERION_PREVACATION_WEEKEND = "prevacation_weekend"
+ALL_WEEKEND_CRITERIA = frozenset(
+    {CRITERION_WEEKEND_ROLE_MISMATCH, CRITERION_PREVACATION_WEEKEND}
+)
+
+
+def weekend_criteria_for_role(
+    parsed: ParsedCallScheduleCsv,
+    week_index: int,
+    role: str,
+    fellow_name: str,
+    *,
+    weekend_solution=None,
+) -> tuple[str, ...]:
+    """Which cell-localizable weekend criteria a given (week, role, fellow)
+    weekend assignment triggers. Both criteria are delegated to their single
+    co-located definitions (ADR-0005) — the same objects the encoder uses — so
+    the workbook display cannot drift from the solver's penalties.
+
+    These are the weekend faults where the weekend cell itself is at fault
+    (role/weekday mismatch; weekend call before a vacation). Aggregate/spacing
+    weekend penalties (consecutive-weekend, weekend-total band) have no single
+    guilty cell and are intentionally not evaluated here.
+    """
+    if not fellow_name:
+        return ()
+    view = ParsedScheduleView(parsed, weekend_solution=weekend_solution)
+    out = []
+    if _WEEKEND_MISMATCH_CRITERION.evaluate(view, week_index, role, fellow_name):
+        out.append(CRITERION_WEEKEND_ROLE_MISMATCH)
+    if _PREVACATION_CRITERION.evaluate(view, week_index, role, fellow_name):
+        out.append(CRITERION_PREVACATION_WEEKEND)
+    return tuple(out)
 
 
 def _validate_hard_criteria(hard_criteria: set[str] | frozenset[str]) -> frozenset[str]:
