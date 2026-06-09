@@ -148,6 +148,19 @@ def _relation_violated(relation: str, actual: int, bound: int) -> bool:
     raise ValueError(f"Unknown relation: {relation}")
 
 
+def _eval_group_count_balance(view, constraint, fellows) -> list[Violation]:
+    from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
+    shifts = constraint.shifts.shifts if constraint.shifts else ()
+    window = ((constraint.weeks.start, constraint.weeks.end)
+              if constraint.weeks else (0, view.num_weeks))
+    max_diff = constraint.params["max_difference"]
+    pairs = GroupCountBalanceCriterion().evaluate(
+        view, fellows=fellows, shifts=shifts, window=window, max_difference=max_diff)
+    return [Violation(constraint.kind,
+                     f"{a} vs {b}: on-service counts differ by more than {max_diff}")
+            for (a, b) in pairs]
+
+
 # kind -> evaluator; multiple kinds may share one archetype evaluator.
 _EVALUATORS: dict[str, Callable] = {
     "full_assignment": _eval_full_assignment,
@@ -155,6 +168,7 @@ _EVALUATORS: dict[str, Callable] = {
     "zero_shifts": _eval_zero_shifts,
     "shift_total": _eval_windowed_count_band,
     "staffing_per_week": _eval_windowed_count_band,
+    "group_count_balance": _eval_group_count_balance,
 }
 
 

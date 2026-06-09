@@ -53,6 +53,7 @@ from schedule_rules.criteria.sunday_following import (
 )
 from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
 from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
+from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
 from schedule_rules.strength import HARD as _HARD, SOFT as _SOFT
 from schedule_rules.strength import Strength as _Strength
 
@@ -63,6 +64,7 @@ _FRIDAY_CRITERION = FridayWeekendNcc1Criterion()
 _SUNDAY_CRITERION = SundayFollowingCriterion()
 _WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
 _PREVACATION_CRITERION = PrevacationWeekendCriterion()
+_GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
 
 
 def _strength_for(criterion: str, hard_criteria: frozenset[str]) -> "_Strength":
@@ -401,6 +403,7 @@ def _encode_weekly_rules(
         "zero_shifts": _encode_zero_shifts,
         "prerequisite": _encode_prerequisite,
         "windowed_balance": _encode_windowed_balance,
+        "group_count_balance": _encode_group_count_balance,
     }
 
     for constraint in config.constraints:
@@ -3597,6 +3600,37 @@ def _encode_windowed_balance(opb, xs, constraint, fellow_indices, **kw):
             opb, vars_a, vars_b, max_diff,
             is_soft=is_soft, weight=weight, soft_violations=soft_violations,
         )
+
+
+def _encode_group_count_balance(opb, xs, constraint, fellow_indices, **kw):
+    """Comparable per-fellow counts of a shift-set within a window, ACROSS the
+    fellows in the selector (pairwise |count_i - count_j| <= max_difference).
+    Delegates to the co-located GroupCountBalanceCriterion (ADR-0005)."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+    weight = kw["config"].weekly_soft_weight
+    soft_violations = kw["soft_violations"]
+
+    max_diff = constraint.params["max_difference"]
+    target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+    s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+    w_start, w_end = (constraint.weeks.start, constraint.weeks.end) if constraint.weeks else (0, num_weeks)
+
+    fellow_var_lists = []
+    for f in fellow_indices:
+        vlist = [xs[f][w][si]
+                 for w in range(w_start, min(w_end, num_weeks))
+                 for si in s_indices if xs[f][w][si] != 0]
+        fellow_var_lists.append(vlist)
+
+    strength = _SOFT if constraint.strength == ConstraintStrength.SOFT else _HARD
+    _GROUP_COUNT_BALANCE_CRITERION.encode(
+        OpbConstraintSink(opb, soft_violations),
+        fellow_var_lists=fellow_var_lists,
+        max_difference=max_diff,
+        strength=strength,
+        weight=weight,
+    )
 
 
 # ---------------------------------------------------------------------------

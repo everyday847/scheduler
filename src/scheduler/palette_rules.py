@@ -21,6 +21,7 @@ PALETTE_TYPES = frozenset({
     "rotation_continuity",
     "prerequisite",
     "windowed_balance",
+    "group_count_balance",
 })
 
 
@@ -213,6 +214,28 @@ def _convert_windowed_balance(
     )]
 
 
+def _convert_group_count_balance(
+    rule: dict[str, Any], lifecycle: ConstraintLifecycle
+) -> list[SemanticConstraint]:
+    name = rule["name"]
+    strength = _parse_strength(rule["strength"])
+    window = rule.get("window")
+    weeks = WeekSpan(window[0], window[1]) if window else None
+
+    return [SemanticConstraint(
+        kind="group_count_balance",
+        lifecycle=lifecycle,
+        strength=strength,
+        fellows=FellowSelector.by_groups(*rule["groups"]),
+        weeks=weeks,
+        shifts=ShiftSet(name, tuple(rule["shifts"])),
+        params={
+            "name": name,
+            "max_difference": rule["max_difference"],
+        },
+    )]
+
+
 def _parse_strength(value: str) -> ConstraintStrength:
     try:
         return ConstraintStrength(value)
@@ -229,4 +252,5 @@ _CONVERTERS: dict[str, Any] = {
     "rotation_continuity": _convert_rotation_continuity,
     "prerequisite": _convert_prerequisite,
     "windowed_balance": _convert_windowed_balance,
+    "group_count_balance": _convert_group_count_balance,
 }
