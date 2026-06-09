@@ -433,7 +433,7 @@ rules:
   groups:
   - STROKE
   name: 'Stroke: Vacation Total'
-  relation: at_least
+  relation: exactly
   shifts:
   - Vac
   strength: hard
@@ -448,6 +448,21 @@ rules:
   - Telestroke/Clinic
   strength: hard
   type: shift_total
+- active: true
+  groups:
+  - STROKE
+  name: 'Stroke Pre-ABPN On-Service Balance'
+  type: group_count_balance
+  shifts:
+  - Stroke
+  - NCC1
+  - NCC2
+  - Swing
+  window:
+  - 0
+  - 11
+  max_difference: 2
+  strength: soft
 - active: true
   count: 12
   groups:

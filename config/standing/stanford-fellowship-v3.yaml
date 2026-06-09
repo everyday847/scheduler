@@ -139,6 +139,16 @@ rules:
     strength: hard
     active: true
 
+  - name: Stroke Cap
+    description: "No more than 2 fellows on Stroke in any week (the service can't support more)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Stroke]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
   - name: Telestroke Coverage
     description: "At least one fellow on Telestroke/Clinic weeks 2-53 (one-indexed). Week 1 is exempt: the Stroke fellows are pinned to Elec and no Telestroke-capable fellow is free."
     type: staffing_per_week
@@ -147,6 +157,27 @@ rules:
     relation: at_least
     count: 1
     window: [1, 53]
+    strength: hard
+    active: true
+
+  - name: Clinic/Elective Cap
+    description: "At most 1 Clinic/Elective fellow per week, so coverage spreads across more weeks rather than clustering."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Clinic/Elective]
+    relation: at_most
+    count: 1
+    strength: hard
+    active: true
+
+  - name: No Clinic/Elective in Holiday Weeks
+    description: "Forbid Clinic/Elective in the two holiday weeks (12/21 and 12/28 = 0-indexed weeks 25-26)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Clinic/Elective]
+    relation: at_most
+    count: 0
+    window: [25, 27]
     strength: hard
     active: true
 
