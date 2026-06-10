@@ -62,6 +62,7 @@ from schedule_rules.weekly.full_assignment import FullAssignmentCriterion
 from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterion
 from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
 from schedule_rules.weekly.windowed_count_band import WindowedCountBandCriterion
+from schedule_rules.criteria.windowed_supervision import WindowedSupervisionCriterion
 from schedule_rules.night.night_literal_pin import NightLiteralPin, PIN, FORBID
 from schedule_rules.strength import HARD as _HARD, SOFT as _SOFT
 from schedule_rules.strength import Strength as _Strength
@@ -88,6 +89,7 @@ _FULL_ASSIGNMENT_CRITERION = FullAssignmentCriterion()
 _SPECIFIC_ASSIGNMENT_CRITERION = SpecificAssignmentCriterion()
 _ZERO_SHIFTS_CRITERION = ZeroShiftsCriterion()
 _WINDOWED_COUNT_BAND_CRITERION = WindowedCountBandCriterion()
+_WINDOWED_SUPERVISION_CRITERION = WindowedSupervisionCriterion()
 _NIGHT_LITERAL_PIN = NightLiteralPin()
 
 
@@ -324,17 +326,10 @@ def build_full_schedule_opb(
         opb, xn, xs, wr, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
     )
 
-    # -------------------------------------------------------------------
-    # 7b. Annual call rules (pin/block night/weekend)
-    # -------------------------------------------------------------------
-    if config.call_rules:
-        opb.add_comment("Annual call rules (pin/block night/weekend)")
-        _encode_call_rules(opb, xn, wr, config, fellow_names,
-                           xs=xs, shift_idx=shift_idx, soft_violations=soft_violations)
-
-        opb.add_comment("Dual Stroke window (from call_rules)")
-        _encode_dual_stroke_window(opb, xs, config, fellow_names, shift_idx,
-                                   soft_violations=soft_violations)
+    # The former `call_rules` channel is fully dissolved: all its types now route
+    # through the typed config.constraints pipeline (weekly/weekend/night layer
+    # walks), including dual_stroke_window (kind handled by the weekly walk via
+    # _encode_dual_stroke_window_rule).
 
     # -------------------------------------------------------------------
     # 7c. Experimental Stroke variants (default off; flags set by --variant)
@@ -451,6 +446,7 @@ def _encode_weekly_rules(
         "prerequisite": _encode_prerequisite,
         "windowed_balance": _encode_windowed_balance,
         "group_count_balance": _encode_group_count_balance,
+        "dual_stroke_window": _encode_dual_stroke_window_rule,
     }
 
     for constraint in config.constraints:
@@ -2930,65 +2926,6 @@ def _encode_dual_stroke_helena(
             soft_violations.append((viol, nohel_w))
 
 
-def _encode_dual_stroke_window(
-    opb: OpbBuilder,
-    xs: list[list[list[int]]],
-    config: ScheduleSolverConfig,
-    fellow_names: list[str],
-    shift_idx: dict[str, int],
-    soft_violations: list[tuple[int, int]] | None = None,
-) -> None:
-    """Encode dual-Stroke window: allow 2 fellows on Stroke in a week range.
-
-    Within the window: at_most 2 total, at_most 1 non-supervisor.
-    Outside the window: at_most 1 total.
-    Weeks where locked fellows already exceed the cap are softened.
-    """
-    num_weeks = config.num_weeks
-    stroke_si = shift_idx.get("Stroke")
-    if stroke_si is None:
-        return
-
-    for rule in config.call_rules:
-        if not rule.get("active", True):
-            continue
-        if rule.get("type") != "dual_stroke_window":
-            continue
-
-        window = rule.get("window", [0, 0])
-        w_start, w_end = window[0], window[1]
-        supervisors = set(rule.get("supervisors", []))
-
-        supervisor_indices = {fi for fi, name in enumerate(fellow_names) if name in supervisors}
-        non_supervisor_indices = {fi for fi in range(len(fellow_names)) if fi not in supervisor_indices}
-
-        # IMPORTED fellows already on Stroke that week (single source of truth).
-        locked_stroke_per_week = config.imported_shift_counts(fellow_names, {"Stroke"})
-
-        weight = config.weekly_soft_weight
-
-        for w in range(num_weeks):
-            locked_here = locked_stroke_per_week.get(w, 0)
-            sup_vars = [xs[fi][w][stroke_si] for fi in supervisor_indices
-                        if xs[fi][w][stroke_si] != 0]
-            non_sup_vars = [xs[fi][w][stroke_si] for fi in non_supervisor_indices
-                           if xs[fi][w][stroke_si] != 0]
-            all_stroke_vars = sup_vars + non_sup_vars
-            if not all_stroke_vars:
-                continue
-
-            if locked_here >= 1:
-                continue
-
-            if w_start <= w < w_end:
-                # Window: at most 1 supervisor, at most 1 non-supervisor
-                if sup_vars:
-                    opb.at_most_k(sup_vars, 1)
-                if non_sup_vars:
-                    opb.at_most_k(non_sup_vars, 1)
-            else:
-                # Outside window: at most 1 total
-                opb.at_most_k(all_stroke_vars, 1)
 
 
 class _SoftWeightProxy:
@@ -3419,45 +3356,6 @@ def _encode_balance_constraint(
 
 
 # ---------------------------------------------------------------------------
-# Annual call rules (pin/block night/weekend)
-# ---------------------------------------------------------------------------
-
-def _encode_call_rules(
-    opb: OpbBuilder,
-    xn: list[list[int]],
-    wr: list[list[dict[int, int]]],
-    config: ScheduleSolverConfig,
-    fellow_names: list[str],
-    xs: list[list[list[int]]] | None = None,
-    shift_idx: dict[str, int] | None = None,
-    soft_violations: list[tuple[int, int]] | None = None,
-) -> None:
-    """Validate the residual ``call_rules`` channel.
-
-    The pin/block/prerequisite/per-fellow call-rule types were dissolved into the
-    typed ``config.constraints`` pipeline (co-located Rule Shapes routed through
-    the weekly/weekend/night layer walks). The only type that still rides this
-    legacy channel is ``dual_stroke_window`` — a Supervision-shaped rule encoded
-    separately by ``_encode_dual_stroke_window``; here it is parsed-and-skipped.
-    Any other type is a stale config entry (its handling now lives in the typed
-    pipeline), so fail fast rather than silently ignore it.
-    """
-    _RESIDUAL_TYPES = {"dual_stroke_window"}
-    for rule in config.call_rules:
-        if not rule.get("active", True):
-            continue
-        rule_type = rule.get("type")
-        if rule_type not in _RESIDUAL_TYPES:
-            raise ValueError(
-                f"call_rule type {rule_type!r} (rule: {rule.get('name', rule_type)!r}) "
-                f"is no longer encoded via call_rules — it was migrated to the typed "
-                f"`rules:` pipeline. Move it to `rules:`. Residual call_rule types: "
-                f"{', '.join(sorted(_RESIDUAL_TYPES))}."
-            )
-        # dual_stroke_window: encoded by _encode_dual_stroke_window, not here.
-
-
-# ---------------------------------------------------------------------------
 # Night-layer Rule Shape adapters (S2): four kinds -> NightLiteralPin
 #
 # Thin config->archetype translators registered in _NIGHT_HANDLERS. Each
@@ -3851,6 +3749,47 @@ def _encode_group_count_balance(opb, xs, constraint, fellow_indices, **kw):
         strength=strength,
         weight=weight,
     )
+
+
+def _encode_dual_stroke_window_rule(opb, xs, constraint, fellow_indices, **kw):
+    """Windowed opportunistic supervision on Stroke (the 'may' shape). Thin
+    adapter: per week, split the week's Stroke vars into supervisor/non-supervisor
+    and delegate the cap to WindowedSupervisionCriterion (ADR-0005). Reproduces
+    the prior `_encode_dual_stroke_window` emission EXACTLY — including skipping a
+    week where an Imported fellow already occupies the Stroke slot (single source:
+    config.imported_shift_counts)."""
+    config = kw["config"]
+    fellow_names = kw["fellow_names"]
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+
+    stroke_si = shift_idx.get("Stroke")
+    if stroke_si is None:
+        return
+
+    window = constraint.params.get("window", [0, 0])
+    w_start, w_end = window[0], window[1]
+    supervisors = set(constraint.params.get("supervisors", []))
+    supervisor_indices = {fi for fi, name in enumerate(fellow_names) if name in supervisors}
+
+    locked_stroke_per_week = config.imported_shift_counts(fellow_names, {"Stroke"})
+    sink = OpbConstraintSink(opb, kw["soft_violations"])
+
+    for w in range(num_weeks):
+        if locked_stroke_per_week.get(w, 0) >= 1:
+            continue
+        sup_vars = [xs[fi][w][stroke_si] for fi in range(len(fellow_names))
+                    if fi in supervisor_indices and xs[fi][w][stroke_si] != 0]
+        non_sup_vars = [xs[fi][w][stroke_si] for fi in range(len(fellow_names))
+                        if fi not in supervisor_indices and xs[fi][w][stroke_si] != 0]
+        if not sup_vars and not non_sup_vars:
+            continue
+        _WINDOWED_SUPERVISION_CRITERION.encode(
+            sink,
+            supervisor_vars=sup_vars,
+            non_supervisor_vars=non_sup_vars,
+            in_window=(w_start <= w < w_end),
+        )
 
 
 # ---------------------------------------------------------------------------

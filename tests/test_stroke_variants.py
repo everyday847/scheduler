@@ -130,9 +130,11 @@ class TestShippedDualStrokeWindowActive:
         annual = yaml.safe_load(
             Path("/cv/scratch/u/watkina6/scheduler/config/annual/my-2026-2027-v3.yaml").read_text()
         )
-        rules = [r for r in annual.get("call_rules", [])
+        # Post-S5: dual_stroke_window lives in the typed `rules:` channel (the
+        # legacy `call_rules:` channel was fully dissolved).
+        rules = [r for r in annual.get("rules", [])
                  if r.get("type") == "dual_stroke_window"]
-        assert rules, "expected a dual_stroke_window call_rule in the shipped config"
+        assert rules, "expected a dual_stroke_window rule in the shipped config"
         rule = rules[0]
         assert rule.get("active") is True, "Supervised dual Stroke window must be active"
         # Supervisors must be exactly the three seniors (STROKE minus Helena).

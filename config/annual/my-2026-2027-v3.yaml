@@ -940,6 +940,20 @@ rules:
   count: 15
   strength: hard
   active: true
+# Windowed opportunistic supervision on Stroke (the "may" supervision shape):
+# during the window a supervised pair may cover Stroke. Migrated from the former
+# call_rules channel (S5) — call_rules is now fully dissolved.
+- type: dual_stroke_window
+  name: Supervised dual Stroke weeks 1-10
+  window:
+  - 0
+  - 10
+  supervisors:
+  - Aditya Srivatsan
+  - Cameron Schmidt
+  - Harneet Dhillon
+  strength: hard
+  active: true
 weekend_rules:
 - name: Weekend spacing
   groups:
@@ -1002,20 +1016,6 @@ weekend_rules:
       clinic: 1
       friday_weekend_ncc1: 1
       stroke: 5
-call_rules:
-# Only dual_stroke_window remains here pending the S5 Supervision archetype
-# (ADR-0004). All other former call_rules were migrated into the typed `rules:`
-# pipeline (dissolution S1-S4).
-- type: dual_stroke_window
-  name: Supervised dual Stroke weeks 1-10
-  window:
-  - 0
-  - 10
-  supervisors:
-  - Aditya Srivatsan
-  - Cameron Schmidt
-  - Harneet Dhillon
-  active: true
 specific_assignments:
   Aditya Srivatsan:
   - ''

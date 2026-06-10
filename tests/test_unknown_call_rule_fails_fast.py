@@ -1,81 +1,58 @@
-"""Fail-fast contract for the residual `call_rules` channel.
+"""Fail-loud contract for the dissolved `call_rules` channel.
 
-`_encode_call_rules` once dispatched raw `call_rules` dicts by `rule["type"]`
-through an if/elif chain; an unrecognized type fell through silently, so a typo
-dropped a night/weekend pin or block with no signal. The pin/block/prerequisite/
-per-fellow call-rule types have since been dissolved into the typed `rules:`
-pipeline, leaving exactly ONE residual type that still rides this legacy
-channel: `dual_stroke_window` (a Supervision-shaped rule encoded separately by
-`_encode_dual_stroke_window`; here it is parsed-and-skipped).
+`call_rules` was once a raw escape-hatch channel: `_encode_call_rules` dispatched
+its dicts by `rule["type"]` through an if/elif chain, and an unrecognized type
+fell through silently — a typo dropped a pin/block with no signal. That whole
+channel has since been dissolved into the typed `rules:` pipeline (S1-S5), and
+`_encode_call_rules` was deleted.
 
-The channel now fails fast for anything that is not the residual type:
-  * a genuinely-unknown type (typo) raises, naming the offending type;
-  * a MIGRATED type (e.g. blocked_night) raises with the "migrated to the
-    typed `rules:` pipeline" message, pinning the post-cutover contract;
-  * the residual `dual_stroke_window` still builds;
-  * inactive rules (active:False) are still skipped before type dispatch.
-"""
+The anti-silent-drop guarantee is preserved at the request boundary: a request
+that still carries an ACTIVE `call_rules` entry is rejected by
+`build_solver_config_from_request`, pointing the caller at `rules:`. Inactive
+entries are ignored (you can leave `active:false` history in a config)."""
 
 from __future__ import annotations
 
-from datetime import date
-
 import pytest
 
-from parafrost_scheduler.schedule_types import ScheduleSolverConfig
-from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
-from scheduler.night_call_types import NightSolverConfig
-from scheduler.weekend_call_types import WeekendSolverConfig
+from scheduler.solver_bridge import build_solver_config_from_request
 
 
-def _config(call_rules) -> ScheduleSolverConfig:
-    return ScheduleSolverConfig(
-        fellow_groups={"NCC_SR": ["Bob"]},
-        shifts=["NCC1", "NCC2", "Stroke", "Elec"],
-        constraints=[],
-        night_config=NightSolverConfig(
-            total_nights={}, friday_nights={}, total_night_multisets=(),
-            friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
-            horizon_start_date=date(2026, 7, 6)),
-        weekend_config=WeekendSolverConfig(
-            ncc_totals={}, stroke_totals={}, stroke_cohort=(), stroke_cohort_total=None,
-            ccm_fellows=frozenset(), always_stroke_eligible=frozenset(),
-            telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset()),
-        night_hard_criteria=frozenset(),
-        start_dow=0, num_days=70, call_rules=call_rules)
+def _request(call_rules):
+    return {
+        "fellow_groups": {"NCC_SR": ["Bob"]},
+        "shifts": ["NCC1", "NCC2", "Stroke", "Elec"],
+        "fellow_week_pairs": {},
+        "horizon_start": "2026-07-01",
+        "standing_rules": [],   # minimal palette-format standing (empty)
+        "call_rules": call_rules,
+    }
 
 
-def test_unknown_call_rule_type_raises():
-    config = _config([{"type": "blocked_nite", "fellow": "Bob", "dates": []}])  # typo
+def test_active_call_rule_is_rejected():
+    """Any active call_rules entry — migrated type or otherwise — is rejected,
+    naming the offending type(s) and pointing at the typed `rules:` pipeline."""
     with pytest.raises(ValueError) as exc:
-        build_full_schedule_opb(config, objective=True)
-    assert "blocked_nite" in str(exc.value)
-
-
-def test_inactive_unknown_rule_is_skipped():
-    # active:False rules are intentionally ignored before type dispatch.
-    config = _config([{"type": "blocked_nite", "fellow": "Bob", "active": False}])
-    opb, _ = build_full_schedule_opb(config, objective=True)
-    assert opb.num_constraints > 0
-
-
-def test_migrated_call_rule_type_raises():
-    """A type that was migrated to the typed `rules:` pipeline (here blocked_night)
-    is no longer encoded via call_rules — leaving it in the legacy channel must
-    fail fast with the migration-pointer message rather than silently no-op."""
-    config = _config([{"type": "blocked_night", "fellow": "Bob",
-                       "dates": ["2026-07-10"], "active": True}])
-    with pytest.raises(ValueError) as exc:
-        build_full_schedule_opb(config, objective=True)
+        build_solver_config_from_request(
+            _request([{"type": "blocked_night", "fellow": "Bob",
+                       "dates": ["2026-07-10"], "active": True}]))
     msg = str(exc.value)
+    assert "call_rules" in msg
     assert "blocked_night" in msg
-    assert "migrated to the typed" in msg
+    assert "rules:" in msg
 
 
-def test_residual_dual_stroke_window_still_builds():
-    """The one residual call_rule type still rides this channel (parsed-and-skipped
-    here, encoded by _encode_dual_stroke_window) and must build without raising."""
-    config = _config([{"type": "dual_stroke_window", "name": "dsw",
-                       "window": [0, 2], "supervisors": ["Bob"], "active": True}])
-    opb, _ = build_full_schedule_opb(config, objective=True)
-    assert opb.num_constraints > 0
+def test_dual_stroke_window_in_call_rules_is_rejected():
+    """Even the formerly-residual dual_stroke_window must now live in `rules:`."""
+    with pytest.raises(ValueError) as exc:
+        build_solver_config_from_request(
+            _request([{"type": "dual_stroke_window", "name": "dsw",
+                       "window": [0, 2], "supervisors": ["Bob"], "active": True}]))
+    assert "dual_stroke_window" in str(exc.value)
+
+
+def test_inactive_call_rule_is_ignored():
+    """active:false entries are tolerated (config history) — no raise."""
+    config = build_solver_config_from_request(
+        _request([{"type": "blocked_night", "fellow": "Bob", "active": False}]))
+    assert config.call_rules == []

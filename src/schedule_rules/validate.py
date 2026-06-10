@@ -243,6 +243,18 @@ def _eval_weekend_role_prerequisite(view, constraint, fellows) -> list[Violation
             for (f, w, role) in hits]
 
 
+def _eval_dual_stroke_window(view, constraint, fellows) -> list[Violation]:
+    """Windowed opportunistic supervision on Stroke. In-window a week may hold a
+    supervised pair (≤1 supervisor + ≤1 non-supervisor); out-of-window ≤1 total."""
+    from schedule_rules.criteria.windowed_supervision import WindowedSupervisionCriterion
+    window = tuple(constraint.params.get("window", (0, 0)))
+    supervisors = set(constraint.params.get("supervisors", []))
+    hits = WindowedSupervisionCriterion().evaluate(
+        view, supervisors=supervisors, shift="Stroke",
+        window=window, num_weeks=view.num_weeks)
+    return [Violation(constraint.kind, reason, week=w) for (w, reason) in hits]
+
+
 # kind -> evaluator; multiple kinds may share one archetype evaluator.
 _EVALUATORS: dict[str, Callable] = {
     "full_assignment": _eval_full_assignment,
@@ -259,6 +271,7 @@ _EVALUATORS: dict[str, Callable] = {
     "blocked_weekend": _eval_weekend_role_pin,
     "weekend_stroke_prerequisite": _eval_weekend_role_prerequisite,
     "weekend_ncc_prerequisite": _eval_weekend_role_prerequisite,
+    "dual_stroke_window": _eval_dual_stroke_window,
 }
 
 

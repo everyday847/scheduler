@@ -98,7 +98,22 @@ def build_solver_config_from_request(
     weekend_config = build_weekend_config_from_request(raw_request, fellow_groups)
 
     locked_assignments = raw_request.get("locked_assignments", {})
-    call_rules = raw_request.get("call_rules", [])
+    # The `call_rules` channel was fully dissolved into the typed `rules:`
+    # pipeline. A request that still carries call_rules is stale config — reject
+    # it loudly (active entries only) rather than silently dropping it, so a
+    # caller is told to move the rule to `rules:` (the field is retained, always
+    # empty, only so existing ScheduleSolverConfig constructors keep their kwarg).
+    stale_call_rules = [r for r in raw_request.get("call_rules", [])
+                        if isinstance(r, dict) and r.get("active", True)]
+    if stale_call_rules:
+        types = sorted({r.get("type") for r in stale_call_rules})
+        raise ValueError(
+            f"`call_rules` is no longer a supported channel (types {types}); these "
+            f"rules were dissolved into the typed `rules:` pipeline. Move them to "
+            f"`rules:` (per-fellow counts → shift_total with a fellow: selector; "
+            f"pins/blocks/prerequisites/dual_stroke_window keep their type string)."
+        )
+    call_rules: list[dict] = []
 
     # Compute calendar model from horizon_start
     horizon_start_str = raw_request.get("horizon_start", "2026-07-01")
@@ -324,6 +339,20 @@ def _migrated_call_rule_to_constraint(rule: Dict[str, Any]):
             params={"name": name,
                     "exempt_fellows": rule.get("exempt_fellows", []),
                     "exempt_groups": rule.get("exempt_groups", [])},
+        )
+
+    if rule_type == "dual_stroke_window":
+        # Windowed opportunistic supervision on Stroke (a weekly-layer xs rule).
+        # Encode handler reads window/supervisors from params and splits the
+        # week's Stroke pool by the supervisors list.
+        return SemanticConstraint(
+            kind="dual_stroke_window",
+            lifecycle=STANDING,
+            strength=strength,
+            fellows=None,
+            params={"name": name,
+                    "window": rule.get("window", [0, 0]),
+                    "supervisors": rule.get("supervisors", [])},
         )
 
     return None
