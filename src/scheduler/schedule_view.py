@@ -12,13 +12,20 @@ prior inline evaluator behavior.
 
 from __future__ import annotations
 
-from .call_schedule_common import ParsedCallScheduleCsv
+from .call_schedule_common import NIGHT_ROLES, ParsedCallScheduleCsv
 
 
 class ParsedScheduleView:
-    def __init__(self, parsed: ParsedCallScheduleCsv, *, weekend_solution=None) -> None:
+    def __init__(
+        self,
+        parsed: ParsedCallScheduleCsv,
+        *,
+        weekend_solution=None,
+        night_solution=None,
+    ) -> None:
         self._parsed = parsed
         self._weekend_solution = weekend_solution
+        self._night_solution = night_solution
 
     @property
     def num_weeks(self) -> int:
@@ -51,3 +58,17 @@ class ParsedScheduleView:
                 if s == shift
             ]
         return []
+
+    def night_holder(self, day: int) -> str | None:
+        """The fellow holding the night on absolute *day* index (0 = horizon
+        start), inverting day -> (week, dow). None when no night solution was
+        supplied, or the day/week is out of range."""
+        if self._night_solution is None:
+            return None
+        if day < 0:
+            return None
+        week, dow = divmod(day, 7)
+        weeks = self._night_solution.assignments_by_week
+        if not (0 <= week < len(weeks)):
+            return None
+        return weeks[week].get(NIGHT_ROLES[dow])

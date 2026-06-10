@@ -55,6 +55,9 @@ class DictScheduleView:
     def weekend_role_holder(self, week, role):
         return None
 
+    def night_holder(self, day):
+        return None
+
     def fellows_on_shift(self, week, shift):
         out = []
         if 0 <= week < len(self._weekday):

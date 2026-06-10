@@ -8,7 +8,7 @@ solutions back into structured types.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Callable
 
 from scheduler.fellow_mapping import FellowMapping
 from scheduler.semantic_constraints import (
@@ -265,6 +265,11 @@ def build_full_schedule_opb(
     _encode_weekend_constraints(
         opb, wr, xs, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
     )
+    # Weekend-layer registry walk (Option A): typed config.constraints routed to
+    # the weekend layer. EMPTY in this foundation → encodes nothing.
+    _encode_weekend_layer_rules(
+        opb, wr, xs, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
+    )
 
     # -------------------------------------------------------------------
     # 5b. Backup variables + constraints: bk[w][kind][f]
@@ -294,6 +299,11 @@ def build_full_schedule_opb(
     # -------------------------------------------------------------------
     _encode_night_constraints(
         opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
+    )
+    # Night-layer registry walk (Option A): typed config.constraints routed to
+    # the night layer. EMPTY in this foundation → encodes nothing.
+    _encode_night_layer_rules(
+        opb, xn, xs, wr, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
     )
 
     # -------------------------------------------------------------------
@@ -359,6 +369,26 @@ PER_FELLOW_KINDS = frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# Layer-routed constraint registries (Option A)
+# ---------------------------------------------------------------------------
+# config.constraints is the single, unified typed-constraint list. Each kind is
+# routed to the LAYER that owns its variables: "weekly" (xs), "weekend" (wr), or
+# "night" (xn). build_full_schedule_opb makes one registry walk per layer, AFTER
+# that layer's vars are allocated; a walk dispatches only the kinds whose layer
+# is its own and SKIPS the rest. A kind absent from EVERY registry is a typo and
+# fails fast in the weekly walk (the `handlers` dict in _encode_weekly_rules).
+#
+# The weekly registry is built inside _encode_weekly_rules (its handlers close
+# over module-level encoder fns defined throughout this file). The weekend and
+# night registries start EMPTY: this is a pure foundation seam. A migrating
+# stage adds {kind: handler} entries here — a handler matching the layer-walk
+# call shape (see _encode_weekend_layer_rules / _encode_night_layer_rules) — and
+# nothing else in build_full_schedule_opb changes.
+_WEEKEND_HANDLERS: dict[str, Callable] = {}
+_NIGHT_HANDLERS: dict[str, Callable] = {}
+
+
 def _encode_weekly_rules(
     opb: OpbBuilder,
     xs: list[list[list[int]]],
@@ -408,12 +438,18 @@ def _encode_weekly_rules(
     for constraint in config.constraints:
         handler = handlers.get(constraint.kind)
         if handler is None:
+            # A kind owned by another layer (weekend/night) is encoded by that
+            # layer's walk after its vars are allocated — skip it here, don't
+            # raise. Only a kind registered to NO layer is a typo.
+            if constraint.kind in _WEEKEND_HANDLERS or constraint.kind in _NIGHT_HANDLERS:
+                continue
             name = constraint.params.get("name", constraint.kind)
+            known = sorted({*handlers, *_WEEKEND_HANDLERS, *_NIGHT_HANDLERS})
             raise ValueError(
-                f"Unknown weekly constraint kind '{constraint.kind}' "
-                f"(rule: {name!r}). Known kinds: {', '.join(sorted(handlers))}. "
-                f"A weekly rule must use a handled kind; night/weekend/call rules "
-                f"belong in night_config/weekend_config/call_rules, not constraints."
+                f"Unknown constraint kind '{constraint.kind}' "
+                f"(rule: {name!r}). Known kinds: {', '.join(known)}. "
+                f"A constraint must use a kind registered to the weekly, weekend, "
+                f"or night layer; call rules belong in call_rules, not constraints."
             )
         fellow_indices = _resolve_fellow_indices(fellow_mapping, constraint.fellows)
         if locked_fellow_indices and constraint.kind in PER_FELLOW_KINDS:
@@ -431,6 +467,80 @@ def _encode_weekly_rules(
             soft_violations=soft_violations,
             config=config,
             locked_fellow_indices=locked_fellow_indices,
+        )
+
+
+def _encode_weekend_layer_rules(
+    opb: OpbBuilder,
+    wr: list,
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_mapping: FellowMapping,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Weekend-layer registry walk: encode typed config.constraints whose kind is
+    routed to the weekend layer. Runs AFTER wr is allocated. Skips kinds owned by
+    other layers (they fail fast in the weekly walk if registered nowhere).
+
+    EMPTY in this foundation (_WEEKEND_HANDLERS == {}): the loop dispatches
+    nothing → zero new constraints. A migrating stage registers {kind: handler}
+    in _WEEKEND_HANDLERS; the handler is called with the kwargs below."""
+    for constraint in config.constraints:
+        handler = _WEEKEND_HANDLERS.get(constraint.kind)
+        if handler is None:
+            continue
+        opb.add_comment(
+            f"Rule: {constraint.params.get('name', constraint.kind)} "
+            f"({constraint.strength.value})"
+        )
+        handler(
+            opb, wr, constraint,
+            xs=xs,
+            config=config,
+            fellow_mapping=fellow_mapping,
+            fellow_names=fellow_names,
+            shift_idx=shift_idx,
+            soft_violations=soft_violations,
+        )
+
+
+def _encode_night_layer_rules(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    xs: list[list[list[int]]],
+    wr: list,
+    config: ScheduleSolverConfig,
+    fellow_mapping: FellowMapping,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Night-layer registry walk: encode typed config.constraints whose kind is
+    routed to the night layer. Runs AFTER xn is allocated. Skips kinds owned by
+    other layers.
+
+    EMPTY in this foundation (_NIGHT_HANDLERS == {}): dispatches nothing → zero
+    new constraints. A migrating stage registers {kind: handler} in
+    _NIGHT_HANDLERS; the handler is called with the kwargs below."""
+    for constraint in config.constraints:
+        handler = _NIGHT_HANDLERS.get(constraint.kind)
+        if handler is None:
+            continue
+        opb.add_comment(
+            f"Rule: {constraint.params.get('name', constraint.kind)} "
+            f"({constraint.strength.value})"
+        )
+        handler(
+            opb, xn, constraint,
+            xs=xs,
+            wr=wr,
+            config=config,
+            fellow_mapping=fellow_mapping,
+            fellow_names=fellow_names,
+            shift_idx=shift_idx,
+            soft_violations=soft_violations,
         )
 
 

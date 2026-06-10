@@ -72,6 +72,9 @@ class DictScheduleView:
             return [f for f, s in self._weekday[week].items() if s == shift]
         return []
 
+    def night_holder(self, day: int) -> str | None:
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Anaesthesia

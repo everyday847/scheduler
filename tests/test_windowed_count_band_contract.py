@@ -55,6 +55,9 @@ class DictScheduleView:
         s = self.weekday_service(week, fellow)
         return [s] if s else []
 
+    def night_holder(self, day):
+        return None
+
 
 # One fellow A: NCC over weeks 0,1,2 (count 3), Elec on 3,4. Window [0,5) => 3.
 def _view():

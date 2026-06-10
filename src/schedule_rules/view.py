@@ -30,3 +30,8 @@ class ScheduleView(Protocol):
     def fellows_on_shift(self, week: int, shift: str) -> list[str]:
         """All fellows on *shift* that week (for multiplicity checks)."""
         ...
+
+    def night_holder(self, day: int) -> str | None:
+        """The fellow holding the night on absolute *day* index (0 = horizon
+        start), or None if unassigned/out of range."""
+        ...
