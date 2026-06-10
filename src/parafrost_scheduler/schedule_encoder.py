@@ -58,6 +58,7 @@ from schedule_rules.weekly.full_assignment import FullAssignmentCriterion
 from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterion
 from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
 from schedule_rules.weekly.windowed_count_band import WindowedCountBandCriterion
+from schedule_rules.night.night_literal_pin import NightLiteralPin, PIN, FORBID
 from schedule_rules.strength import HARD as _HARD, SOFT as _SOFT
 from schedule_rules.strength import Strength as _Strength
 
@@ -73,6 +74,7 @@ _FULL_ASSIGNMENT_CRITERION = FullAssignmentCriterion()
 _SPECIFIC_ASSIGNMENT_CRITERION = SpecificAssignmentCriterion()
 _ZERO_SHIFTS_CRITERION = ZeroShiftsCriterion()
 _WINDOWED_COUNT_BAND_CRITERION = WindowedCountBandCriterion()
+_NIGHT_LITERAL_PIN = NightLiteralPin()
 
 
 def _strength_for(criterion: str, hard_criteria: frozenset[str]) -> "_Strength":
@@ -3476,6 +3478,133 @@ def _encode_call_rules(
                 friday_d = _week_day(w, 4, start_dow)
                 if 0 <= friday_d < num_days and xn[friday_d][fi] != 0:
                     opb.add_unit(xn[friday_d][fi])
+
+
+# ---------------------------------------------------------------------------
+# Night-layer Rule Shape adapters (S2): four kinds -> NightLiteralPin
+#
+# Thin config->archetype translators registered in _NIGHT_HANDLERS. Each
+# resolves coordinates (date->day, week->friday, group complement) and the
+# action (pin/forbid), then hands an already-resolved var list to
+# _NIGHT_LITERAL_PIN.encode — mirroring _encode_shift_total's adapter shape.
+# They reproduce the legacy _encode_call_rules branches byte-for-byte.
+# ---------------------------------------------------------------------------
+
+def _night_selector_fellow_index(constraint, fellow_names):
+    """The single fellow index a fellow-specific night rule targets, or None if
+    the selector resolves to no known fellow (mirrors the old
+    `fellow_name not in fellow_names` skip)."""
+    selector = constraint.fellows
+    if selector is None or not getattr(selector, "names", ()):
+        return None
+    fellow_name = selector.names[0]
+    if fellow_name not in fellow_names:
+        return None
+    return fellow_names.index(fellow_name)
+
+
+def _encode_group_night_requirement(opb, xn, constraint, **kw):
+    """FORBID every non-member's night on each given date. Reproduces the legacy
+    group_night_requirement branch: for each date, for each fellow NOT in the
+    union of the allowed groups, forbid xn[d][fi]."""
+    config = kw["config"]
+    fellow_names = kw["fellow_names"]
+    soft_violations = kw["soft_violations"]
+    num_days = config.num_days
+    horizon_start = config.night_config.horizon_start_date
+
+    allowed_groups = constraint.params.get("groups", [])
+    allowed_fellows: set[str] = set()
+    for g in allowed_groups:
+        allowed_fellows.update(config.fellow_groups.get(g, []))
+
+    night_vars = []
+    for date_str in constraint.params.get("dates", []):
+        d = _date_to_day_index(date_str, horizon_start)
+        if d < 0 or d >= num_days:
+            continue
+        for fi, name in enumerate(fellow_names):
+            if name not in allowed_fellows and xn[d][fi] != 0:
+                night_vars.append(xn[d][fi])
+
+    _NIGHT_LITERAL_PIN.encode(
+        OpbConstraintSink(opb, soft_violations), night_vars=night_vars, action=FORBID)
+
+
+def _encode_specific_night_assignment(opb, xn, constraint, **kw):
+    """PIN one fellow's night on each given date."""
+    config = kw["config"]
+    fellow_names = kw["fellow_names"]
+    soft_violations = kw["soft_violations"]
+    num_days = config.num_days
+    horizon_start = config.night_config.horizon_start_date
+
+    fi = _night_selector_fellow_index(constraint, fellow_names)
+    if fi is None:
+        return
+    night_vars = []
+    for date_str in constraint.params.get("dates", []):
+        d = _date_to_day_index(date_str, horizon_start)
+        if 0 <= d < num_days and xn[d][fi] != 0:
+            night_vars.append(xn[d][fi])
+
+    _NIGHT_LITERAL_PIN.encode(
+        OpbConstraintSink(opb, soft_violations), night_vars=night_vars, action=PIN)
+
+
+def _encode_blocked_night(opb, xn, constraint, **kw):
+    """FORBID one fellow's night on each given date."""
+    config = kw["config"]
+    fellow_names = kw["fellow_names"]
+    soft_violations = kw["soft_violations"]
+    num_days = config.num_days
+    horizon_start = config.night_config.horizon_start_date
+
+    fi = _night_selector_fellow_index(constraint, fellow_names)
+    if fi is None:
+        return
+    night_vars = []
+    for date_str in constraint.params.get("dates", []):
+        d = _date_to_day_index(date_str, horizon_start)
+        if 0 <= d < num_days and xn[d][fi] != 0:
+            night_vars.append(xn[d][fi])
+
+    _NIGHT_LITERAL_PIN.encode(
+        OpbConstraintSink(opb, soft_violations), night_vars=night_vars, action=FORBID)
+
+
+def _encode_friday_call_assignment(opb, xn, constraint, **kw):
+    """PIN one fellow's Friday (dow=4) night for each given week."""
+    config = kw["config"]
+    fellow_names = kw["fellow_names"]
+    soft_violations = kw["soft_violations"]
+    num_days = config.num_days
+    start_dow = config.start_dow
+
+    fi = _night_selector_fellow_index(constraint, fellow_names)
+    if fi is None:
+        return
+    dow = constraint.params.get("dow", 4)
+    night_vars = []
+    for w in constraint.params.get("weeks", []):
+        friday_d = _week_day(w, dow, start_dow)
+        if 0 <= friday_d < num_days and xn[friday_d][fi] != 0:
+            night_vars.append(xn[friday_d][fi])
+
+    _NIGHT_LITERAL_PIN.encode(
+        OpbConstraintSink(opb, soft_violations), night_vars=night_vars, action=PIN)
+
+
+# Register the four night-pin kinds onto the night-layer walk. Keys EQUAL the
+# legacy call-rule type strings so the later YAML flip is a pure rename. These
+# fire only for matching kinds in config.constraints; the shipped config still
+# carries them in call_rules (OLD path), so the default triple is unchanged.
+_NIGHT_HANDLERS.update({
+    "group_night_requirement": _encode_group_night_requirement,
+    "specific_night_assignment": _encode_specific_night_assignment,
+    "blocked_night": _encode_blocked_night,
+    "friday_call_assignment": _encode_friday_call_assignment,
+})
 
 
 # ---------------------------------------------------------------------------
