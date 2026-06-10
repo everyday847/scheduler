@@ -54,6 +54,7 @@ from schedule_rules.criteria.sunday_following import (
 from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
 from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
 from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
+from schedule_rules.criteria.weekend_role_pin import WeekendRolePin, PIN as _PIN, FORBID as _FORBID
 from schedule_rules.weekly.full_assignment import FullAssignmentCriterion
 from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterion
 from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
@@ -70,6 +71,7 @@ _SUNDAY_CRITERION = SundayFollowingCriterion()
 _WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
 _PREVACATION_CRITERION = PrevacationWeekendCriterion()
 _GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
+_WEEKEND_ROLE_PIN = WeekendRolePin()
 _FULL_ASSIGNMENT_CRITERION = FullAssignmentCriterion()
 _SPECIFIC_ASSIGNMENT_CRITERION = SpecificAssignmentCriterion()
 _ZERO_SHIFTS_CRITERION = ZeroShiftsCriterion()
@@ -91,6 +93,8 @@ from parafrost_scheduler.schedule_types import (
     _ROLE_NCC2,
     _ROLE_STROKE,
     _WEEKEND_ROLE_NAMES,
+    weekend_role_index,
+    weekend_role_name,
     _BACKUP_WEEKDAY,
     _BACKUP_WEEKEND,
     _BACKUP_ROLE_NAMES,
@@ -544,6 +548,77 @@ def _encode_night_layer_rules(
             shift_idx=shift_idx,
             soft_violations=soft_violations,
         )
+
+
+# ---------------------------------------------------------------------------
+# Weekend-layer adapters (S3): weekend role pin/forbid
+# ---------------------------------------------------------------------------
+# Two thin adapters delegating to the ONE WeekendRolePin archetype. They own the
+# wr/eligibility/role-expansion coordinate work; the archetype only signs the
+# resolved vars (mirrors the weekly adapters that pass pre-built var lists).
+def _resolve_pin_fellow_index(constraint, fellow_names):
+    """The single fellow targeted by an annual weekend pin (by_names selector),
+    or None if absent/unknown — mirroring the old branch's silent skip."""
+    if constraint.fellows is None or not constraint.fellows.names:
+        return None
+    name = constraint.fellows.names[0]
+    if name not in fellow_names:
+        return None
+    return fellow_names.index(name)
+
+
+def _encode_specific_weekend_assignment(opb, wr, constraint, *, xs, config,
+                                        fellow_mapping, fellow_names, shift_idx,
+                                        soft_violations):
+    """PIN one weekend role true for a fellow across the given weeks.
+
+    Reproduces the old call_rules `specific_weekend_assignment` branch exactly:
+    role token -> wr index via the canonical _WEEKEND_ROLE_NAMES helper; per week
+    in range with the fellow weekend-eligible (fi in wr[w][role_idx]), pin the
+    var. Resolved vars handed to WeekendRolePin.encode (action=pin)."""
+    fi = _resolve_pin_fellow_index(constraint, fellow_names)
+    if fi is None:
+        return
+    role_idx = weekend_role_index(constraint.params.get("role", ""))
+    if role_idx is None:
+        return
+    num_weeks = config.num_weeks
+    role_vars = [
+        wr[w][role_idx][fi]
+        for w in constraint.params.get("weeks", [])
+        if 0 <= w < num_weeks and fi in wr[w][role_idx]
+    ]
+    _WEEKEND_ROLE_PIN.encode(
+        OpbConstraintSink(opb, soft_violations), role_vars=role_vars, action=_PIN)
+
+
+def _encode_blocked_weekend(opb, wr, constraint, *, xs, config, fellow_mapping,
+                            fellow_names, shift_idx, soft_violations):
+    """FORBID all three weekend roles for a fellow across the given weeks.
+
+    Reproduces the old call_rules `blocked_weekend` branch exactly: per week in
+    range, per role_idx in range(3) with the fellow weekend-eligible, forbid the
+    var. Resolved vars handed to WeekendRolePin.encode (action=forbid)."""
+    fi = _resolve_pin_fellow_index(constraint, fellow_names)
+    if fi is None:
+        return
+    num_weeks = config.num_weeks
+    role_vars = [
+        wr[w][role_idx][fi]
+        for w in constraint.params.get("weeks", [])
+        if 0 <= w < num_weeks
+        for role_idx in range(3)
+        if fi in wr[w][role_idx]
+    ]
+    _WEEKEND_ROLE_PIN.encode(
+        OpbConstraintSink(opb, soft_violations), role_vars=role_vars, action=_FORBID)
+
+
+# Register the weekend-layer handlers. Kind strings are kept EQUAL to the old
+# call-rule type strings so the later YAML flip is a pure rename (the cutover
+# adds these kinds to config.constraints and drops the call_rules branches).
+_WEEKEND_HANDLERS["specific_weekend_assignment"] = _encode_specific_weekend_assignment
+_WEEKEND_HANDLERS["blocked_weekend"] = _encode_blocked_weekend
 
 
 def _encode_full_assignment(opb, xs, constraint, fellow_indices, **kw):
