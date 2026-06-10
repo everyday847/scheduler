@@ -98,3 +98,40 @@ def test_unknown_group_in_rule_skipped():
     ]
     constraints = derive_forbidden_shifts(rules, ALL_SHIFTS, FELLOW_GROUPS)
     assert constraints == []
+
+
+def test_migrated_single_fellow_shift_total_folds_into_group():
+    """S1: after the per_fellow_shift_total cutover a single-fellow rule lives
+    in `rules` as a shift_total with `fellow:`. Its shifts must fold into the
+    owning group's budget — exactly like the per_fellow_shift_total call_rules
+    form does (additive into an already-owned group)."""
+    rules = [
+        {"name": "JR base", "type": "shift_total", "groups": ["NCC_JR"],
+         "shifts": ["MICU"], "relation": "exactly", "count": 20,
+         "strength": "hard", "active": True},
+        {"name": "Alaric extra Stroke", "type": "shift_total",
+         "fellow": "NCC Alaric", "shifts": ["Stroke"], "relation": "at_least",
+         "count": 4, "strength": "hard", "active": True},
+    ]
+    constraints = derive_forbidden_shifts(rules, ALL_SHIFTS, FELLOW_GROUPS)
+    assert len(constraints) == 1
+    forbidden = set(constraints[0].params["zero_shifts"])
+    # Stroke is now budgeted for NCC_JR (via the single-fellow rule), so it must
+    # NOT be forbidden.
+    assert "Stroke" not in forbidden
+    assert "MICU" not in forbidden
+
+
+def test_migrated_inactive_single_fellow_shift_total_ignored():
+    rules = [
+        {"name": "JR base", "type": "shift_total", "groups": ["NCC_JR"],
+         "shifts": ["MICU"], "relation": "exactly", "count": 20,
+         "strength": "hard", "active": True},
+        {"name": "Alaric extra Stroke", "type": "shift_total",
+         "fellow": "NCC Alaric", "shifts": ["Stroke"], "relation": "at_least",
+         "count": 4, "strength": "hard", "active": False},
+    ]
+    constraints = derive_forbidden_shifts(rules, ALL_SHIFTS, FELLOW_GROUPS)
+    assert len(constraints) == 1
+    # Inactive single-fellow rule contributes nothing → Stroke stays forbidden.
+    assert "Stroke" in set(constraints[0].params["zero_shifts"])

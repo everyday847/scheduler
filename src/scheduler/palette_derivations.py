@@ -38,10 +38,23 @@ def derive_forbidden_shifts(
             continue
         if not rule.get("active", True):
             continue
+        shifts = rule.get("shifts", [])
         for group in rule.get("groups", []):
-            if group not in mentioned:
-                mentioned[group] = set()
-            mentioned[group].update(rule.get("shifts", []))
+            mentioned.setdefault(group, set()).update(shifts)
+        # S1: after the per_fellow_shift_total cutover a single-fellow rule
+        # lives in `rules` as a shift_total carrying a `fellow:` (or a
+        # `fellows:`/`fellow_groups:` selector) instead of `groups:`. Fold its
+        # shifts into the owning group's mentioned set — additively, mirroring
+        # the per_fellow_shift_total call_rules path below.
+        for group in rule.get("fellow_groups", []):
+            mentioned.setdefault(group, set()).update(shifts)
+        single_fellows = list(rule.get("fellows", []))
+        if rule.get("fellow"):
+            single_fellows.append(rule["fellow"])
+        for fellow_name in single_fellows:
+            group = fellow_to_group.get(fellow_name)
+            if group and group in mentioned:
+                mentioned[group].update(shifts)
 
     # Also include shifts from per_fellow_shift_total call_rules
     for rule in (call_rules or []):
