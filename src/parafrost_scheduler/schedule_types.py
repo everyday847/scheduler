@@ -63,6 +63,28 @@ _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1
 _ROLE_STROKE = 2
 _WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
+# Short role tokens ("NCC1"/"NCC2"/"Stroke") map to wr role indices 0/1/2
+# DERIVED from the canonical tuple above (strip the "Weekend " prefix) rather
+# than re-hardcoding the literal dict — single source of truth for the order.
+_WEEKEND_PREFIX = "Weekend "
+_WEEKEND_ROLE_INDEX = {
+    name.removeprefix(_WEEKEND_PREFIX): idx
+    for idx, name in enumerate(_WEEKEND_ROLE_NAMES)
+}
+
+
+def weekend_role_index(role: str) -> int | None:
+    """Resolve a short weekend role token to its wr index, or None if unknown.
+
+    Accepts either the short token ("NCC1") or the full canonical name
+    ("Weekend NCC1"); both resolve against _WEEKEND_ROLE_NAMES."""
+    short = role.removeprefix(_WEEKEND_PREFIX)
+    return _WEEKEND_ROLE_INDEX.get(short)
+
+
+def weekend_role_name(role_idx: int) -> str:
+    """The full canonical weekend role name for a wr index (e.g. 'Weekend NCC1')."""
+    return _WEEKEND_ROLE_NAMES[role_idx]
 
 _BACKUP_WEEKDAY = 0
 _BACKUP_WEEKEND = 1

@@ -153,6 +153,34 @@ def _eval_group_count_balance(view, constraint, fellows) -> list[Violation]:
             for (a, b) in pairs]
 
 
+# Canonical weekend role names + short-token -> full-name resolution, kept local
+# to the leaf so validate carries no model-package dependency (the encoder owns
+# the wr-index helpers; here evaluate only needs the full role NAME the view
+# wants).
+_WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
+
+
+def _eval_weekend_role_pin(view, constraint, fellows) -> list[Violation]:
+    """Shared evaluator for specific_weekend_assignment (PIN) and blocked_weekend
+    (FORBID). Delegates to the co-located WeekendRolePin (ADR-0005)."""
+    from schedule_rules.criteria.weekend_role_pin import WeekendRolePin, PIN, FORBID
+    weeks = constraint.params.get("weeks", [])
+    if constraint.kind == "blocked_weekend":
+        action, role_name = FORBID, None
+    else:
+        action = PIN
+        short = constraint.params.get("role", "")
+        full = "Weekend " + short.removeprefix("Weekend ")
+        role_name = full if full in _WEEKEND_ROLE_NAMES else None
+    out: list[Violation] = []
+    for f in fellows:
+        flagged = WeekendRolePin().evaluate(
+            view, fellow=f, weeks=weeks, role_name=role_name,
+            all_role_names=_WEEKEND_ROLE_NAMES, action=action)
+        out.extend(Violation(constraint.kind, detail, week=w) for (w, detail) in flagged)
+    return out
+
+
 # kind -> evaluator; multiple kinds may share one archetype evaluator.
 _EVALUATORS: dict[str, Callable] = {
     "full_assignment": _eval_full_assignment,
@@ -161,6 +189,8 @@ _EVALUATORS: dict[str, Callable] = {
     "shift_total": _eval_windowed_count_band,
     "staffing_per_week": _eval_windowed_count_band,
     "group_count_balance": _eval_group_count_balance,
+    "specific_weekend_assignment": _eval_weekend_role_pin,
+    "blocked_weekend": _eval_weekend_role_pin,
 }
 
 
