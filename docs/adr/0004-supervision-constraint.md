@@ -12,3 +12,14 @@ Supervisor/supervisee are **per-rule roles, not global fellow properties**: Hele
 ## Considered Options
 
 - **Two separate behaviors** (`qualified_coverage` unconditional + `supervision` conditional) — rejected: they are the same domain statement under rephrasing; the only real differences are window, strength, and tier, all of which are already parameters/axes.
+
+## Status: superseded in part by implementation (2026-06-10)
+
+The "one parameterized constraint" claim above proved **too strong** when the rules were actually built (the `call_rules` dissolution, S5). Supervision realizes as **two distinct Rule Shapes with different encodings**, split by the supervised service's supply/demand — not one shape with a window/strength parameter:
+
+- **Mandatory qualified coverage ("must")** — `ncc_stroke_oversight`: a hard, unconditional "≥1 qualifying fellow on the shift-set each week" coverage *floor*. Viable only because NCC is a high-supply service always staffed above one, so a supervisor is always available to require.
+- **Opportunistic windowed supervision ("may")** — `dual_stroke_window` → `WindowedSupervisionCriterion`: a windowed *cap* (in-window ≤1 supervisor + ≤1 supervisee, out-of-window ≤1 total) that *permits and shapes* a supervised pairing when one is feasible. Used precisely because Stroke is low-supply — a supervisor often *can't* be present, so presence cannot be required.
+
+The encodings are not the same statement under rephrasing: one is `at_least_k(..., 1)` over a selector each week, the other is per-week `at_most_k` caps gated by a window. The supply/demand reasoning the original ADR called "intentionally not a glossary term" turned out to be the very thing that *determines which shape applies* — so it now lives in CONTEXT.md's **Supervision** entry as the load-bearing distinction. The Helena early-Stroke case is the "may" shape; the NCC case is the "must" shape. They share the supervisee/supervisor *selector* vocabulary but not an encoding.
+
+Also corrected: the "Consequences" line above tiers the Helena/windowed case as an **Annual Rule**. As built it is **Standing** — the *structure* (early-window opportunistic Stroke supervision) is permanent program design; only the selector's named seniors change yearly, and selector churn does not set tier (per CONTEXT.md, tier follows the structure's permanence). The "must"/NCC case remains Standing as stated.
