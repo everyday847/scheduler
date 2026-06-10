@@ -140,6 +140,43 @@ def _eval_windowed_count_band(view, constraint, fellows) -> list[Violation]:
             for (label, total) in violated]
 
 
+def _night_days(constraint, num_weeks: int) -> list[int]:
+    """Resolve a night rule's coordinate days from constraint.params: either
+    explicit `dates` already lowered to day indices, or `weeks` + `dow`.
+
+    A YAML import keeps day indices in params["days"] (preferred), or weeks +
+    dow for the Friday-style rules. We read params, never constraint.weeks (an
+    annual-rule parse may misread a `weeks:` list into a WeekSpan)."""
+    if "days" in constraint.params:
+        return [int(d) for d in constraint.params["days"]]
+    weeks = constraint.params.get("weeks", [])
+    dow = int(constraint.params.get("dow", 4))
+    return [w * 7 + dow for w in weeks]
+
+
+def _eval_night_literal_pin(view, constraint, fellows) -> list[Violation]:
+    from schedule_rules.night.night_literal_pin import NightLiteralPin, PIN, FORBID
+    days = _night_days(constraint, view.num_weeks)
+    if constraint.kind == "group_night_requirement":
+        action = FORBID
+        allowed = frozenset(fellows)
+        bad = NightLiteralPin().evaluate(
+            view, days=days, action=action, allowed_fellows=allowed)
+        return [Violation(constraint.kind,
+                         f"{holder} (not in allowed groups) holds night on day {d}")
+                for (d, holder) in bad]
+    action = PIN if constraint.kind in ("specific_night_assignment",
+                                        "friday_call_assignment") else FORBID
+    fellow = fellows[0] if fellows else None
+    bad = NightLiteralPin().evaluate(view, days=days, action=action, fellow=fellow)
+    if action is PIN:
+        return [Violation(constraint.kind,
+                         f"{fellow} not holding night on day {d} (holder: {holder})")
+                for (d, holder) in bad]
+    return [Violation(constraint.kind, f"{fellow} holds forbidden night on day {d}")
+            for (d, _holder) in bad]
+
+
 def _eval_group_count_balance(view, constraint, fellows) -> list[Violation]:
     from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
     shifts = constraint.shifts.shifts if constraint.shifts else ()
@@ -161,6 +198,10 @@ _EVALUATORS: dict[str, Callable] = {
     "shift_total": _eval_windowed_count_band,
     "staffing_per_week": _eval_windowed_count_band,
     "group_count_balance": _eval_group_count_balance,
+    "specific_night_assignment": _eval_night_literal_pin,
+    "blocked_night": _eval_night_literal_pin,
+    "friday_call_assignment": _eval_night_literal_pin,
+    "group_night_requirement": _eval_night_literal_pin,
 }
 
 

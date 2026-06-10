@@ -208,6 +208,72 @@ class TestDriver:
         assert not result.is_valid
 
 
+# ---------------------------------------------------------------------------
+# NightLiteralPin (night-layer pin/forbid) via the validate() driver
+# ---------------------------------------------------------------------------
+class _NightView(DictScheduleView):
+    """A view that also carries an explicit absolute-day -> fellow night map."""
+
+    def __init__(self, weekday, nights):
+        super().__init__(weekday)
+        self._nights = nights
+
+    def night_holder(self, day):
+        return self._nights.get(day)
+
+
+class TestNightLiteralPin:
+    def _view(self, nights):
+        # 3 weeks so day indices 0..20 are addressable for the driver.
+        return _NightView([{} for _ in range(3)], nights)
+
+    def test_specific_night_assignment_satisfied(self):
+        view = self._view({4: "Aditya"})
+        rules = [_c("specific_night_assignment", fellows=FellowSelector.by_names("Aditya"),
+                    params={"days": [4]})]
+        assert validate(view, rules, _GROUPS).is_valid
+
+    def test_specific_night_assignment_violated(self):
+        view = self._view({4: "Cameron"})  # someone else holds it
+        rules = [_c("specific_night_assignment", fellows=FellowSelector.by_names("Aditya"),
+                    params={"days": [4]})]
+        assert not validate(view, rules, _GROUPS).is_valid
+
+    def test_blocked_night_respected(self):
+        view = self._view({4: "Cameron"})
+        rules = [_c("blocked_night", fellows=FellowSelector.by_names("Aditya"),
+                    params={"days": [4]})]
+        assert validate(view, rules, _GROUPS).is_valid
+
+    def test_blocked_night_violated(self):
+        view = self._view({4: "Aditya"})
+        rules = [_c("blocked_night", fellows=FellowSelector.by_names("Aditya"),
+                    params={"days": [4]})]
+        assert not validate(view, rules, _GROUPS).is_valid
+
+    def test_friday_call_assignment_via_week_dow(self):
+        # week 1, dow 4 -> day 11.
+        view = self._view({11: "Raya"})
+        rules = [_c("friday_call_assignment", fellows=FellowSelector.by_names("Raya"),
+                    params={"weeks": [1], "dow": 4})]
+        assert validate(view, rules, _GROUPS).is_valid
+        bad = self._view({11: "Aditya"})
+        assert not validate(bad, rules, _GROUPS).is_valid
+
+    def test_group_night_requirement_flags_nonmember(self):
+        # NCC_JR = Aditya/Cameron allowed; Raya (STROKE) holding it is a violation.
+        view = self._view({4: "Raya"})
+        rules = [_c("group_night_requirement", fellows=FellowSelector.by_groups("NCC_JR"),
+                    params={"days": [4], "groups": ["NCC_JR"]})]
+        assert not validate(view, rules, _GROUPS).is_valid
+
+    def test_group_night_requirement_member_ok(self):
+        view = self._view({4: "Aditya"})
+        rules = [_c("group_night_requirement", fellows=FellowSelector.by_groups("NCC_JR"),
+                    params={"days": [4], "groups": ["NCC_JR"]})]
+        assert validate(view, rules, _GROUPS).is_valid
+
+
 class TestRealParsedScheduleView:
     """The capability end-to-end: validate() on the production ParsedScheduleView
     (the adapter over a parsed call schedule), not just the test double."""
