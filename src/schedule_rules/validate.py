@@ -87,65 +87,56 @@ def _is_hard(constraint) -> bool:
 
 
 # --- archetype evaluators ---------------------------------------------------
+# Each delegates to the co-located weekly Rule's evaluate() (ADR-0005), wrapping
+# the Rule's domain-level result in Violation records for the driver.
 def _eval_full_assignment(view, constraint, fellows) -> list[Violation]:
+    from schedule_rules.weekly.full_assignment import FullAssignmentCriterion
+    cells = FullAssignmentCriterion().evaluate(
+        view, fellows=fellows, window=_window(constraint, view.num_weeks))
     out = []
-    for w in _window(constraint, view.num_weeks):
-        for f in fellows:
-            n = len(view.all_services(w, f))
-            if n != 1:
-                what = "double-booked" if n > 1 else "unassigned"
-                out.append(Violation("full_assignment", f"{f} {what} (week {w}: {n} shifts)", week=w))
+    for (f, w, n) in cells:
+        what = "double-booked" if n > 1 else "unassigned"
+        out.append(Violation("full_assignment",
+                             f"{f} {what} (week {w}: {n} shifts)", week=w))
     return out
 
 
 def _eval_specific_assignment(view, constraint, fellows) -> list[Violation]:
+    from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterion
     target = constraint.shifts.shifts[0] if constraint.shifts else None
-    out = []
-    for w in _window(constraint, view.num_weeks):
-        for f in fellows:
-            if target not in view.all_services(w, f):
-                out.append(Violation("specific_assignment",
-                                     f"{f} not on {target} in week {w}", week=w))
-    return out
+    pairs = SpecificAssignmentCriterion().evaluate(
+        view, fellows=fellows, target=target,
+        window=_window(constraint, view.num_weeks))
+    return [Violation("specific_assignment", f"{f} not on {target} in week {w}", week=w)
+            for (f, w) in pairs]
 
 
 def _eval_zero_shifts(view, constraint, fellows) -> list[Violation]:
+    from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
     forbidden = set(constraint.shifts.shifts) if constraint.shifts else set()
-    out = []
-    for w in _window(constraint, view.num_weeks):
-        for f in fellows:
-            for s in view.all_services(w, f):
-                if s in forbidden:
-                    out.append(Violation("zero_shifts",
-                                         f"{f} on forbidden {s} in week {w}", week=w))
-    return out
+    hits = ZeroShiftsCriterion().evaluate(
+        view, fellows=fellows, forbidden=forbidden,
+        window=_window(constraint, view.num_weeks))
+    return [Violation("zero_shifts", f"{f} on forbidden {s} in week {w}", week=w)
+            for (f, w, s) in hits]
 
 
 def _eval_windowed_count_band(view, constraint, fellows) -> list[Violation]:
+    from schedule_rules.weekly.windowed_count_band import WindowedCountBandCriterion
     relation = constraint.params["relation"]
     count = constraint.params["count"]
     target = set(constraint.shifts.shifts) if constraint.shifts else set()
-    out = []
-    for f in fellows:
-        total = sum(
-            1 for w in _window(constraint, view.num_weeks)
-            for s in view.all_services(w, f) if s in target
-        )
-        if _relation_violated(relation, total, count):
-            out.append(Violation(constraint.kind,
-                                 f"{f}: {total} of {sorted(target)} "
-                                 f"(needs {relation} {count})"))
-    return out
-
-
-def _relation_violated(relation: str, actual: int, bound: int) -> bool:
-    if relation == "at_least":
-        return actual < bound
-    if relation == "at_most":
-        return actual > bound
-    if relation == "exactly":
-        return actual != bound
-    raise ValueError(f"Unknown relation: {relation}")
+    # The evaluate read is per-fellow over the window — shared by shift_total and
+    # staffing_per_week (both flag a fellow whose own count breaks the relation).
+    groups = [(f, [f]) for f in fellows]
+    violated = WindowedCountBandCriterion().evaluate(
+        view, groups=groups, shifts=target,
+        window=_window(constraint, view.num_weeks),
+        relation=relation, count=count)
+    return [Violation(constraint.kind,
+                     f"{label}: {total} of {sorted(target)} "
+                     f"(needs {relation} {count})")
+            for (label, total) in violated]
 
 
 def _eval_group_count_balance(view, constraint, fellows) -> list[Violation]:
