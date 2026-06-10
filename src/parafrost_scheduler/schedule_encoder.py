@@ -55,6 +55,9 @@ from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterio
 from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
 from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
 from schedule_rules.criteria.weekend_role_pin import WeekendRolePin, PIN as _PIN, FORBID as _FORBID
+from schedule_rules.criteria.weekend_role_prerequisite import (
+    WeekendRolePrerequisiteCriterion,
+)
 from schedule_rules.weekly.full_assignment import FullAssignmentCriterion
 from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterion
 from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
@@ -72,6 +75,15 @@ _WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
 _PREVACATION_CRITERION = PrevacationWeekendCriterion()
 _GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
 _WEEKEND_ROLE_PIN = WeekendRolePin()
+# Standing-tier weekend prerequisites: one archetype, two kind-specialized
+# instances (role-set + prereq weekday shift-set). The role-name strings match
+# _WEEKEND_ROLE_NAMES so the evaluate-side view lookups agree.
+_WEEKEND_STROKE_PREREQ_CRITERION = WeekendRolePrerequisiteCriterion(
+    role_names=("Weekend Stroke",), prereq_shifts=("Stroke",),
+)
+_WEEKEND_NCC_PREREQ_CRITERION = WeekendRolePrerequisiteCriterion(
+    role_names=("Weekend NCC1", "Weekend NCC2"), prereq_shifts=("NCC1", "NCC2"),
+)
 _FULL_ASSIGNMENT_CRITERION = FullAssignmentCriterion()
 _SPECIFIC_ASSIGNMENT_CRITERION = SpecificAssignmentCriterion()
 _ZERO_SHIFTS_CRITERION = ZeroShiftsCriterion()
@@ -510,6 +522,77 @@ def _encode_weekend_layer_rules(
             shift_idx=shift_idx,
             soft_violations=soft_violations,
         )
+
+
+def _encode_weekend_prerequisite_rule(
+    opb: OpbBuilder,
+    wr: list,
+    constraint,
+    *,
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_mapping: FellowMapping,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Weekend-layer handler for the WeekendRolePrerequisite archetype (Standing
+    tier). Routes the two prerequisite kinds through the one co-located Criterion,
+    reproducing the encoder's prior `_encode_weekend_prerequisites` emission
+    EXACTLY (same fellow/week/role iteration order, same per-cell shapes).
+
+    constraint.strength decides hard-vs-soft per cell (HARD ⇒ forbid the role when
+    no qualifying service is possible; SOFT ⇒ a penalized slack). This is the
+    typed-pipeline equivalent of the old function's `soft_violations is None`
+    switch."""
+    if constraint.kind == "weekend_ncc_prerequisite":
+        criterion = _WEEKEND_NCC_PREREQ_CRITERION
+        role_indices = (_ROLE_NCC1, _ROLE_NCC2)
+        prereq_si = [shift_idx[s] for s in ("NCC1", "NCC2") if s in shift_idx]
+    else:  # "weekend_stroke_prerequisite"
+        criterion = _WEEKEND_STROKE_PREREQ_CRITERION
+        role_indices = (_ROLE_STROKE,)
+        prereq_si = [shift_idx[s] for s in ("Stroke",) if s in shift_idx]
+    if not prereq_si:
+        return
+
+    exempt = set(constraint.params.get("exempt_fellows", []))
+    for g in constraint.params.get("exempt_groups", []):
+        exempt.update(config.fellow_groups.get(g, []))
+
+    strength = _SOFT if constraint.strength == ConstraintStrength.SOFT else _HARD
+    weight = config.weekly_soft_weight
+    sink = OpbConstraintSink(opb, soft_violations)
+    num_weeks = config.num_weeks
+
+    for fi, name in enumerate(fellow_names):
+        if name in exempt:
+            continue
+        for w in range(num_weeks):
+            for role_idx in role_indices:
+                if fi not in wr[w][role_idx]:
+                    continue
+                # Inclusive window (w' <= w): same-week weekday service counts.
+                prior = [xs[fi][wp][si]
+                         for wp in range(w + 1)
+                         for si in prereq_si
+                         if xs[fi][wp][si] != 0]
+                criterion.encode(
+                    sink,
+                    role_var=wr[w][role_idx][fi],
+                    prior_vars=prior,
+                    strength=strength,
+                    weight=weight,
+                )
+
+
+# Register the two prerequisite kinds (kind strings == the old call-rule type
+# strings, so the orchestrator's later YAML flip is a pure rename). Both delegate
+# to the one archetype handler. These fire ONLY for kinds in config.constraints;
+# the shipped config keeps these rules in call_rules (encoded by the still-wired
+# _encode_weekend_prerequisites), so no cell is double-encoded at the default.
+_WEEKEND_HANDLERS["weekend_stroke_prerequisite"] = _encode_weekend_prerequisite_rule
+_WEEKEND_HANDLERS["weekend_ncc_prerequisite"] = _encode_weekend_prerequisite_rule
 
 
 def _encode_night_layer_rules(
