@@ -2011,12 +2011,9 @@ def _encode_weekend_constraints(
                     soft_violations=soft_violations,
                 )
 
-    # Weekend role prerequisites: weekday service in some week w' <= w before a
-    # weekend role. HARD by default (omit soft_violations so the no-service-possible
-    # dead-end forbids rather than penalizes). To override to soft (e.g. if a
-    # hardened config fails SAT), pass soft_violations=soft_violations here.
-    opb.add_comment("Weekend: role prerequisites (Stroke/NCC), hard")
-    _encode_weekend_prerequisites(opb, wr, xs, config, fellow_names, shift_idx)
+    # Weekend role prerequisites (Stroke/NCC) are now typed config.constraints
+    # routed through the weekend-layer registry walk (_encode_weekend_prerequisite_rule),
+    # not this legacy call_rules pass.
 
     # Weekend role matches weekday service (soft bonus for matching)
     opb.add_comment("Weekend: prefer role matches weekday service (soft)")
@@ -2830,97 +2827,6 @@ def _encode_weekend_night_linking(
                     soft_violations.append((xn[sun_d][f], sunday_weight))
 
 
-def _encode_weekend_prerequisites(
-    opb: OpbBuilder,
-    wr: list[list[dict[int, int]]],
-    xs: list[list[list[int]]],
-    config: ScheduleSolverConfig,
-    fellow_names: list[str],
-    shift_idx: dict[str, int],
-    soft_violations: list[tuple[int, int]] | None = None,
-) -> None:
-    """Require weekday service in some week w' <= w before a weekend role (the
-    same week counts: a Mon-Fri service satisfies that weekend).
-
-    weekend_stroke_prerequisite: wr[w][STROKE][f] <= sum(xs[f][w'][stroke] for w' <= w)
-    weekend_ncc_prerequisite: wr[w][NCC][f] <= sum(xs[f][w'][ncc1]+xs[f][w'][ncc2] for w' <= w)
-
-    When no weekday service is possible in any w' <= w, the weekend role is HARD
-    forbidden if soft_violations is None (the shipped default), else softened.
-    """
-    num_weeks = config.num_weeks
-    stroke_si = shift_idx.get("Stroke")
-    ncc1_si = shift_idx.get("NCC1")
-    ncc2_si = shift_idx.get("NCC2")
-
-    for rule in config.call_rules:
-        if not rule.get("active", True):
-            continue
-        rule_type = rule.get("type")
-
-        if rule_type == "weekend_stroke_prerequisite":
-            if stroke_si is None:
-                continue
-            exempt = set(rule.get("exempt_fellows", []))
-            exempt_groups = rule.get("exempt_groups", [])
-            for g in exempt_groups:
-                exempt.update(config.fellow_groups.get(g, []))
-            for fi, name in enumerate(fellow_names):
-                if name in exempt:
-                    continue
-                for w in range(num_weeks):
-                    if fi not in wr[w][_ROLE_STROKE]:
-                        continue
-                    # Inclusive window (w' <= w): same-week weekday Stroke counts.
-                    prior_stroke = [xs[fi][wp][stroke_si] for wp in range(w + 1)
-                                    if xs[fi][wp][stroke_si] != 0]
-                    if not prior_stroke:
-                        if soft_violations is not None:
-                            v = opb.new_var()
-                            opb.at_most_k([wr[w][_ROLE_STROKE][fi], v], 1)
-                            soft_violations.append((v, config.weekly_soft_weight))
-                        else:
-                            opb.add_unit(-wr[w][_ROLE_STROKE][fi])
-                    else:
-                        # wr[w][STROKE][f] <= sum(prior_stroke)
-                        opb.weighted_sum_at_least(
-                            [(v, 1) for v in prior_stroke] + [(-wr[w][_ROLE_STROKE][fi], 1)],
-                            0,
-                        )
-
-        elif rule_type == "weekend_ncc_prerequisite":
-            if ncc1_si is None and ncc2_si is None:
-                continue
-            exempt = set(rule.get("exempt_fellows", []))
-            exempt_groups = rule.get("exempt_groups", [])
-            for g in exempt_groups:
-                exempt.update(config.fellow_groups.get(g, []))
-            for fi, name in enumerate(fellow_names):
-                if name in exempt:
-                    continue
-                for w in range(num_weeks):
-                    for role_idx in (_ROLE_NCC1, _ROLE_NCC2):
-                        if fi not in wr[w][role_idx]:
-                            continue
-                        # Inclusive window (w' <= w): same-week weekday NCC counts.
-                        prior_ncc = []
-                        for wp in range(w + 1):
-                            if ncc1_si is not None and xs[fi][wp][ncc1_si] != 0:
-                                prior_ncc.append(xs[fi][wp][ncc1_si])
-                            if ncc2_si is not None and xs[fi][wp][ncc2_si] != 0:
-                                prior_ncc.append(xs[fi][wp][ncc2_si])
-                        if not prior_ncc:
-                            if soft_violations is not None:
-                                v = opb.new_var()
-                                opb.at_most_k([wr[w][role_idx][fi], v], 1)
-                                soft_violations.append((v, config.weekly_soft_weight))
-                            else:
-                                opb.add_unit(-wr[w][role_idx][fi])
-                        else:
-                            opb.weighted_sum_at_least(
-                                [(v, 1) for v in prior_ncc] + [(-wr[w][role_idx][fi], 1)],
-                                0,
-                            )
 
 
 def _on_indicator(opb, parts: list[int]) -> int | None:
@@ -3526,116 +3432,29 @@ def _encode_call_rules(
     shift_idx: dict[str, int] | None = None,
     soft_violations: list[tuple[int, int]] | None = None,
 ) -> None:
-    """Encode annual call rules (night/weekend pin/block assignments).
+    """Validate the residual ``call_rules`` channel.
 
-    These are NOT palette rules — they produce unit constraints directly
-    on the ``xn`` (night) and ``wr`` (weekend) variable layers.
+    The pin/block/prerequisite/per-fellow call-rule types were dissolved into the
+    typed ``config.constraints`` pipeline (co-located Rule Shapes routed through
+    the weekly/weekend/night layer walks). The only type that still rides this
+    legacy channel is ``dual_stroke_window`` — a Supervision-shaped rule encoded
+    separately by ``_encode_dual_stroke_window``; here it is parsed-and-skipped.
+    Any other type is a stale config entry (its handling now lives in the typed
+    pipeline), so fail fast rather than silently ignore it.
     """
-    start_dow = config.start_dow
-    num_days = config.num_days
-    num_weeks = config.num_weeks
-    horizon_start = config.night_config.horizon_start_date
-
-    _NON_FELLOW_TYPES = {"group_night_requirement", "weekend_stroke_prerequisite",
-                         "weekend_ncc_prerequisite", "dual_stroke_window"}
-    _FELLOW_TYPES = {"per_fellow_shift_total", "specific_night_assignment",
-                     "blocked_night", "specific_weekend_assignment",
-                     "blocked_weekend", "friday_call_assignment"}
-    _KNOWN_TYPES = _NON_FELLOW_TYPES | _FELLOW_TYPES
-
+    _RESIDUAL_TYPES = {"dual_stroke_window"}
     for rule in config.call_rules:
         if not rule.get("active", True):
             continue
         rule_type = rule.get("type")
-        if rule_type not in _KNOWN_TYPES:
+        if rule_type not in _RESIDUAL_TYPES:
             raise ValueError(
-                f"Unknown call-rule type {rule_type!r} "
-                f"(rule: {rule.get('name', rule_type)!r}). Known types: "
-                f"{', '.join(sorted(_KNOWN_TYPES))}."
+                f"call_rule type {rule_type!r} (rule: {rule.get('name', rule_type)!r}) "
+                f"is no longer encoded via call_rules — it was migrated to the typed "
+                f"`rules:` pipeline. Move it to `rules:`. Residual call_rule types: "
+                f"{', '.join(sorted(_RESIDUAL_TYPES))}."
             )
-
-        # --- Non-fellow-specific rule types ---
-        if rule_type == "group_night_requirement":
-            allowed_groups = rule.get("groups", [])
-            allowed_fellows: set[str] = set()
-            for g in allowed_groups:
-                allowed_fellows.update(config.fellow_groups.get(g, []))
-            for date_str in rule.get("dates", []):
-                d = _date_to_day_index(date_str, horizon_start)
-                if d < 0 or d >= num_days:
-                    continue
-                for fi, name in enumerate(fellow_names):
-                    if name not in allowed_fellows and xn[d][fi] != 0:
-                        opb.add_unit(-xn[d][fi])
-            continue
-
-        if rule_type == "per_fellow_shift_total":
-            if xs is None or shift_idx is None or soft_violations is None:
-                continue
-            fellow_name = rule.get("fellow")
-            if fellow_name not in fellow_names:
-                continue
-            fi = fellow_names.index(fellow_name)
-            shifts_list = rule.get("shifts", [])
-            s_indices = [shift_idx[s] for s in shifts_list if s in shift_idx]
-            relation = rule.get("relation", "exactly")
-            count = rule.get("count", 0)
-            is_soft = rule.get("strength", "hard") == "soft"
-            weight = config.weekly_soft_weight
-            fellow_vars = []
-            for w in range(num_weeks):
-                for si in s_indices:
-                    if xs[fi][w][si] != 0:
-                        fellow_vars.append(xs[fi][w][si])
-            if fellow_vars:
-                _add_cardinality_constraint(
-                    opb, fellow_vars, relation, count,
-                    is_soft=is_soft, weight=weight, soft_violations=soft_violations,
-                )
-            continue
-
-        if rule_type in _NON_FELLOW_TYPES:
-            continue
-
-        # --- Fellow-specific rule types ---
-        fellow_name = rule.get("fellow")
-        if fellow_name not in fellow_names:
-            continue
-        fi = fellow_names.index(fellow_name)
-
-        if rule_type == "specific_night_assignment":
-            for date_str in rule.get("dates", []):
-                d = _date_to_day_index(date_str, horizon_start)
-                if 0 <= d < num_days and xn[d][fi] != 0:
-                    opb.add_unit(xn[d][fi])
-
-        elif rule_type == "blocked_night":
-            for date_str in rule.get("dates", []):
-                d = _date_to_day_index(date_str, horizon_start)
-                if 0 <= d < num_days and xn[d][fi] != 0:
-                    opb.add_unit(-xn[d][fi])
-
-        elif rule_type == "specific_weekend_assignment":
-            role_name = rule.get("role", "")
-            role_idx = {"NCC1": 0, "NCC2": 1, "Stroke": 2}.get(role_name)
-            if role_idx is None:
-                continue
-            for w in rule.get("weeks", []):
-                if 0 <= w < num_weeks and fi in wr[w][role_idx]:
-                    opb.add_unit(wr[w][role_idx][fi])
-
-        elif rule_type == "blocked_weekend":
-            for w in rule.get("weeks", []):
-                if 0 <= w < num_weeks:
-                    for role_idx in range(3):
-                        if fi in wr[w][role_idx]:
-                            opb.add_unit(-wr[w][role_idx][fi])
-
-        elif rule_type == "friday_call_assignment":
-            for w in rule.get("weeks", []):
-                friday_d = _week_day(w, 4, start_dow)
-                if 0 <= friday_d < num_days and xn[friday_d][fi] != 0:
-                    opb.add_unit(xn[friday_d][fi])
+        # dual_stroke_window: encoded by _encode_dual_stroke_window, not here.
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,19 @@
-"""Slice 5 — an unknown call-rule TYPE must fail fast, like the weekly dispatch.
+"""Fail-fast contract for the residual `call_rules` channel.
 
-`_encode_call_rules` dispatches raw `call_rules` dicts by `rule["type"]` through
-an if/elif chain. An unrecognized type previously fell through silently (the
-rule simply did nothing), so a typo dropped a night/weekend pin or block with no
-signal. Now it raises, naming the offending type. (Inactive rules — active:False
-— are still skipped, by design.)
+`_encode_call_rules` once dispatched raw `call_rules` dicts by `rule["type"]`
+through an if/elif chain; an unrecognized type fell through silently, so a typo
+dropped a night/weekend pin or block with no signal. The pin/block/prerequisite/
+per-fellow call-rule types have since been dissolved into the typed `rules:`
+pipeline, leaving exactly ONE residual type that still rides this legacy
+channel: `dual_stroke_window` (a Supervision-shaped rule encoded separately by
+`_encode_dual_stroke_window`; here it is parsed-and-skipped).
+
+The channel now fails fast for anything that is not the residual type:
+  * a genuinely-unknown type (typo) raises, naming the offending type;
+  * a MIGRATED type (e.g. blocked_night) raises with the "migrated to the
+    typed `rules:` pipeline" message, pinning the post-cutover contract;
+  * the residual `dual_stroke_window` still builds;
+  * inactive rules (active:False) are still skipped before type dispatch.
 """
 
 from __future__ import annotations
@@ -50,8 +59,23 @@ def test_inactive_unknown_rule_is_skipped():
     assert opb.num_constraints > 0
 
 
-def test_known_call_rule_still_builds():
+def test_migrated_call_rule_type_raises():
+    """A type that was migrated to the typed `rules:` pipeline (here blocked_night)
+    is no longer encoded via call_rules — leaving it in the legacy channel must
+    fail fast with the migration-pointer message rather than silently no-op."""
     config = _config([{"type": "blocked_night", "fellow": "Bob",
                        "dates": ["2026-07-10"], "active": True}])
+    with pytest.raises(ValueError) as exc:
+        build_full_schedule_opb(config, objective=True)
+    msg = str(exc.value)
+    assert "blocked_night" in msg
+    assert "migrated to the typed" in msg
+
+
+def test_residual_dual_stroke_window_still_builds():
+    """The one residual call_rule type still rides this channel (parsed-and-skipped
+    here, encoded by _encode_dual_stroke_window) and must build without raising."""
+    config = _config([{"type": "dual_stroke_window", "name": "dsw",
+                       "window": [0, 2], "supervisors": ["Bob"], "active": True}])
     opb, _ = build_full_schedule_opb(config, objective=True)
     assert opb.num_constraints > 0

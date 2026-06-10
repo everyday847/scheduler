@@ -819,90 +819,23 @@ rules:
   - ABPN
   strength: hard
   type: shift_total
-weekend_rules:
-- name: Weekend spacing
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  - CCM
-  strength: hard
-  active: true
-  description: Max 1 weekend in any 2-consecutive-week window
-  type: weekend_spacing
-  params:
-    maxWeekends: 1
-    windowWeeks: 4
-- name: Weekend blocked services
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  - CCM
-  strength: hard
-  active: true
-  description: Weekday services that preclude weekend call
-  type: weekend_blocked_services
-  params:
-    exactServices:
-    - Vacation
-    - NCS 2026
-    substringServices:
-    - SICU
-    - MSICU
-- name: Weekend Stroke eligibility
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  strength: hard
-  active: true
-  description: Which services make a fellow eligible for Weekend Stroke
-  type: weekend_stroke_eligibility
-  params:
-    eligibleServices:
-    - Stroke
-- name: Weekend soft penalties
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  strength: hard
-  active: true
-  description: Weights for undesirable weekend call patterns
-  type: weekend_penalties
-  params:
-    weights:
-      anaesthesia: 1
-      clinic: 1
-      friday_weekend_ncc1: 1
-      stroke: 5
-call_rules:
+# --- Migrated out of the legacy `call_rules:` channel into the typed `rules:`
+# pipeline (dissolution S1-S4). Each keeps its original `type` string; the
+# solver bridge routes it to a co-located Rule Shape. dual_stroke_window stays
+# in call_rules pending the S5 Supervision archetype.
 - type: weekend_stroke_prerequisite
   name: Stroke weekend requires prior Stroke week
   exempt_fellows:
   - Aditya Srivatsan
   - Cameron Schmidt
   - Harneet Dhillon
+  strength: hard
   active: true
 - type: weekend_ncc_prerequisite
   name: NCC weekend requires prior NCC week
   exempt_groups:
   - NCC_SR
-  active: true
-- type: dual_stroke_window
-  name: Supervised dual Stroke weeks 1-10
-  window:
-  - 0
-  - 10
-  supervisors:
-  - Aditya Srivatsan
-  - Cameron Schmidt
-  - Harneet Dhillon
+  strength: hard
   active: true
 - type: group_night_requirement
   name: NCC night call June 2027
@@ -912,6 +845,7 @@ call_rules:
   dates:
   - '2027-06-11'
   - '2027-06-18'
+  strength: hard
   active: true
 - type: per_fellow_shift_total
   name: Jinyuan Stroke total
@@ -1005,6 +939,82 @@ call_rules:
   relation: at_most
   count: 15
   strength: hard
+  active: true
+weekend_rules:
+- name: Weekend spacing
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  - CCM
+  strength: hard
+  active: true
+  description: Max 1 weekend in any 2-consecutive-week window
+  type: weekend_spacing
+  params:
+    maxWeekends: 1
+    windowWeeks: 4
+- name: Weekend blocked services
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  - CCM
+  strength: hard
+  active: true
+  description: Weekday services that preclude weekend call
+  type: weekend_blocked_services
+  params:
+    exactServices:
+    - Vacation
+    - NCS 2026
+    substringServices:
+    - SICU
+    - MSICU
+- name: Weekend Stroke eligibility
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Which services make a fellow eligible for Weekend Stroke
+  type: weekend_stroke_eligibility
+  params:
+    eligibleServices:
+    - Stroke
+- name: Weekend soft penalties
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Weights for undesirable weekend call patterns
+  type: weekend_penalties
+  params:
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      friday_weekend_ncc1: 1
+      stroke: 5
+call_rules:
+# Only dual_stroke_window remains here pending the S5 Supervision archetype
+# (ADR-0004). All other former call_rules were migrated into the typed `rules:`
+# pipeline (dissolution S1-S4).
+- type: dual_stroke_window
+  name: Supervised dual Stroke weeks 1-10
+  window:
+  - 0
+  - 10
+  supervisors:
+  - Aditya Srivatsan
+  - Cameron Schmidt
+  - Harneet Dhillon
   active: true
 specific_assignments:
   Aditya Srivatsan:

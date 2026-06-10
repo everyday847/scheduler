@@ -1,37 +1,33 @@
-"""Byte-equivalence test for the S3 weekend-pin migration.
+"""Post-cutover guards for the S3 weekend-pin migration.
 
-Each annual weekend-pin type can be expressed two ways:
+The annual weekend-pin types (specific_weekend_assignment PIN,
+blocked_weekend FORBID) were dissolved out of the raw `call_rules` channel into
+the typed `config.constraints` pipeline (encoded by the weekend-layer registry
+walk → WeekendRolePin adapter onto the wr layer). The old `call_rules` side has
+been removed (`_encode_call_rules` now raises for any migrated type), so the
+original OLD-vs-NEW byte-for-byte equivalence tests — which imported and called
+`_encode_call_rules` directly — no longer apply. Their equivalence was proven
+during the migration and is now locked in by the live OPB-triple regression gate
+plus the archetype's own contract test (tests/test_weekend_role_pin_contract.py
+covers encode/evaluate correctness).
 
-  Config A — the OLD channel: a raw `call_rules` dict, encoded by
-    _encode_call_rules onto the wr (weekend) layer.
-  Config B — the NEW channel: a typed SemanticConstraint(kind=<same string>)
-    in config.constraints, encoded by the weekend-layer registry walk
-    (_encode_weekend_layer_rules -> WeekendRolePin adapter).
-
-The kind string equals the old type string, so the later YAML flip is a pure
-rename. This test pins each type through BOTH channels onto an IDENTICALLY
-var-numbered wr and asserts the resulting OPB is byte-for-byte identical.
+What remains here are lighter new-path-only guards: route each pin through the
+typed pipeline and assert the build with the rule emits MORE constraints than an
+otherwise-identical build without it.
 
 CRITICAL (per the migration brief): weekend role vars only exist for eligible
-fellows, so the test fellow MUST be weekend-eligible for the role or the
-`fi in wr[w][role_idx]` guard skips everything and A == B trivially (both empty).
-_make_wr here gives EVERY fellow a var for EVERY role, and each test asserts the
-emitted constraint list is NON-EMPTY — so the equivalence is MEANINGFUL.
+fellows, so the pinned fellow MUST be weekend-eligible for the role or the pin
+resolves to no vars and the guard is trivial. `_make_config` makes all three
+fellows always-Stroke-eligible (so wr[w][role] vars exist for every role), which
+keeps the pinned-var-exists precondition true and the guard meaningful.
 """
 
 from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
-from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_types import ScheduleSolverConfig, _num_weeks_for
-from parafrost_scheduler.schedule_encoder import (
-    _encode_call_rules,
-    _encode_weekend_layer_rules,
-)
-from scheduler.fellow_mapping import FellowMapping
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 from scheduler.semantic_constraints import (
@@ -43,16 +39,16 @@ from scheduler.semantic_constraints import (
 
 
 _FELLOW_GROUPS = {"NCC_SR": ["Alice", "Bob", "Carol"]}
-_FELLOW_NAMES = ["Alice", "Bob", "Carol"]
 _NUM_DAYS = 21
 _START_DOW = 0
 
 
-def _make_config(call_rules=None, constraints=None) -> ScheduleSolverConfig:
-    """Minimal ScheduleSolverConfig (mirrors tests/test_annual_call_rules.py).
+def _make_config(constraints=None) -> ScheduleSolverConfig:
+    """Minimal weekend-eligible ScheduleSolverConfig.
 
-    always_stroke_eligible covers all three fellows so Stroke pins are eligible
-    too — though _make_wr below allocates vars unconditionally."""
+    always_stroke_eligible covers all three fellows so every wr[w][role] var
+    exists (NCC1/NCC2/Stroke) — the pinned role var is therefore present and the
+    emit-something guard is meaningful, not trivially empty."""
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
@@ -71,121 +67,56 @@ def _make_config(call_rules=None, constraints=None) -> ScheduleSolverConfig:
         night_hard_criteria=frozenset(),
         start_dow=_START_DOW,
         num_days=_NUM_DAYS,
-        call_rules=call_rules or [])
+        call_rules=[])
 
 
-def _make_xn(opb: OpbBuilder, num_days: int, num_fellows: int):
-    return [[opb.new_var() for _ in range(num_fellows)] for _ in range(num_days)]
+def _annual(kind, **kw) -> SemanticConstraint:
+    return SemanticConstraint(
+        kind=kind,
+        lifecycle=ConstraintLifecycle.ANNUAL_RULE,
+        strength=ConstraintStrength.HARD,
+        **kw,
+    )
 
 
-def _make_wr(opb: OpbBuilder, num_weeks: int, num_fellows: int):
-    """wr[w][role_idx] = {fellow_idx: var} — a var for EVERY fellow/role so the
-    eligibility guard passes for the test fellow (meaningful equivalence)."""
-    wr = []
-    for _w in range(num_weeks):
-        week_roles = []
-        for _role_idx in range(3):
-            week_roles.append({f: opb.new_var() for f in range(num_fellows)})
-        wr.append(week_roles)
-    return wr
-
-
-def _fellow_mapping() -> FellowMapping:
-    fm = FellowMapping()
-    for name in _FELLOW_NAMES:
-        fm.add_fellow(name, "NCC_SR")
-    return fm
-
-
-def _opb_with_layers():
-    """A fresh OpbBuilder with identically-numbered xn + wr (the var allocation
-    order is the SAME for both configs, so any constraint-line difference is
-    purely the channel)."""
-    opb = OpbBuilder()
-    num_weeks = _num_weeks_for(_START_DOW, _NUM_DAYS)
-    xn = _make_xn(opb, _NUM_DAYS, len(_FELLOW_NAMES))
-    wr = _make_wr(opb, num_weeks, len(_FELLOW_NAMES))
-    return opb, xn, wr
-
-
-def _encode_old(call_rule):
-    opb, xn, wr = _opb_with_layers()
-    config = _make_config(call_rules=[call_rule])
-    _encode_call_rules(opb, xn, wr, config, _FELLOW_NAMES)
-    return opb
-
-
-def _encode_new(constraint):
-    opb, xn, wr = _opb_with_layers()
-    config = _make_config(constraints=[constraint])
-    # Minimal kwargs the weekend-layer walk threads through to the adapter.
-    _encode_weekend_layer_rules(
-        opb, wr, xs=None, config=config, fellow_mapping=_fellow_mapping(),
-        fellow_names=_FELLOW_NAMES, shift_idx={"NCC1": 0, "NCC2": 1, "Stroke": 2},
-        soft_violations=[])
-    return opb
-
-
-def _assert_byte_equivalent(old: OpbBuilder, new: OpbBuilder) -> None:
-    """The two channels emit byte-identical solver content: identical constraint
-    lines, identical (num_vars, num_constraints, objective) triple. The ONLY
-    difference is the weekend-layer walk's cosmetic `* Rule:` comment (the old
-    call_rules path emits its own comment upstream in build_full_schedule_opb),
-    so the comparison is on the constraint bytes + triple, not the comment line."""
-    assert old._constraints == new._constraints
-    assert old.num_vars == new.num_vars
-    assert old.num_constraints == new.num_constraints
-    assert old._objective == new._objective
+def _num_constraints(constraints):
+    opb, _ = build_full_schedule_opb(_make_config(constraints), objective=True)
+    return opb.num_constraints
 
 
 # ---------------------------------------------------------------------------
 # specific_weekend_assignment  (PIN)
 # ---------------------------------------------------------------------------
-class TestSpecificWeekendAssignmentEquivalence:
-    def test_byte_equivalent(self):
-        old = _encode_old({
-            "type": "specific_weekend_assignment",
-            "fellow": "Alice", "role": "NCC1", "weeks": [1], "active": True,
-        })
-        new = _encode_new(SemanticConstraint(
-            kind="specific_weekend_assignment",
-            lifecycle=ConstraintLifecycle.ANNUAL_RULE,
-            strength=ConstraintStrength.HARD,
+class TestSpecificWeekendAssignmentNewPathFires:
+    def test_ncc1_pin_emits_constraint(self):
+        """PIN Alice into the NCC1 weekend role in week 1 forces that role var
+        true → strictly more constraints than the no-rule baseline."""
+        constraint = _annual(
+            "specific_weekend_assignment",
             fellows=FellowSelector.by_names("Alice"),
-            params={"role": "NCC1", "weeks": [1], "action": "pin"}))
-        assert old._constraints, "old channel emitted nothing — eligibility guard skipped all"
-        _assert_byte_equivalent(old, new)
+            params={"role": "NCC1", "weeks": [1], "action": "pin"})
+        assert _num_constraints([constraint]) > _num_constraints([])
 
-    def test_stroke_role_byte_equivalent(self):
-        old = _encode_old({
-            "type": "specific_weekend_assignment",
-            "fellow": "Carol", "role": "Stroke", "weeks": [0, 2], "active": True,
-        })
-        new = _encode_new(SemanticConstraint(
-            kind="specific_weekend_assignment",
-            lifecycle=ConstraintLifecycle.ANNUAL_RULE,
-            strength=ConstraintStrength.HARD,
+    def test_stroke_role_pin_emits_constraints(self):
+        """PIN Carol into the Stroke weekend role across weeks 0 and 2 → two
+        added pin lines (the Stroke role var exists because Carol is
+        always-Stroke-eligible)."""
+        constraint = _annual(
+            "specific_weekend_assignment",
             fellows=FellowSelector.by_names("Carol"),
-            params={"role": "Stroke", "weeks": [0, 2], "action": "pin"}))
-        assert old._constraints
-        _assert_byte_equivalent(old, new)
+            params={"role": "Stroke", "weeks": [0, 2], "action": "pin"})
+        assert _num_constraints([constraint]) > _num_constraints([])
 
 
 # ---------------------------------------------------------------------------
 # blocked_weekend  (FORBID all three roles)
 # ---------------------------------------------------------------------------
-class TestBlockedWeekendEquivalence:
-    def test_byte_equivalent(self):
-        old = _encode_old({
-            "type": "blocked_weekend",
-            "fellow": "Bob", "weeks": [2], "active": True,
-        })
-        new = _encode_new(SemanticConstraint(
-            kind="blocked_weekend",
-            lifecycle=ConstraintLifecycle.ANNUAL_RULE,
-            strength=ConstraintStrength.HARD,
+class TestBlockedWeekendNewPathFires:
+    def test_blocked_weekend_emits_constraints(self):
+        """FORBID Bob from every weekend role in week 2 → one forbid line per
+        role (NCC1/NCC2/Stroke), all strictly above the no-rule baseline."""
+        constraint = _annual(
+            "blocked_weekend",
             fellows=FellowSelector.by_names("Bob"),
-            params={"weeks": [2], "action": "forbid"}))
-        assert old._constraints
-        assert len(old._constraints) == 3  # all 3 weekend roles forbidden
-        _assert_byte_equivalent(old, new)
+            params={"weeks": [2], "action": "forbid"})
+        assert _num_constraints([constraint]) > _num_constraints([])

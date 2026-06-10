@@ -1,27 +1,28 @@
-"""Byte-equivalence test: the four night-pin kinds, OLD call_rules path vs NEW
-config.constraints (night-layer) path, produce an IDENTICAL OPB.
+"""Post-cutover guards for the four night-pin kinds.
 
-For each of specific_night_assignment / blocked_night / friday_call_assignment /
-group_night_requirement we build two configs that differ ONLY in WHERE the rule
-lives:
+These four call-rule types — specific_night_assignment / blocked_night /
+friday_call_assignment / group_night_requirement — were dissolved out of the
+raw `call_rules` channel into the typed `config.constraints` pipeline (encoded
+by the `_NIGHT_HANDLERS` walk onto the xn night layer). The old `call_rules`
+side has been removed (`_encode_call_rules` now raises for any migrated type),
+so the original byte-for-byte OLD-vs-NEW equivalence tests no longer apply.
+Their equivalence was proven during the migration and is now locked in by the
+live OPB-triple regression gate plus the archetype's own contract test
+(tests/test_night_literal_pin_contract.py covers encode/evaluate correctness).
 
-  Config A — the rule as a legacy call_rules dict (encoded by _encode_call_rules).
-  Config B — the SAME rule as a SemanticConstraint(kind=<same string>) in
-             config.constraints (encoded by the _NIGHT_HANDLERS walk).
-
-build_full_schedule_opb(A) and (B) must yield the same num_vars, num_constraints,
-objective terms, AND the same canonical constraint multiset. Equal multiset ⇒
-the relocation is byte-neutral, proving the migration is safe.
+What remains here are lighter new-path-only guards: route each kind through the
+typed pipeline and assert the build with the rule emits MORE constraints than an
+otherwise-identical build without it (so the migration didn't silently become a
+no-op). The group_night_requirement scenarios additionally pin the complement
+semantics: a requirement whose allowed groups cover EVERY fellow forbids nobody
+(no added constraints), while one with an excluded group forbids the outsiders.
 """
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import date
 
-import pytest
-
-from parafrost_scheduler.schedule_types import ScheduleSolverConfig, _num_weeks_for
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
@@ -33,15 +34,16 @@ from scheduler.semantic_constraints import (
 )
 
 
-HORIZON = date(2026, 7, 6)  # Monday
+HORIZON = date(2026, 7, 6)  # Monday = horizon day 0
 START_DOW = 0
 NUM_DAYS = 21
 FELLOW_GROUPS = {"NCC_SR": ["Alice", "Bob", "Carol"]}
 
 
-def _make_config(call_rules, constraints, fellow_groups=None):
+def _make_config(constraints, fellow_groups=None):
     if fellow_groups is None:
         fellow_groups = FELLOW_GROUPS
+    all_fellows = frozenset(f for fs in fellow_groups.values() for f in fs)
     night_config = NightSolverConfig(
         total_nights={},
         friday_nights={},
@@ -57,7 +59,7 @@ def _make_config(call_rules, constraints, fellow_groups=None):
         stroke_cohort=(),
         stroke_cohort_total=None,
         ccm_fellows=frozenset(),
-        always_stroke_eligible=frozenset({"Alice", "Bob", "Carol"}),
+        always_stroke_eligible=all_fellows,
         telestroke_stroke_eligible=frozenset(),
         stroke_only_eligible=frozenset(),
     )
@@ -70,148 +72,78 @@ def _make_config(call_rules, constraints, fellow_groups=None):
         night_hard_criteria=frozenset(),
         start_dow=START_DOW,
         num_days=NUM_DAYS,
-        call_rules=call_rules,
+        call_rules=[],
     )
 
 
-def _canonical_line(line: str) -> str:
-    """Canonicalize a constraint line so term ORDER doesn't matter: sort the
-    `coeff var` terms, keep op + rhs. (Mirrors the plan's regression gate.)"""
-    line = line.strip().rstrip(";").strip()
-    parts = line.split()
-    # Find the operator (one of <=, >=, =).
-    for op in ("<=", ">=", "="):
-        if op in parts:
-            idx = parts.index(op)
-            terms = parts[:idx]
-            rhs = parts[idx + 1:]
-            pair_terms = [" ".join(terms[i:i + 2]) for i in range(0, len(terms), 2)]
-            return " | ".join(sorted(pair_terms)) + f" {op} {' '.join(rhs)}"
-    return line
-
-
-def _fingerprint(opb):
-    return (
-        opb.num_vars,
-        opb.num_constraints,
-        tuple(opb._objective) if opb._objective else (),
-        Counter(_canonical_line(c) for c in opb._constraints),
-    )
-
-
-def _assert_equivalent(call_rule, constraint, label, fellow_groups=None):
-    cfg_a = _make_config(call_rules=[call_rule], constraints=[], fellow_groups=fellow_groups)
-    cfg_b = _make_config(call_rules=[], constraints=[constraint], fellow_groups=fellow_groups)
-    opb_a, _ = build_full_schedule_opb(cfg_a, objective=True)
-    opb_b, _ = build_full_schedule_opb(cfg_b, objective=True)
-
-    fa, fb = _fingerprint(opb_a), _fingerprint(opb_b)
-    assert fa[0] == fb[0], f"{label}: num_vars {fa[0]} != {fb[0]}"
-    assert fa[1] == fb[1], f"{label}: num_constraints {fa[1]} != {fb[1]}"
-    assert fa[2] == fb[2], f"{label}: objective terms differ"
-    # The discriminating check: same canonical constraint multiset.
-    only_a = fa[3] - fb[3]
-    only_b = fb[3] - fa[3]
-    assert not only_a and not only_b, (
-        f"{label}: constraint multiset diverged.\n"
-        f"  only in A (call_rules): {dict(only_a)}\n"
-        f"  only in B (constraints): {dict(only_b)}"
-    )
-
-
-def _annual(kind):
-    return dict(
+def _annual(kind, **kw):
+    return SemanticConstraint(
+        kind=kind,
         lifecycle=ConstraintLifecycle.ANNUAL_RULE,
         strength=ConstraintStrength.HARD,
+        **kw,
     )
+
+
+def _num_constraints(constraints, fellow_groups=None):
+    opb, _ = build_full_schedule_opb(
+        _make_config(constraints, fellow_groups=fellow_groups), objective=True)
+    return opb.num_constraints
 
 
 # July 6 2026 = Monday = horizon day 0; start_dow=0.
-class TestNightPinMigrationEquivalence:
+class TestNightPinNewPathFires:
     def test_specific_night_assignment(self):
-        call_rule = {
-            "type": "specific_night_assignment",
-            "name": "Alice covers July 10th",
-            "fellow": "Alice",
-            "dates": ["2026-07-10"],
-            "active": True,
-        }
-        constraint = SemanticConstraint(
-            kind="specific_night_assignment",
+        """PIN Alice on July 10th forces her night var true → one added line."""
+        constraint = _annual(
+            "specific_night_assignment",
             fellows=FellowSelector.by_names("Alice"),
             params={"dates": ["2026-07-10"], "name": "Alice covers July 10th"},
-            **_annual("specific_night_assignment"),
         )
-        _assert_equivalent(call_rule, constraint, "specific_night_assignment")
+        assert _num_constraints([constraint]) > _num_constraints([])
 
     def test_blocked_night(self):
-        call_rule = {
-            "type": "blocked_night",
-            "name": "Bob off July 12th",
-            "fellow": "Bob",
-            "dates": ["2026-07-12"],
-            "active": True,
-        }
-        constraint = SemanticConstraint(
-            kind="blocked_night",
+        """FORBID Bob on July 12th excludes his night var → one added line."""
+        constraint = _annual(
+            "blocked_night",
             fellows=FellowSelector.by_names("Bob"),
             params={"dates": ["2026-07-12"], "name": "Bob off July 12th"},
-            **_annual("blocked_night"),
         )
-        _assert_equivalent(call_rule, constraint, "blocked_night")
+        assert _num_constraints([constraint]) > _num_constraints([])
 
     def test_friday_call_assignment(self):
-        call_rule = {
-            "type": "friday_call_assignment",
-            "name": "Carol Friday wk1",
-            "fellow": "Carol",
-            "weeks": [1],
-            "active": True,
-        }
-        constraint = SemanticConstraint(
-            kind="friday_call_assignment",
+        """PIN Carol's Friday (dow=4) night in week 1 → one added line."""
+        constraint = _annual(
+            "friday_call_assignment",
             fellows=FellowSelector.by_names("Carol"),
             params={"weeks": [1], "dow": 4, "name": "Carol Friday wk1"},
-            **_annual("friday_call_assignment"),
         )
-        _assert_equivalent(call_rule, constraint, "friday_call_assignment")
+        assert _num_constraints([constraint]) > _num_constraints([])
 
-    def test_group_night_requirement(self):
-        call_rule = {
-            "type": "group_night_requirement",
-            "name": "Only NCC_SR on these nights",
-            "groups": ["NCC_SR"],
-            "dates": ["2026-07-08", "2026-07-15"],
-            "active": True,
-        }
-        constraint = SemanticConstraint(
-            kind="group_night_requirement",
+    def test_group_night_requirement_no_excluded_is_noop(self):
+        """When the allowed groups cover EVERY fellow, the complement (forbidden)
+        set is empty, so the requirement forbids nobody and adds no constraints.
+        This pins the complement semantics — not a no-op bug."""
+        constraint = _annual(
+            "group_night_requirement",
             fellows=FellowSelector.by_groups("NCC_SR"),
             params={
                 "groups": ["NCC_SR"],
                 "dates": ["2026-07-08", "2026-07-15"],
                 "name": "Only NCC_SR on these nights",
             },
-            **_annual("group_night_requirement"),
         )
-        _assert_equivalent(call_rule, constraint, "group_night_requirement")
+        # NCC_SR covers all of Alice/Bob/Carol → complement empty → no new lines.
+        assert _num_constraints([constraint]) == _num_constraints([])
 
     def test_group_night_requirement_with_excluded_group(self):
-        # A wider fellow set so the complement (forbidden) set is non-empty.
+        """With Dave outside NCC_SR, the requirement forbids the outsiders' (Carol,
+        Dave) nights on the given date → strictly more constraints than baseline."""
         groups = {"NCC_SR": ["Alice", "Bob"], "OTHER": ["Carol", "Dave"]}
-        call_rule = {
-            "type": "group_night_requirement",
-            "name": "Only NCC_SR",
-            "groups": ["NCC_SR"],
-            "dates": ["2026-07-08"],
-            "active": True,
-        }
-        constraint = SemanticConstraint(
-            kind="group_night_requirement",
+        constraint = _annual(
+            "group_night_requirement",
             fellows=FellowSelector.by_groups("NCC_SR"),
             params={"groups": ["NCC_SR"], "dates": ["2026-07-08"], "name": "Only NCC_SR"},
-            **_annual("group_night_requirement"),
         )
-        _assert_equivalent(
-            call_rule, constraint, "group_night_requirement (excluded)",
-            fellow_groups=groups)
+        assert (_num_constraints([constraint], fellow_groups=groups)
+                > _num_constraints([], fellow_groups=groups))

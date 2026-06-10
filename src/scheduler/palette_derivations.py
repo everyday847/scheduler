@@ -31,23 +31,32 @@ def derive_forbidden_shifts(
         for f in fellows:
             fellow_to_group[f] = group
 
-    # Collect mentioned shifts per group from active shift_total rules
+    # Collect mentioned shifts per group. Two passes so the result is
+    # order-independent: first seed every group named by a group-scoped
+    # shift_total, THEN fold single-fellow budgets into already-seeded groups
+    # (mirroring the legacy two-loop structure — group rules, then per-fellow).
     mentioned: dict[str, set[str]] = {}
+    # Pass 1: group-scoped shift_total rules seed each group's budget.
     for rule in rules:
-        if rule.get("type") != "shift_total":
-            continue
-        if not rule.get("active", True):
+        if rule.get("type") != "shift_total" or not rule.get("active", True):
             continue
         shifts = rule.get("shifts", [])
         for group in rule.get("groups", []):
             mentioned.setdefault(group, set()).update(shifts)
-        # S1: after the per_fellow_shift_total cutover a single-fellow rule
-        # lives in `rules` as a shift_total carrying a `fellow:` (or a
-        # `fellows:`/`fellow_groups:` selector) instead of `groups:`. Fold its
-        # shifts into the owning group's mentioned set — additively, mirroring
-        # the per_fellow_shift_total call_rules path below.
         for group in rule.get("fellow_groups", []):
             mentioned.setdefault(group, set()).update(shifts)
+    # Pass 2: single-fellow budgets. After the per_fellow_shift_total cutover a
+    # single-fellow rule lives in `rules` carrying a `fellow:`/`fellows:`
+    # selector; it keeps its original YAML type string `per_fellow_shift_total`
+    # (the solver bridge maps it to kind shift_total for the encoder). Fold its
+    # shifts into the owning group's budget — additively, only for already-seeded
+    # ("owned") groups, exactly as the legacy call_rules path did below.
+    for rule in rules:
+        if rule.get("type") not in ("shift_total", "per_fellow_shift_total"):
+            continue
+        if not rule.get("active", True):
+            continue
+        shifts = rule.get("shifts", [])
         single_fellows = list(rule.get("fellows", []))
         if rule.get("fellow"):
             single_fellows.append(rule["fellow"])

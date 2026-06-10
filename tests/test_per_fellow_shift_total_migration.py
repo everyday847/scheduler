@@ -1,17 +1,18 @@
-"""S1 migration equivalence: `per_fellow_shift_total` (old call_rule) ==
-`shift_total` (typed SemanticConstraint with a single-fellow selector).
+"""Post-cutover guard for the S1 `per_fellow_shift_total` migration.
 
-The legacy `per_fellow_shift_total` branch in `_encode_call_rules` counts ONE
-fellow's shift vars across all weeks and emits a count-band via
-`_add_cardinality_constraint`. The `shift_total` archetype does the SAME thing
-through `WindowedCountBandCriterion`, resolving the fellow from a
-`FellowSelector` instead of a raw `fellow:` string.
+The legacy `per_fellow_shift_total` branch in `_encode_call_rules` counted ONE
+fellow's shift vars across all weeks and emitted a count-band. It was dissolved
+into the typed `shift_total` archetype (a SemanticConstraint with a single-fellow
+selector, encoded by WindowedCountBandCriterion). The old `call_rules` side has
+been removed (`_encode_call_rules` now raises for any migrated type), so the
+original OLD-vs-NEW byte-for-byte equivalence test no longer applies. Its
+equivalence was proven during the migration and is now locked in by the live
+OPB-triple regression gate plus the archetype's own contract test.
 
-This test PROVES the migration is byte-neutral at the OPB-triple level: for
-every relation (at_least / at_most / exactly) and strength (hard / soft),
-building the full schedule with the rule expressed the OLD way (Config A) and
-the NEW way (Config B) yields an IDENTICAL (num_vars, num_constraints,
-len(objective)) triple.
+What remains here is the new-path-only guard: the rule routed through the typed
+pipeline MUST move the OPB triple off the empty baseline (otherwise an all-zero,
+no-op encoding would mean the migration silently dropped the rule). It is
+parametrized across every relation x strength so each branch is exercised.
 
 Run:
     PYTHONPATH=src pytest tests/test_per_fellow_shift_total_migration.py -v
@@ -42,7 +43,6 @@ SHIFTS = ["NCC1", "NCC2", "Stroke", "Elec"]
 
 def _config(
     *,
-    call_rules: list[dict] | None = None,
     constraints: list[SemanticConstraint] | None = None,
 ) -> ScheduleSolverConfig:
     """Minimal full-schedule config; mirrors test_unknown_call_rule_fails_fast."""
@@ -59,25 +59,11 @@ def _config(
             ccm_fellows=frozenset(), always_stroke_eligible=frozenset(),
             telestroke_stroke_eligible=frozenset(), stroke_only_eligible=frozenset()),
         night_hard_criteria=frozenset(),
-        start_dow=0, num_days=70, call_rules=call_rules or [])
-
-
-def _old_way(relation: str, count: int, strength: str) -> ScheduleSolverConfig:
-    """Config A: rule lives in call_rules as `per_fellow_shift_total`."""
-    return _config(call_rules=[{
-        "type": "per_fellow_shift_total",
-        "name": "test",
-        "fellow": FELLOW,
-        "shifts": ["Stroke"],
-        "relation": relation,
-        "count": count,
-        "strength": strength,
-        "active": True,
-    }])
+        start_dow=0, num_days=70, call_rules=[])
 
 
 def _new_way(relation: str, count: int, strength: str) -> ScheduleSolverConfig:
-    """Config B: rule lives in constraints as a single-fellow `shift_total`."""
+    """Config: rule lives in constraints as a single-fellow `shift_total`."""
     semantic_strength = (
         ConstraintStrength.SOFT if strength == "soft" else ConstraintStrength.HARD
     )
@@ -107,18 +93,13 @@ _CASES = [
 
 
 @pytest.mark.parametrize("relation,count,strength", _CASES)
-def test_old_and_new_yield_identical_triple(relation, count, strength):
-    a = _triple(_old_way(relation, count, strength))
-    b = _triple(_new_way(relation, count, strength))
-    assert a == b, (
-        f"OPB triple diverged for relation={relation} strength={strength}: "
-        f"old(A)={a} new(B)={b}"
-    )
-
-
-def test_migration_actually_changes_the_triple_vs_no_rule():
-    """Guard: the rule MUST move the triple off the empty baseline, otherwise
-    an all-zero (no-op) encoding would make the equivalence test vacuous."""
+def test_typed_shift_total_changes_the_triple_vs_no_rule(relation, count, strength):
+    """The typed `shift_total` rule MUST move the OPB triple off the empty
+    baseline; an all-zero (no-op) encoding would mean the migration silently
+    dropped the rule."""
     baseline = _triple(_config())
-    with_rule = _triple(_new_way("at_least", 2, "hard"))
-    assert with_rule != baseline
+    with_rule = _triple(_new_way(relation, count, strength))
+    assert with_rule != baseline, (
+        f"typed shift_total was a no-op for relation={relation} strength={strength}: "
+        f"baseline={baseline} with_rule={with_rule}"
+    )

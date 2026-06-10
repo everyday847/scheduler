@@ -220,6 +220,10 @@ def _build_palette_constraints(
                 params={"name": rule.get("name", "specific_assignment")},
             ))
             continue
+        migrated = _migrated_call_rule_to_constraint(rule)
+        if migrated is not None:
+            constraints.append(migrated)
+            continue
         constraints.extend(palette_rule_to_constraints(
             rule, lifecycle=ConstraintLifecycle.ANNUAL_RULE,
         ))
@@ -230,6 +234,99 @@ def _build_palette_constraints(
                                                call_rules=request.get("call_rules", [])))
 
     return constraints
+
+
+def _migrated_call_rule_to_constraint(rule: Dict[str, Any]):
+    """Convert an annual call-rule entry (migrated out of the legacy `call_rules:`
+    channel into `rules:`) into a typed SemanticConstraint routed to a co-located
+    Rule Shape. Returns None for any other rule type (the caller falls through to
+    the palette converter).
+
+    Each kind keeps its original type string; coordinates the typed schema has no
+    first-class field for (dates, weeks, role, groups, exempt lists) ride in
+    params, which is exactly what the registered encode handlers read. Strength
+    mirrors the rule (default hard — the legacy call_rules path was always hard)."""
+    from .semantic_constraints import (
+        ConstraintLifecycle, ConstraintStrength, FellowSelector, SemanticConstraint, ShiftSet,
+    )
+
+    rule_type = rule.get("type")
+    name = rule.get("name", rule_type)
+    strength = ConstraintStrength(rule.get("strength", "hard"))
+    ANNUAL = ConstraintLifecycle.ANNUAL_RULE
+    STANDING = ConstraintLifecycle.STANDING_RULE
+
+    if rule_type == "per_fellow_shift_total":
+        # Single-fellow count band → the shift_total archetype (kind "shift_total").
+        return SemanticConstraint(
+            kind="shift_total",
+            lifecycle=ANNUAL,
+            strength=strength,
+            fellows=FellowSelector.by_names(rule["fellow"]),
+            shifts=ShiftSet(name, tuple(rule["shifts"])),
+            params={"name": name, "relation": rule["relation"], "count": rule["count"]},
+        )
+
+    if rule_type == "group_night_requirement":
+        return SemanticConstraint(
+            kind="group_night_requirement",
+            lifecycle=ANNUAL,
+            strength=strength,
+            fellows=None,
+            params={"name": name, "groups": rule.get("groups", []),
+                    "dates": rule.get("dates", [])},
+        )
+
+    if rule_type in ("specific_night_assignment", "blocked_night"):
+        return SemanticConstraint(
+            kind=rule_type,
+            lifecycle=ANNUAL,
+            strength=strength,
+            fellows=FellowSelector.by_names(rule["fellow"]),
+            params={"name": name, "dates": rule.get("dates", [])},
+        )
+
+    if rule_type == "friday_call_assignment":
+        return SemanticConstraint(
+            kind="friday_call_assignment",
+            lifecycle=ANNUAL,
+            strength=strength,
+            fellows=FellowSelector.by_names(rule["fellow"]),
+            params={"name": name, "weeks": rule.get("weeks", [])},
+        )
+
+    if rule_type == "specific_weekend_assignment":
+        return SemanticConstraint(
+            kind="specific_weekend_assignment",
+            lifecycle=ANNUAL,
+            strength=strength,
+            fellows=FellowSelector.by_names(rule["fellow"]),
+            params={"name": name, "role": rule["role"], "weeks": rule.get("weeks", [])},
+        )
+
+    if rule_type == "blocked_weekend":
+        return SemanticConstraint(
+            kind="blocked_weekend",
+            lifecycle=ANNUAL,
+            strength=strength,
+            fellows=FellowSelector.by_names(rule["fellow"]),
+            params={"name": name, "weeks": rule.get("weeks", [])},
+        )
+
+    if rule_type in ("weekend_stroke_prerequisite", "weekend_ncc_prerequisite"):
+        # Program-structural → Standing tier. Encode handler reads exempt_* from
+        # params and branches role-set/prereq-shift-set on the kind.
+        return SemanticConstraint(
+            kind=rule_type,
+            lifecycle=STANDING,
+            strength=strength,
+            fellows=None,
+            params={"name": name,
+                    "exempt_fellows": rule.get("exempt_fellows", []),
+                    "exempt_groups": rule.get("exempt_groups", [])},
+        )
+
+    return None
 
 
 def _require_dict(request: Dict[str, Any], key: str) -> Dict[str, list[str]]:
