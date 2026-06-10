@@ -16,6 +16,7 @@ from scheduler.night_policy_types import (
     CRITERION_FRIDAY_WEEKEND_NCC1,
     NightPolicyWeights,
 )
+from scheduler.shift_palette import ShiftPalette
 from scheduler.standing_rules import (
     constraints_from_config as standing_constraints_from_config,
 )
@@ -40,6 +41,7 @@ def load_schedule_config(
     fellow_groups = annual["fellow_groups"]
     shifts = annual["shifts"]
     constraints = standing_constraints_from_config(standing)
+    shift_palette = ShiftPalette.from_config(standing.get("shift_palette"))
 
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
@@ -51,4 +53,5 @@ def load_schedule_config(
         night_hard_criteria=night_hard_criteria or frozenset(
             {CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1}
         ),
+        shift_palette=shift_palette,
     )

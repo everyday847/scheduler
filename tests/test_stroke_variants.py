@@ -10,16 +10,23 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_types import (
-    ScheduleSolverConfig,
-    STROKE_WK2627_ON_SHIFTS,
-)
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 from parafrost_scheduler.schedule_encoder import (
     _encode_stroke_wk2627_toggle,
     _encode_dual_stroke_helena,
 )
 from scheduler.night_call_types import NightSolverConfig
+from scheduler.shift_palette import ShiftPalette
 from scheduler.weekend_call_types import WeekendSolverConfig
+
+# The wk26/27 "on" attribute set (historical STROKE_WK2627_ON_SHIFTS frozenset),
+# carried as a Shift-Attribute palette for the encoder under test.
+STROKE_WK2627_ON_SHIFTS = frozenset(
+    {"Stroke", "Telestroke/Clinic", "Swing", "NCC1", "NCC2"}
+)
+_STROKE_WK2627_PALETTE = ShiftPalette.from_config(
+    {s: ["stroke_wk2627_on"] for s in STROKE_WK2627_ON_SHIFTS}
+)
 
 
 def _config(*, num_days=28 * 7, dual_stroke_helena=None, stroke_wk2627_toggle="off",
@@ -40,6 +47,7 @@ def _config(*, num_days=28 * 7, dual_stroke_helena=None, stroke_wk2627_toggle="o
         constraints=[], night_config=night_config, weekend_config=weekend_config,
         night_hard_criteria=frozenset(), start_dow=0, num_days=num_days,
         dual_stroke_helena=dual_stroke_helena, stroke_wk2627_toggle=stroke_wk2627_toggle,
+        shift_palette=_STROKE_WK2627_PALETTE,
     )
 
 

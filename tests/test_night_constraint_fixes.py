@@ -17,7 +17,6 @@ import pytest
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.schedule_types import (
-    NIGHT_BLOCKED_SHIFTS,
     ScheduleSolverConfig,
     _day_of_week,
     _day_to_week,
@@ -26,7 +25,25 @@ from parafrost_scheduler.schedule_encoder import (
     _encode_night_constraints,
     _encode_night_policy_criteria)
 from scheduler.night_call_types import NightSolverConfig, CountMultiset
+from scheduler.shift_palette import ShiftPalette
 from scheduler.weekend_call_types import WeekendSolverConfig
+
+# Historical night frozensets, now expressed as a Shift-Attribute palette
+# carried on the config so the encoder under test reproduces prior behavior.
+NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
+NIGHT_BLOCKED_SHIFTS = frozenset(
+    {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "AAN", "RWC", "NCS 2026"}
+)
+_NIGHT_FLAGS_BY_SHIFT: dict[str, list[str]] = {}
+for _s in NIGHT_BLOCKED_ALL_WEEK:
+    _NIGHT_FLAGS_BY_SHIFT.setdefault(_s, []).append("night_blocked_all_week")
+for _s in NIGHT_BLOCKED_SHIFTS - NIGHT_BLOCKED_ALL_WEEK:
+    _NIGHT_FLAGS_BY_SHIFT.setdefault(_s, []).append("night_blocked_weekday")
+for _s in ("NCC1", "NCC2", "Stroke"):
+    _NIGHT_FLAGS_BY_SHIFT.setdefault(_s, []).append("holiday_eligible")
+_NIGHT_FLAGS_BY_SHIFT.setdefault("Anaesthesia", []).append("anaesthesia_gating")
+_NIGHT_FLAGS_BY_SHIFT.setdefault("Clinic/Elective", []).append("clinic_gating")
+_NIGHT_BLOCK_PALETTE = ShiftPalette.from_config(_NIGHT_FLAGS_BY_SHIFT)
 from scheduler.night_policy_types import (
     CRITERION_ANAESTHESIA,
     CRITERION_CLINIC,
@@ -96,7 +113,8 @@ def _make_config(
         weekend_config=weekend_config,
         night_hard_criteria=night_hard_criteria,
         start_dow=start_dow,
-        num_days=num_days)
+        num_days=num_days,
+        shift_palette=_NIGHT_BLOCK_PALETTE)
 
 
 def _make_vars(opb: OpbBuilder, num_fellows: int, num_days: int, num_shifts: int, num_weeks: int):

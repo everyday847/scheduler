@@ -29,13 +29,22 @@ from __future__ import annotations
 from datetime import date
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
-from parafrost_scheduler.schedule_types import (
-    CONSECUTIVE_WEEKEND_BUFFER_SHIFTS,
-    ScheduleSolverConfig)
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 from parafrost_scheduler.schedule_encoder import _encode_weekend_constraints
 from scheduler.fellow_mapping import FellowMapping
 from scheduler.night_call_types import NightSolverConfig
+from scheduler.shift_palette import ShiftPalette
 from scheduler.weekend_call_types import WeekendSolverConfig
+
+# The "light" consecutive-weekend buffer set (historical
+# CONSECUTIVE_WEEKEND_BUFFER_SHIFTS frozenset), carried as a Shift-Attribute
+# palette for the encoder under test.
+CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = frozenset(
+    {"Vac", "ISC", "ABPN", "NHS", "AAN", "NCS 2026"}
+)
+_BUFFER_PALETTE = ShiftPalette.from_config(
+    {s: ["consec_weekend_buffer"] for s in CONSECUTIVE_WEEKEND_BUFFER_SHIFTS}
+)
 
 
 def _make_config(*, consecutive_hard: bool, shifts: list[str], num_days: int = 35) -> ScheduleSolverConfig:
@@ -58,7 +67,8 @@ def _make_config(*, consecutive_hard: bool, shifts: list[str], num_days: int = 3
         night_hard_criteria=frozenset(),
         start_dow=0,
         num_days=num_days,
-        weekend_consecutive_hard=consecutive_hard)
+        weekend_consecutive_hard=consecutive_hard,
+        shift_palette=_BUFFER_PALETTE)
 
 
 def _encode(*, consecutive_hard: bool, shifts=("NCC1", "ISC")):

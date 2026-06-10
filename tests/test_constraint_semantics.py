@@ -38,7 +38,32 @@ from scheduler.semantic_constraints import (
     WeekSpan,
 )
 from scheduler.night_call_types import NightSolverConfig
+from scheduler.shift_palette import ShiftPalette
 from scheduler.weekend_call_types import WeekendSolverConfig
+
+# Historical shift-name frozensets, expressed as a Shift-Attribute palette
+# (ADR-0003) so the night/weekend encoders under test reproduce prior behavior.
+_TEST_SHIFT_FLAGS: dict[str, list[str]] = {
+    "SICU": ["night_blocked_all_week", "weekend_blocked"],
+    "MICU": ["night_blocked_all_week", "weekend_blocked"],
+    "NS": ["night_blocked_all_week", "weekend_blocked"],
+    "Vac": ["night_blocked_all_week", "weekend_blocked", "consec_weekend_buffer"],
+    "SCVMC Rehab": ["night_blocked_weekday"],
+    "AAN": ["night_blocked_weekday", "consec_weekend_buffer"],
+    "RWC": ["night_blocked_weekday"],
+    "NCS 2026": ["night_blocked_weekday", "consec_weekend_buffer"],
+    "Anaesthesia": ["weekend_blocked", "anaesthesia_gating"],
+    "Clinic/Elective": ["clinic_gating"],
+    "ISC": ["consec_weekend_buffer"],
+    "ABPN": ["consec_weekend_buffer"],
+    "NHS": ["consec_weekend_buffer"],
+    "NCC1": ["holiday_eligible", "stroke_wk2627_on"],
+    "NCC2": ["holiday_eligible", "stroke_wk2627_on"],
+    "Stroke": ["holiday_eligible", "stroke_wk2627_on"],
+    "Telestroke/Clinic": ["stroke_wk2627_on"],
+    "Swing": ["stroke_wk2627_on"],
+}
+_TEST_SHIFT_PALETTE = ShiftPalette.from_config(_TEST_SHIFT_FLAGS)
 
 ROUNDINGSAT = (
     Path(__file__).resolve().parents[1]
@@ -336,6 +361,7 @@ class WeekendHarness:
             fellow_groups=fellow_groups, shifts=self.shifts, constraints=[],
             night_config=NightSolverConfig(), weekend_config=self.weekend_config,
             num_days=self.num_weeks * 7,
+            shift_palette=_TEST_SHIFT_PALETTE,
         )
 
     def encode_eligibility(self, config):
@@ -487,6 +513,7 @@ class NightHarness:
             # coverage here (no fellow holds a weekend-Stroke var), so run that
             # rule in soft mode — its dedicated coverage is in test_weekend_night_linking.
             weekend_night_sunday_hard=False,
+            shift_palette=_TEST_SHIFT_PALETTE,
         )
 
     def encode(self):

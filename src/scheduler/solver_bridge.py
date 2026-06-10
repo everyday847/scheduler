@@ -11,6 +11,7 @@ import yaml
 from .annual_rules import constraints_from_config as annual_constraints_from_config
 from .palette_rules import palette_rule_to_constraints
 from .palette_derivations import derive_forbidden_shifts
+from .shift_palette import ShiftPalette
 from .standing_rules import constraints_from_config as standing_constraints_from_config
 
 from parafrost_scheduler.orchestrator import (
@@ -112,6 +113,15 @@ def build_solver_config_from_request(
     horizon_end = date(horizon_date.year + 1, horizon_date.month, horizon_date.day) - timedelta(days=1)
     num_days = (horizon_end - horizon_date).days + 1  # 365 or 366
 
+    # Shift Attributes (ADR-0003): the shift_palette block drives the historical
+    # night/weekend shift-name frozensets. Prefer the request's copy (it survives
+    # the standing_rules override path used by experiment.assemble_config); else
+    # take it from the standing config loaded from disk.
+    palette_block = raw_request.get("shift_palette")
+    if palette_block is None:
+        palette_block = standing_config.get("shift_palette")
+    shift_palette = ShiftPalette.from_config(palette_block)
+
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
@@ -122,6 +132,7 @@ def build_solver_config_from_request(
         call_rules=call_rules,
         start_dow=start_dow,
         num_days=num_days,
+        shift_palette=shift_palette,
     )
 
 
