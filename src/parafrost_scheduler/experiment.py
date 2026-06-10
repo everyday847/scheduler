@@ -99,6 +99,9 @@ def assemble_annual_dict(
         if r.get("name") in soften:
             r["strength"] = "soft"
     annual["standing_rules"] = standing["rules"]
+    # Carry the standing Shift-Attribute table (ADR-0003) onto the request so it
+    # survives the standing_rules override path in build_solver_config_from_request.
+    annual["shift_palette"] = standing.get("shift_palette", {})
 
     return annual
 

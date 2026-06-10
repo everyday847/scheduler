@@ -36,20 +36,20 @@ from scheduler.night_policy_types import (
     NightPolicyCounts,
     NightPolicyWeights,
 )
+from scheduler.shift_palette import ShiftPalette
 
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Weekday services that preclude night call.
-NIGHT_BLOCKED_SHIFTS = frozenset(
-    {"SICU", "MICU", "Vac", "NS", "SCVMC Rehab", "AAN", "RWC", "NCS 2026"}
-)
-NIGHT_BLOCKED_ALL_WEEK = frozenset({"SICU", "MICU", "Vac", "NS"})
+# Shift-name sets that used to live here as hardcoded frozensets are now
+# config-driven Shift Attributes (see ADR-0003). The encoder reads them as
+# projections over ``config.shift_palette`` via ``shifts_with_attribute(...)``;
+# the Stanford instance populates the attribute table in
+# config/standing/stanford-fellowship-v3.yaml. Only the non-shift-set tuning
+# constants remain here.
 NHS_NIGHT_PENALTY_WEIGHT = 100
-# "On" service for the Stroke wk26/27 (1-indexed) on/off holiday toggle.
-STROKE_WK2627_ON_SHIFTS = frozenset({"Stroke", "Telestroke/Clinic", "Swing", "NCC1", "NCC2"})
 # wk26/27 one-indexed -> 0-indexed weeks 25 & 26.
 STROKE_WK2627_WEEKS = (25, 26)
 # Dual-stroke Helena soft-penalty tiers (week split at index 20 = 1-indexed wk21).
@@ -58,17 +58,6 @@ DUAL_STROKE_BASE_EARLY = 0            # dual-stroke base penalty, early
 DUAL_STROKE_BASE_LATE = 20           # dual-stroke base penalty, late
 DUAL_STROKE_NO_HELENA_EARLY = 100    # extra if dual & not Helena, early
 DUAL_STROKE_NO_HELENA_LATE = 80      # extra if dual & not Helena, late
-ANAESTHESIA_SHIFTS = frozenset({"Anaesthesia"})
-CLINIC_SHIFTS = frozenset({"Clinic/Elective"})
-STROKE_SHIFTS = frozenset({"Stroke"})
-NON_PREFERRED_SUNDAY_FOLLOWING = frozenset(
-    {"Anaesthesia", "Clinic/Elective", "Telestroke/Clinic", "Vac", "NS", "NIR", "SICU", "SCVMC Rehab"}
-)
-HOLIDAY_ELIGIBLE_SHIFTS = frozenset({"NCC1", "NCC2", "Stroke"})
-WEEKEND_BLOCKED_SHIFTS = frozenset({"SICU", "MICU", "NS", "Anaesthesia", "Vac"})
-CONSECUTIVE_WEEKEND_BUFFER_SHIFTS = frozenset(
-    {"Vac", "ISC", "ABPN", "NHS", "AAN", "NCS 2026"}
-)
 
 _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1
@@ -174,6 +163,11 @@ class ScheduleSolverConfig:
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
     call_rules: list[dict] = field(default_factory=list)
+    # Shift Attributes (ADR-0003): config-driven table mapping shift name -> the
+    # attribute flags it carries. The encoder projects historical shift-name
+    # frozensets out of this via shifts_with_attribute(...). Defaults to an empty
+    # palette so direct-construction call-sites (tests) need no change.
+    shift_palette: ShiftPalette = field(default_factory=ShiftPalette)
     # --- Experimental variant flags (default off; the shipped config is unchanged) ---
     # ABPN hard-blocks prior-Sun..Thu weekday night call (like the generic
     # night-block) for ALL fellows. Default ON: an ABPN week should be free of

@@ -70,22 +70,13 @@ _GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
 def _strength_for(criterion: str, hard_criteria: frozenset[str]) -> "_Strength":
     return _HARD if criterion in hard_criteria else _SOFT
 from parafrost_scheduler.schedule_types import (
-    NIGHT_BLOCKED_SHIFTS,
-    NIGHT_BLOCKED_ALL_WEEK,
     NHS_NIGHT_PENALTY_WEIGHT,
-    STROKE_WK2627_ON_SHIFTS,
     STROKE_WK2627_WEEKS,
     DUAL_STROKE_EARLY_END,
     DUAL_STROKE_BASE_EARLY,
     DUAL_STROKE_BASE_LATE,
     DUAL_STROKE_NO_HELENA_EARLY,
     DUAL_STROKE_NO_HELENA_LATE,
-    ANAESTHESIA_SHIFTS,
-    CLINIC_SHIFTS,
-    STROKE_SHIFTS,
-    HOLIDAY_ELIGIBLE_SHIFTS,
-    WEEKEND_BLOCKED_SHIFTS,
-    CONSECUTIVE_WEEKEND_BUFFER_SHIFTS,
     _ROLE_NCC1,
     _ROLE_NCC2,
     _ROLE_STROKE,
@@ -1400,7 +1391,7 @@ def _encode_buffered_consecutive_pair(
       * no weekend role in week w-1 (a weekend off before the pair), AND
       * a light rotation breaks the run: week w+2 weekday service is light, OR
         the MIDDLE week w+1 weekday service is itself light
-        (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS).
+        (the "consec_weekend_buffer" shift attribute).
 
     The middle-week case matters because a light week w+1 means the fellow isn't
     working those intervening weekdays, so the run is already broken without a
@@ -1705,7 +1696,7 @@ def _encode_weekend_constraints(
         # infeasible on the production workbook (Slurm SAT bisect, 2026-06-05),
         # so the hard form permits a pair (w, w+1) only when it is buffered on
         # both sides — the fellow had no weekend role in week w-1 AND their
-        # week w+2 weekday service is "light" (CONSECUTIVE_WEEKEND_BUFFER_SHIFTS).
+        # week w+2 weekday service is "light" (the "consec_weekend_buffer" attr).
         # That caps the run at Mon(w)->Sun(w+1) = 14 days. Soft mode (config flag
         # False or SCHED_DIAG_CONSECUTIVE=soft) degrades to a flat per-pair
         # penalty. SCHED_DIAG_CONSECUTIVE=hard forces the buffered hard rule.
@@ -1718,7 +1709,7 @@ def _encode_weekend_constraints(
             consecutive_hard = config.weekend_consecutive_hard
 
         work_by_week = dict(work_vars)
-        buffer_indices = [shift_idx[s] for s in CONSECUTIVE_WEEKEND_BUFFER_SHIFTS if s in shift_idx]
+        buffer_indices = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("consec_weekend_buffer") if s in shift_idx]
         # HARD every-other-weekend for flagged fellows (e.g. CCM): a strict
         # at_most-1 over each adjacent weekend pair, NO buffer exemption. Only
         # feasible with proportionate weekend ranges (see ncc_ranges).
@@ -1814,7 +1805,7 @@ def _encode_weekend_eligibility(
     """Block weekend roles when fellow is on a weekend-blocking shift."""
     num_weeks = config.num_weeks
 
-    blocked_indices = [shift_idx[s] for s in WEEKEND_BLOCKED_SHIFTS if s in shift_idx]
+    blocked_indices = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("weekend_blocked") if s in shift_idx]
     num_shifts = len(shift_idx)
 
     for w in range(num_weeks):
@@ -2123,12 +2114,13 @@ def _encode_night_constraints(
     # (nights where the fellow works the next morning).
     opb.add_comment("Night: service-based blocking (vacation = all nights)")
     vac_idx = shift_idx.get("Vac")
-    all_week_blocked = [shift_idx[s] for s in NIGHT_BLOCKED_ALL_WEEK if s in shift_idx]
-    weekday_only_shifts = set(NIGHT_BLOCKED_SHIFTS)
+    night_blocked_all_week = config.shift_palette.shifts_with_attribute("night_blocked_all_week")
+    all_week_blocked = [shift_idx[s] for s in night_blocked_all_week if s in shift_idx]
+    weekday_only_shifts = set(config.shift_palette.shifts_with_attribute("night_blocked"))
     # Variant: ABPN blocks prior-Sun..Thu weekday night call (like ISC/AAN).
     if config.abpn_night_block and "ABPN" in shift_idx:
         weekday_only_shifts.add("ABPN")
-    weekday_only_blocked = [shift_idx[s] for s in weekday_only_shifts if s in shift_idx and s not in NIGHT_BLOCKED_ALL_WEEK]
+    weekday_only_blocked = [shift_idx[s] for s in weekday_only_shifts if s in shift_idx and s not in night_blocked_all_week]
     s_isc = shift_idx.get("ISC")
 
     for d in range(num_days):
@@ -2156,7 +2148,7 @@ def _encode_night_constraints(
 
             # Holiday: only NCC1/NCC2/Stroke can work holidays
             if d in holiday_set:
-                holiday_shifts = [shift_idx[s] for s in HOLIDAY_ELIGIBLE_SHIFTS if s in shift_idx]
+                holiday_shifts = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("holiday_eligible") if s in shift_idx]
                 eligible_vars = [xs[f][week_idx][si] for si in holiday_shifts if xs[f][week_idx][si] != 0]
                 if eligible_vars:
                     # xn[d][f] -> OR(eligible): sum(eligible) + (1 - xn) >= 1
@@ -2307,8 +2299,8 @@ def _encode_night_policy_criteria(
     weights = config.night_weights
     hard_criteria = config.night_hard_criteria
 
-    anaesthesia_indices = [shift_idx[s] for s in ANAESTHESIA_SHIFTS if s in shift_idx]
-    clinic_indices = [shift_idx[s] for s in CLINIC_SHIFTS if s in shift_idx]
+    anaesthesia_indices = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("anaesthesia_gating") if s in shift_idx]
+    clinic_indices = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("clinic_gating") if s in shift_idx]
     stroke_idx = shift_idx.get("Stroke")
 
     # Compute dual-stroke indicator variables
@@ -2693,7 +2685,7 @@ def _encode_stroke_wk2627_toggle(
     w_a, w_b = STROKE_WK2627_WEEKS
     if w_b >= config.num_weeks:
         return
-    on_si = [shift_idx[s] for s in STROKE_WK2627_ON_SHIFTS if s in shift_idx]
+    on_si = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("stroke_wk2627_on") if s in shift_idx]
     stroke_group = set(config.fellow_groups.get("STROKE", []))
     for f, name in enumerate(fellow_names):
         if name not in stroke_group:

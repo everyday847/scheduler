@@ -4,6 +4,40 @@
 # rarely change. They define how the fellowship program works, not how
 # a particular year is configured.
 
+# Shift Attributes (ADR-0003): which shifts carry which code-defined scheduling
+# behaviors. Each flag is a fixed code vocabulary entry; this map chooses which
+# shifts carry it. The encoder reads these as projections (the historical
+# night/weekend shift-name frozensets). Flags:
+#   night_blocked_all_week  - blocks night call on ALL 7 nights of the week
+#   night_blocked_weekday   - blocks night call only Sun-Thu (next morning works)
+#   weekend_blocked         - blocks any weekend role that week
+#   holiday_eligible        - only these shifts may hold a holiday night
+#   consec_weekend_buffer   - "light" week that buffers consecutive weekends
+#   anaesthesia_gating      - drives the anaesthesia night-policy criterion
+#   clinic_gating           - drives the clinic night-policy criterion
+#   stroke_wk2627_on        - counts as "on" for the wk26/27 holiday toggle
+# The long-form aliases in the annual shift list (Vacation, Anesthesia, MSICU,
+# NS SCVMC, Elective, Elective/SICU) carry no behavior today, so they are omitted.
+shift_palette:
+  SICU: [night_blocked_all_week, weekend_blocked]
+  MICU: [night_blocked_all_week, weekend_blocked]
+  NS: [night_blocked_all_week, weekend_blocked]
+  Vac: [night_blocked_all_week, weekend_blocked, consec_weekend_buffer]
+  "SCVMC Rehab": [night_blocked_weekday]
+  AAN: [night_blocked_weekday, consec_weekend_buffer]
+  RWC: [night_blocked_weekday]
+  NCS 2026: [night_blocked_weekday, consec_weekend_buffer]
+  Anaesthesia: [weekend_blocked, anaesthesia_gating]
+  Clinic/Elective: [clinic_gating]
+  ISC: [consec_weekend_buffer]
+  ABPN: [consec_weekend_buffer]
+  NHS: [consec_weekend_buffer]
+  NCC1: [holiday_eligible, stroke_wk2627_on]
+  NCC2: [holiday_eligible, stroke_wk2627_on]
+  Stroke: [holiday_eligible, stroke_wk2627_on]
+  Telestroke/Clinic: [stroke_wk2627_on]
+  Swing: [stroke_wk2627_on]
+
 rules:
 
   - name: Full Assignment for NCC/Stroke
@@ -233,21 +267,6 @@ night_rules:
     window_days: 3
     active: true
 
-  - name: Night blocked services
-    type: night_blocked_services
-    description: "Weekday services that preclude night call"
-    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
-    exact_services: [Vacation, "NS SCVMC", "AAN", "Elective/NCS 2026"]
-    substring_services: [SICU, MSICU]
-    active: true
-
-  - name: Holiday eligibility
-    type: night_holiday_eligibility
-    description: "Only NCC1/NCC2/Stroke fellows can do night call on holidays"
-    groups: [STROKE, NCC_JR, NCC_SR, NH]
-    allowed_services: [NCC1, NCC2, Stroke]
-    active: true
-
   - name: Night soft penalties
     type: night_penalties
     description: "Weights for undesirable night call patterns"
@@ -281,21 +300,6 @@ weekend_rules:
     groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
     max_weekends: 1
     window_weeks: 2
-    active: true
-
-  - name: Weekend blocked services
-    type: weekend_blocked_services
-    description: "Weekday services that preclude weekend call"
-    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
-    exact_services: [Vacation, "Elective/NCS 2026"]
-    substring_services: [SICU, MSICU]
-    active: true
-
-  - name: Weekend Stroke eligibility
-    type: weekend_stroke_eligibility
-    description: "Which services make a fellow eligible for Weekend Stroke"
-    groups: [STROKE, NCC_JR, NCC_SR, NH]
-    eligible_services: [Stroke, Telestroke/Clinic]
     active: true
 
   - name: Weekend soft penalties
