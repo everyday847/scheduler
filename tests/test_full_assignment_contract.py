@@ -59,6 +59,9 @@ class DictScheduleView:
             return [v] if v else []
         return []
 
+    def night_holder(self, day):
+        return None
+
 
 _FELLOWS = ["A", "B"]
 

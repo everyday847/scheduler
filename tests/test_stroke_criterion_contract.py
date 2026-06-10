@@ -89,6 +89,9 @@ class DictScheduleView:
             return [f for f, s in self._weekday[week].items() if s == shift]
         return []
 
+    def night_holder(self, day: int) -> str | None:
+        return None
+
 
 # A schedule exercising every branch:
 #   w0: A on Stroke (single).  A holds Weekend Stroke.

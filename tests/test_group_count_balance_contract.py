@@ -54,6 +54,9 @@ class DictScheduleView:
         s = self.weekday_service(week, fellow)
         return [s] if s else []
 
+    def night_holder(self, day):
+        return None
+
 
 # A 5-week window, 3 fellows. On-service counts: A=3, B=3, C=5.
 # max_difference=1 -> pairs (A,B)=0 ok, (A,C)=2 violate, (B,C)=2 violate => 2.

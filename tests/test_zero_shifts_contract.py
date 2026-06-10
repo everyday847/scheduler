@@ -54,6 +54,9 @@ class DictScheduleView:
         s = self.weekday_service(week, fellow)
         return [s] if s else []
 
+    def night_holder(self, day):
+        return None
+
 
 _FELLOWS = ["A"]
 
