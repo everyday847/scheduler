@@ -30,6 +30,10 @@ class ConstraintSink(Protocol):
         """At least *k* of *lits* are true."""
         ...
 
+    def exactly_k(self, lits: list[int], k: int) -> None:
+        """Exactly *k* of *lits* are true (one native equality line)."""
+        ...
+
     def weighted_sum_at_most(self, weighted_lits: list[tuple[int, int]], bound: int) -> None:
         """sum_i weight_i * lit_i <= bound."""
         ...

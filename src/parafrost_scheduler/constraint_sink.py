@@ -28,6 +28,9 @@ class OpbConstraintSink:
     def at_least_k(self, lits: list[int], k: int) -> None:
         self._opb.at_least_k(lits, k)
 
+    def exactly_k(self, lits: list[int], k: int) -> None:
+        self._opb.exactly_k(lits, k)
+
     def weighted_sum_at_most(self, weighted_lits: list[tuple[int, int]], bound: int) -> None:
         self._opb.weighted_sum_at_most(weighted_lits, bound)
 

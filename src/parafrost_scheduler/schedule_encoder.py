@@ -54,6 +54,10 @@ from schedule_rules.criteria.sunday_following import (
 from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
 from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
 from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
+from schedule_rules.weekly.full_assignment import FullAssignmentCriterion
+from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterion
+from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
+from schedule_rules.weekly.windowed_count_band import WindowedCountBandCriterion
 from schedule_rules.strength import HARD as _HARD, SOFT as _SOFT
 from schedule_rules.strength import Strength as _Strength
 
@@ -65,6 +69,10 @@ _SUNDAY_CRITERION = SundayFollowingCriterion()
 _WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
 _PREVACATION_CRITERION = PrevacationWeekendCriterion()
 _GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
+_FULL_ASSIGNMENT_CRITERION = FullAssignmentCriterion()
+_SPECIFIC_ASSIGNMENT_CRITERION = SpecificAssignmentCriterion()
+_ZERO_SHIFTS_CRITERION = ZeroShiftsCriterion()
+_WINDOWED_COUNT_BAND_CRITERION = WindowedCountBandCriterion()
 
 
 def _strength_for(criterion: str, hard_criteria: frozenset[str]) -> "_Strength":
@@ -427,33 +435,27 @@ def _encode_weekly_rules(
 
 
 def _encode_full_assignment(opb, xs, constraint, fellow_indices, **kw):
-    """Each fellow in scope must be assigned exactly one shift per week."""
+    """Each fellow in scope must be assigned exactly one shift per week.
+
+    Thin adapter: builds the per-(fellow, week) active-shift var lists and
+    delegates emission to the co-located FullAssignmentCriterion (ADR-0005)."""
     num_weeks = kw["num_weeks"]
     num_shifts = len(kw["shifts"])
-    is_soft = constraint.strength == ConstraintStrength.SOFT
     weight = kw["config"].weekly_soft_weight
+    strength = _SOFT if constraint.strength == ConstraintStrength.SOFT else _HARD
 
+    week_var_lists = []
     for f in fellow_indices:
         for w in range(num_weeks):
             active = [xs[f][w][s] for s in range(num_shifts) if xs[f][w][s] != 0]
-            if not active:
-                continue
-            if is_soft:
-                v = opb.new_var()
-                # v=1 if no shift assigned (violation)
-                # sum(active) + v >= 1
-                opb.at_least_k(active + [v], 1)
-                # v=0 if any shift assigned: v + active_i <= 1 for ... no, too many
-                # Better: v <= 1 - sum(active)/1. Use: sum(active) + ~v >= 1 → already above
-                # And: v <= ~active_i for each? No. Just:
-                # v + sum(active) <= 1 would force at most one between v and the sum. But sum can be 1.
-                # Actually sum is already <= 1 from fundamental. So sum ∈ {0,1}.
-                # v=1 iff sum=0: v >= 1 - sum → v + sum >= 1 (above)
-                # v <= 1 - sum: since sum <= 1, this means v + sum <= 1
-                opb.at_most_k(active + [v], 1)
-                kw["soft_violations"].append((v, weight))
-            else:
-                opb.at_least_k(active, 1)
+            week_var_lists.append(active)
+
+    _FULL_ASSIGNMENT_CRITERION.encode(
+        OpbConstraintSink(opb, kw["soft_violations"]),
+        week_var_lists=week_var_lists,
+        strength=strength,
+        weight=weight,
+    )
 
 
 def _encode_ncc_coverage(opb, xs, constraint, fellow_indices, **kw):
@@ -1184,11 +1186,12 @@ def _encode_isc(opb, xs, constraint, fellow_indices, **kw):
 
 
 def _encode_specific_assignment(opb, xs, constraint, fellow_indices, **kw):
-    """A specific shift must be filled by someone from fellow_indices in a given week."""
+    """A specific shift must be filled by someone from fellow_indices in a given
+    week. Thin adapter delegating to SpecificAssignmentCriterion (ADR-0005)."""
     shift_idx = kw["shift_idx"]
-    is_soft = constraint.strength == ConstraintStrength.SOFT
     weight = kw["config"].weekly_soft_weight
     soft_violations = kw["soft_violations"]
+    strength = _SOFT if constraint.strength == ConstraintStrength.SOFT else _HARD
 
     if not constraint.shifts or not constraint.weeks:
         return
@@ -1200,17 +1203,13 @@ def _encode_specific_assignment(opb, xs, constraint, fellow_indices, **kw):
         return
 
     vars_for_week = [xs[f][week][si] for f in fellow_indices if xs[f][week][si] != 0]
-    if not vars_for_week:
-        return
 
-    if is_soft:
-        v = opb.new_var()
-        opb.at_least_k(vars_for_week + [v], 1)
-        for vw in vars_for_week:
-            opb.at_most_k([v, vw], 1)
-        soft_violations.append((v, weight))
-    else:
-        opb.at_least_k(vars_for_week, 1)
+    _SPECIFIC_ASSIGNMENT_CRITERION.encode(
+        OpbConstraintSink(opb, soft_violations),
+        vars_for_week=vars_for_week,
+        strength=strength,
+        weight=weight,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3374,7 +3373,9 @@ def _encode_call_rules(
 # ---------------------------------------------------------------------------
 
 def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
-    """Per-fellow total of specific shifts, optionally windowed."""
+    """Per-fellow total of specific shifts, optionally windowed. Thin adapter:
+    builds each fellow's windowed var list and delegates the count-band emission
+    to WindowedCountBandCriterion (ADR-0005)."""
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
     is_soft = constraint.strength == ConstraintStrength.SOFT
@@ -3392,6 +3393,7 @@ def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
     else:
         w_start, w_end = 0, num_weeks
 
+    sink = OpbConstraintSink(opb, soft_violations)
     for f in fellow_indices:
         all_vars = []
         for w in range(w_start, min(w_end, num_weeks)):
@@ -3403,14 +3405,16 @@ def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
             continue
 
         fellow_is_soft = is_soft or f in locked_fellow_indices
-        _add_cardinality_constraint(
-            opb, all_vars, relation, count,
-            is_soft=fellow_is_soft, weight=weight, soft_violations=soft_violations,
+        _WINDOWED_COUNT_BAND_CRITERION.encode(
+            sink, vars=all_vars, relation=relation, target=count,
+            strength=_SOFT if fellow_is_soft else _HARD, weight=weight,
         )
 
 
 def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
-    """Per-week staffing requirement: N fellows from groups on shifts."""
+    """Per-week staffing requirement: N fellows from groups on shifts. Thin
+    adapter: builds each week's var list and delegates the count-band emission to
+    WindowedCountBandCriterion (ADR-0005)."""
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
     num_fellows = kw["num_fellows"]
@@ -3439,6 +3443,7 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
     else:
         w_start, w_end = 0, num_weeks
 
+    sink = OpbConstraintSink(opb, soft_violations)
     for w in range(w_start, min(w_end, num_weeks)):
         week_vars = []
         for f in fellow_indices:
@@ -3455,9 +3460,9 @@ def _encode_staffing_per_week(opb, xs, constraint, fellow_indices, **kw):
             if locked_count_per_week.get(w, 0) >= count:
                 week_is_soft = True
 
-        _add_cardinality_constraint(
-            opb, week_vars, relation, count,
-            is_soft=week_is_soft, weight=weight, soft_violations=soft_violations,
+        _WINDOWED_COUNT_BAND_CRITERION.encode(
+            sink, vars=week_vars, relation=relation, target=count,
+            strength=_SOFT if week_is_soft else _HARD, weight=weight,
         )
 
 
@@ -3508,10 +3513,12 @@ def _encode_coverage_target(opb, xs, constraint, fellow_indices, **kw):
 
 
 def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
-    """Forbid fellows from being assigned specific shifts."""
+    """Forbid fellows from being assigned specific shifts. Thin adapter
+    delegating to ZeroShiftsCriterion (ADR-0005)."""
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
 
+    forbidden_vars = []
     for shift_name in constraint.params.get("zero_shifts", []):
         si = shift_idx.get(shift_name)
         if si is None:
@@ -3519,7 +3526,12 @@ def _encode_zero_shifts(opb, xs, constraint, fellow_indices, **kw):
         for f in fellow_indices:
             for w in range(num_weeks):
                 if xs[f][w][si] != 0:
-                    opb.add_unit(-xs[f][w][si])
+                    forbidden_vars.append(xs[f][w][si])
+
+    _ZERO_SHIFTS_CRITERION.encode(
+        OpbConstraintSink(opb, kw["soft_violations"]),
+        forbidden_vars=forbidden_vars,
+    )
 
 
 def _encode_prerequisite(opb, xs, constraint, fellow_indices, **kw):
