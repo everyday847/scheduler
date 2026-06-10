@@ -153,6 +153,31 @@ def _eval_group_count_balance(view, constraint, fellows) -> list[Violation]:
             for (a, b) in pairs]
 
 
+def _weekend_prereq_criterion(kind: str):
+    from schedule_rules.criteria.weekend_role_prerequisite import (
+        WeekendRolePrerequisiteCriterion,
+    )
+    if kind == "weekend_ncc_prerequisite":
+        return WeekendRolePrerequisiteCriterion(
+            role_names=("Weekend NCC1", "Weekend NCC2"),
+            prereq_shifts=("NCC1", "NCC2"))
+    return WeekendRolePrerequisiteCriterion(
+        role_names=("Weekend Stroke",), prereq_shifts=("Stroke",))
+
+
+def _eval_weekend_role_prerequisite(view, constraint, fellows) -> list[Violation]:
+    # The selector's resolved *fellows* (everyone, by default) bounds the scan.
+    # Only exempt_fellows is honored here — the driver doesn't thread
+    # fellow_groups to evaluators, so exempt_groups (encode-side) isn't expanded.
+    exempt = set(constraint.params.get("exempt_fellows", []))
+    crit = _weekend_prereq_criterion(constraint.kind)
+    hits = crit.evaluate(view, fellows=fellows, exempt=exempt)
+    return [Violation(constraint.kind,
+                     f"{f} holds {role} in week {w} with no prior qualifying "
+                     f"weekday service", week=w)
+            for (f, w, role) in hits]
+
+
 # kind -> evaluator; multiple kinds may share one archetype evaluator.
 _EVALUATORS: dict[str, Callable] = {
     "full_assignment": _eval_full_assignment,
@@ -161,6 +186,8 @@ _EVALUATORS: dict[str, Callable] = {
     "shift_total": _eval_windowed_count_band,
     "staffing_per_week": _eval_windowed_count_band,
     "group_count_balance": _eval_group_count_balance,
+    "weekend_stroke_prerequisite": _eval_weekend_role_prerequisite,
+    "weekend_ncc_prerequisite": _eval_weekend_role_prerequisite,
 }
 
 
