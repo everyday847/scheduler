@@ -200,6 +200,18 @@ def _stroke_service_fellows(
         if rule.get("type") == "shift_total" and grants_stroke(rule):
             for g in rule.get("groups", []):
                 result.update(fellow_groups.get(g, []))
+            # S1: after the per_fellow_shift_total cutover a single-fellow
+            # stroke grant lives in `rules` as a shift_total carrying a
+            # `fellow:` (or a `fellows:`/`fellow_groups:` selector) instead of
+            # `groups:`. Recognize those forms too — additively, so the legacy
+            # group form above still works.
+            for g in rule.get("fellow_groups", []):
+                result.update(fellow_groups.get(g, []))
+            for f in rule.get("fellows", []):
+                result.add(f)
+            single_fellow = rule.get("fellow")
+            if single_fellow:
+                result.add(single_fellow)
 
     for rule in request.get("call_rules", []):
         if rule.get("type") == "per_fellow_shift_total" and grants_stroke(rule):

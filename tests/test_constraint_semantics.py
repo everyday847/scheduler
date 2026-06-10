@@ -718,6 +718,56 @@ class TestWeekendStrokeServiceEligibility:
                     | wk.stroke_only_eligible)
         assert "NoStroke" not in all_elig
 
+    def test_migrated_single_fellow_shift_total_in_rules_grants_stroke(self):
+        """S1: after the per_fellow_shift_total cutover the single-fellow Stroke
+        grant lives in `rules` as a shift_total with `fellow:` — the eligibility
+        derivation must recognize it just like the legacy call_rules form."""
+        req = {
+            "weekend_call": [
+                {"group": "STROKE", "ncc_total": 22, "stroke_total": 51},
+                {"group": "NH", "ncc_total": 6, "stroke_total": 0},
+            ],
+            "rules": [
+                {"type": "shift_total", "fellow": "Sokena Zaidi", "shifts": ["Stroke"],
+                 "relation": "at_least", "count": 4, "active": True},
+            ],
+        }
+        wk = _build_weekend_config(req, self._groups())
+        assert "Sokena Zaidi" in wk.telestroke_stroke_eligible
+
+    def test_migrated_shift_total_fellows_selector_grants_stroke(self):
+        """A `fellows:` (multi-name) selector form is recognized too."""
+        req = {
+            "weekend_call": [
+                {"group": "STROKE", "ncc_total": 22, "stroke_total": 51},
+                {"group": "NH", "ncc_total": 6, "stroke_total": 0},
+            ],
+            "rules": [
+                {"type": "shift_total", "fellows": ["Jinyuan Liu", "Sokena Zaidi"],
+                 "shifts": ["Stroke"], "relation": "at_least", "count": 4, "active": True},
+            ],
+        }
+        wk = _build_weekend_config(req, self._groups())
+        assert "Jinyuan Liu" in wk.telestroke_stroke_eligible
+        assert "Sokena Zaidi" in wk.telestroke_stroke_eligible
+
+    def test_migrated_inactive_single_fellow_shift_total_does_not_grant(self):
+        """An inactive migrated rule must NOT grant stroke eligibility."""
+        req = {
+            "weekend_call": [
+                {"group": "STROKE", "ncc_total": 22, "stroke_total": 51},
+                {"group": "NH", "ncc_total": 6, "stroke_total": 0},
+            ],
+            "rules": [
+                {"type": "shift_total", "fellow": "Sokena Zaidi", "shifts": ["Stroke"],
+                 "relation": "at_least", "count": 4, "active": False},
+            ],
+        }
+        wk = _build_weekend_config(req, self._groups())
+        all_elig = (wk.always_stroke_eligible | wk.telestroke_stroke_eligible
+                    | wk.stroke_only_eligible)
+        assert "Sokena Zaidi" not in all_elig
+
 
 # ---------------------------------------------------------------------------
 # Management mode (single source of truth for IMPORTED vs MANAGED)
