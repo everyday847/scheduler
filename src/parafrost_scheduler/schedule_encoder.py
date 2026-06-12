@@ -30,11 +30,7 @@ from scheduler.weekend_call_types import (
     WeekendScheduleSolution,
     BackupScheduleSolution,
 )
-from scheduler.call_schedule_common import (
-    NIGHT_ROLES,
-    WEEKEND_ROLES,
-    DEFAULT_CCM_FELLOWS,
-)
+from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES
 from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     CRITERION_ANAESTHESIA,
@@ -252,11 +248,6 @@ def build_full_schedule_opb(
                 var = xs[f][w][si]
                 if var != 0:
                     opb.add_unit(var)
-        if relax:
-            _encode_relaxed_lock_guardrails(
-                opb, xs, config, fellow_mapping, fellow_names,
-                shift_idx, soft_violations, num_weeks,
-            )
 
     # -------------------------------------------------------------------
     # 3. Encode weekly shift rules from YAML config
@@ -381,122 +372,6 @@ def build_full_schedule_opb(
     return opb, var_map
 
 
-def _encode_relaxed_lock_guardrails(
-    opb: OpbBuilder,
-    xs: list[list[list[int]]],
-    config: ScheduleSolverConfig,
-    fellow_mapping: FellowMapping,
-    fellow_names: list[str],
-    shift_idx: dict[str, int],
-    soft_violations: list[tuple[int, int]],
-    num_weeks: int,
-) -> None:
-    """Guardrails that apply ONLY when locked NCC trio weeks are floated
-    (config.relax_locked_ncc_trio). Without these, the floating exactly-one-of-
-    {NCC1,NCC2,Swing} choice would let the optimizer place Swing wherever it
-    likes on locked CCM fellows.
-
-    Three pieces:
-      1. CCM Elective fellow never does Swing (hard).
-      2. The two core CCM fellows: no Swing in consecutive weeks (hard).
-      3. 2-week NCC team-continuity, encoded as a GENUINELY soft penalty (no
-         hidden hard clauses — see _encode_soft_team_continuity).
-
-    History: piece 3 was first attempted by reusing the block_shift_set_choice
-    encoder at SOFT strength. That made the floating model UNSAT, because its
-    conditional_exactly_k helper emits an at-least-k clause
-    `sum(lits) + (n-k)*~sel >= k` that stops being selector-gated when n <= 2k-1
-    (it collapses to a hard `sum(lits) >= k`). A soft rule must NEVER be able to
-    flip a model UNSAT, so piece 3 is now a hand-rolled pure-penalty encoding.
-    """
-    locked = config.locked_assignments
-    ccm = set(config.fellow_groups.get("CCM", [])) or set(DEFAULT_CCM_FELLOWS)
-    ccm_elective = "CCM  Fellow (Elective) 1"
-    s_swing = shift_idx.get("Swing")
-
-    # 1 + 2: CCM Swing guardrails, scoped to relaxed (i.e. locked) CCM fellows.
-    if s_swing is not None:
-        for name in locked:
-            if name not in ccm:
-                continue
-            try:
-                f = fellow_mapping.get_fellow_index(name)
-            except ValueError:
-                continue
-            swing_vars = [xs[f][w][s_swing] if xs[f][w][s_swing] != 0 else 0
-                          for w in range(num_weeks)]
-            if name == ccm_elective:
-                # Elective CCM never does Swing.
-                for v in swing_vars:
-                    if v != 0:
-                        opb.add_unit(-v)
-            else:
-                # Core CCM: no Swing in consecutive weeks.
-                for w in range(num_weeks - 1):
-                    a, b = swing_vars[w], swing_vars[w + 1]
-                    if a != 0 and b != 0:
-                        opb.at_most_k([a, b], 1)
-
-    # 3: soft 2-week NCC team-continuity for the relaxed locked fellows.
-    s_ncc1 = shift_idx.get("NCC1")
-    s_ncc2 = shift_idx.get("NCC2")
-    weight = config.weekly_soft_weight
-    if s_ncc1 is not None and s_ncc2 is not None:
-        for name in locked:
-            try:
-                f = fellow_mapping.get_fellow_index(name)
-            except ValueError:
-                continue
-            _encode_soft_team_continuity(
-                opb, xs, f, num_weeks, s_ncc1, s_ncc2, soft_violations, weight,
-            )
-
-
-def _encode_soft_team_continuity(
-    opb: OpbBuilder,
-    xs: list[list[list[int]]],
-    f: int,
-    num_weeks: int,
-    s_ncc1: int,
-    s_ncc2: int,
-    soft_violations: list[tuple[int, int]],
-    weight: int,
-) -> None:
-    """GENUINELY soft 2-week NCC team-continuity for one fellow.
-
-    The team-continuity choices are [NCC1, Swing] and [NCC2, Swing]; Swing is in
-    BOTH, so within a 2-week block the only thing that breaks continuity is
-    holding NCC1 in one week and NCC2 in the other (mixing the two NCC teams).
-    Under the relaxed exactly-one-of-trio, that is exactly: some NCC1 var AND
-    some NCC2 var are both true in the block.
-
-    Pure-penalty encoding — for each block we mint ONE penalty var `pen` and emit,
-    for every cross pair (NCC1 var u, NCC2 var w) in the block:
-
-        pen + ~u + ~w >= 1          (i.e. u AND w  =>  pen)
-
-    Every such clause is satisfiable by pen=1, so `pen` can ALWAYS absorb it —
-    the constraint can never remove a feasible point (never causes UNSAT). The
-    objective minimizes pen, driving it to 0 unless a real NCC1/NCC2 mix forces
-    it to 1. No hard clause is emitted. (One pen per block bounds the penalty at
-    `weight` per broken block, matching the old rule's one-violation-per-block.)
-    """
-    for block_start in range(0, num_weeks, 2):
-        block_end = min(block_start + 2, num_weeks)
-        ncc1_vars = [xs[f][w][s_ncc1] for w in range(block_start, block_end)
-                     if xs[f][w][s_ncc1] != 0]
-        ncc2_vars = [xs[f][w][s_ncc2] for w in range(block_start, block_end)
-                     if xs[f][w][s_ncc2] != 0]
-        if not ncc1_vars or not ncc2_vars:
-            continue  # no possible NCC1/NCC2 mix in this block — nothing to penalize
-        pen = opb.new_var()
-        for u in ncc1_vars:
-            for w_var in ncc2_vars:
-                # pen >= u AND w_var  <=>  pen + ~u + ~w_var >= 1
-                opb.weighted_sum_at_least([(pen, 1), (-u, 1), (-w_var, 1)], 1)
-        soft_violations.append((pen, weight))
-
-
 # ---------------------------------------------------------------------------
 # Weekly rule encoders
 # ---------------------------------------------------------------------------
@@ -603,7 +478,18 @@ def _encode_weekly_rules(
                 f"or night layer; call rules belong in call_rules, not constraints."
             )
         fellow_indices = _resolve_fellow_indices(fellow_mapping, constraint.fellows)
-        if locked_fellow_indices and constraint.kind in PER_FELLOW_KINDS:
+        # Per-fellow rules are normally skipped for locked (IMPORTED) fellows —
+        # their weekly layer is frozen, so per-fellow weekly rules don't apply.
+        # EXCEPTION: under relaxed locking the trio weeks float (no longer frozen),
+        # so a rule that declares `applies_under_relaxed_locks: true` keeps binding
+        # those fellows. The skip is the encoder's only relax-aware seam; the rules
+        # themselves stay in config (no rule is defined inline here).
+        skip_locked = (
+            locked_fellow_indices and constraint.kind in PER_FELLOW_KINDS
+            and not (config.relax_locked_ncc_trio
+                     and constraint.params.get("applies_under_relaxed_locks", False))
+        )
+        if skip_locked:
             fellow_indices = [f for f in fellow_indices if f not in locked_fellow_indices]
             if not fellow_indices:
                 continue
@@ -1093,7 +979,23 @@ def _encode_jr_ncc_before_swing(opb, xs, constraint, fellow_indices, **kw):
 
 
 def _encode_block_shift_set_choice(opb, xs, constraint, fellow_indices, **kw):
-    """In each block, fellow must be on one of the allowed shift-set choices (or none)."""
+    """In each block, fellow must be on one of the allowed shift-set choices (or none).
+
+    HARD: each block conforms to some choice (or none-if-allowed) — a structural
+    requirement enforced via conditional_exactly_k selectors.
+
+    SOFT: a per-block penalty when the block conforms to no choice. The soft path
+    is GENUINELY soft — it emits NO hard clause on the xs vars. Each choice gets a
+    conform selector `cf` defined ONE-directionally: `cf ⟹ every week in the block
+    holds a choice-shift` (`sum(choice-vars at w) + ~cf >= 1`). That clause only
+    ever constrains the aux var cf (the solver escapes by setting cf=0); it never
+    forces an xs var true. `cf=1` is achievable iff the block truly conforms, so
+    the penalty `pen` (absorbing when no selector holds) fires exactly on a
+    non-conforming block. Reusing conditional_exactly_k here (as the old code did)
+    was the bug: its at-least-k line collapses to a hard `sum(xs) >= block_len`
+    when the term count equals block_len, so a "soft" rule could flip the model
+    UNSAT. See ADR/feedback: a soft rule must never emit an ungated hard clause.
+    """
     shift_idx = kw["shift_idx"]
     num_weeks = kw["num_weeks"]
     is_soft = constraint.strength == ConstraintStrength.SOFT
@@ -1112,9 +1014,14 @@ def _encode_block_shift_set_choice(opb, xs, constraint, fellow_indices, **kw):
             block_end = min(block_start + block_size, num_weeks)
             block_len = block_end - block_start
 
-            # Collect shift term vars for each choice
-            selectors = []
+            if is_soft:
+                _emit_soft_block_choice(
+                    opb, xs, f, block_start, block_end, choices, allow_none,
+                    shift_idx, trigger_indices, soft_violations, weight)
+                continue
 
+            # HARD path (unchanged): selector ⟺ exactly block_len choice terms.
+            selectors = []
             for choice in choices:
                 choice_indices = [shift_idx[s] for s in choice if s in shift_idx]
                 choice_terms = []
@@ -1122,20 +1029,15 @@ def _encode_block_shift_set_choice(opb, xs, constraint, fellow_indices, **kw):
                     for si in choice_indices:
                         if xs[f][w][si] != 0:
                             choice_terms.append(xs[f][w][si])
-
                 sel = opb.new_var()
                 selectors.append(sel)
-                # If sel=1: exactly block_len of choice_terms are true
                 if choice_terms:
                     opb.conditional_exactly_k(choice_terms, block_len, sel)
                 else:
-                    # No vars available — this choice is impossible
-                    opb.add_unit(-sel)
-
+                    opb.add_unit(-sel)  # choice impossible this block
             if allow_none:
                 sel_none = opb.new_var()
                 selectors.append(sel_none)
-                # If sel_none=1: all trigger shift terms in block are 0
                 trigger_terms = []
                 for w in range(block_start, block_end):
                     for si in trigger_indices:
@@ -1143,18 +1045,39 @@ def _encode_block_shift_set_choice(opb, xs, constraint, fellow_indices, **kw):
                             trigger_terms.append(xs[f][w][si])
                 if trigger_terms:
                     opb.conditional_exactly_k(trigger_terms, 0, sel_none)
+            if selectors:
+                opb.at_least_k(selectors, 1)
 
-            # At least one selector must be true
-            if is_soft:
-                v = opb.new_var()
-                # v=1 iff no selector is true (violation)
-                opb.at_least_k(selectors + [v], 1)
-                for sel in selectors:
-                    opb.at_most_k([v, sel], 1)
-                soft_violations.append((v, weight))
-            else:
-                if selectors:
-                    opb.at_least_k(selectors, 1)
+
+def _emit_soft_block_choice(
+    opb, xs, f, block_start, block_end, choices, allow_none,
+    shift_idx, trigger_indices, soft_violations, weight,
+):
+    """Genuinely-soft block-choice penalty for one (fellow, block). NO hard clause
+    on xs vars — see _encode_block_shift_set_choice docstring."""
+    conform_vars = []
+    for choice in choices:
+        choice_indices = [shift_idx[s] for s in choice if s in shift_idx]
+        cf = opb.new_var()
+        # cf ⟹ every week in the block holds a choice-shift.
+        for w in range(block_start, block_end):
+            cterms = [xs[f][w][si] for si in choice_indices if xs[f][w][si] != 0]
+            # sum(cterms) + ~cf >= 1: cf=1 needs a choice-shift in week w; cf=0 vacuous.
+            # (cterms empty ⇒ +1 ~cf >= 1 ⇒ cf forced 0, never conforms — correct.)
+            opb.weighted_sum_at_least([(v, 1) for v in cterms] + [(-cf, 1)], 1)
+        conform_vars.append(cf)
+    if allow_none:
+        cn = opb.new_var()
+        # cn ⟹ all trigger shifts off in the block (at_most_1 of trigger var + cn).
+        for w in range(block_start, block_end):
+            for si in trigger_indices:
+                if xs[f][w][si] != 0:
+                    opb.at_most_k([xs[f][w][si], cn], 1)
+        conform_vars.append(cn)
+    pen = opb.new_var()
+    # Some choice conforms, OR pay the penalty.
+    opb.at_least_k(conform_vars + [pen], 1)
+    soft_violations.append((pen, weight))
 
 
 def _encode_all_or_none_block(opb, xs, constraint, fellow_indices, **kw):
@@ -2310,17 +2233,21 @@ def _encode_configured_weekend_night(
 def _encode_nhs_week_nights(
     opb: OpbBuilder,
     xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
     xs: list[list[list[int]]],
     config: ScheduleSolverConfig,
     fellow_names: list[str],
     shift_idx: dict[str, int],
     soft_violations: list[tuple[int, int]],
 ) -> None:
-    """NHS week: a fellow on NHS may work ONLY Monday + Tuesday night that week.
+    """NHS week: a fellow on NHS may work ONLY Monday + Tuesday night that week,
+    and holds NO weekend role.
 
     Mon/Tue night each get a soft NHS_NIGHT_PENALTY_WEIGHT penalty (they SHOULDN'T
     have to, but may); Wed/Thu/Fri/Sat/Sun nights of the NHS week are hard-
-    forbidden. Gated on the NHS shift var, so only whoever is on NHS is affected.
+    forbidden. All three weekend roles that week are likewise hard-forbidden (an
+    NHS week is a primary-fellowship commitment, like AAN). Gated on the NHS shift
+    var, so only whoever is on NHS is affected.
     """
     nhs_si = shift_idx.get("NHS")
     if nhs_si is None:
@@ -2346,6 +2273,10 @@ def _encode_nhs_week_nights(
                     soft_violations.append((pen, NHS_NIGHT_PENALTY_WEIGHT))
                 else:  # Wed-Sun: hard-forbidden
                     opb.at_most_k([nhs_var, xn[d][f]], 1)
+            # No weekend role on an NHS week (hard): at_most_1 of NHS-gate + role.
+            for role_idx in range(3):
+                if f in wr[w][role_idx]:
+                    opb.at_most_k([nhs_var, wr[w][role_idx][f]], 1)
 
 
 def _encode_pre_aan_forbid(
@@ -2549,9 +2480,9 @@ def _encode_night_constraints(
                 else:
                     opb.add_unit(-xn[d][f])
 
-    # NHS week: only Mon+Tue night (soft 100); Wed-Sun hard-forbidden.
-    opb.add_comment("Night: NHS week (Mon/Tue soft, Wed-Sun forbidden)")
-    _encode_nhs_week_nights(opb, xn, xs, config, fellow_names, shift_idx, soft_violations)
+    # NHS week: only Mon+Tue night (soft 100); Wed-Sun hard-forbidden; no weekend role.
+    opb.add_comment("Night/Weekend: NHS week (Mon/Tue soft, Wed-Sun + weekend roles forbidden)")
+    _encode_nhs_week_nights(opb, xn, wr, xs, config, fellow_names, shift_idx, soft_violations)
 
     # Week before AAN: forbid weekend roles + Fri/Sat/Sun nights.
     opb.add_comment("Night/Weekend: forbid the weekend before AAN")
@@ -3395,7 +3326,16 @@ def _encode_shift_total(opb, xs, constraint, fellow_indices, **kw):
         if not all_vars:
             continue
 
-        fellow_is_soft = is_soft or f in locked_fellow_indices
+        # A locked fellow's shift_total is normally softened (their weekly layer
+        # is frozen, so a hard count could be infeasible against the import). But
+        # under relaxed locking with this rule opted in, the trio weeks float, so
+        # the rule binds at its declared strength like any managed fellow.
+        relax_binds = (
+            kw["config"].relax_locked_ncc_trio
+            and constraint.params.get("applies_under_relaxed_locks", False)
+        )
+        locked_soft = f in locked_fellow_indices and not relax_binds
+        fellow_is_soft = is_soft or locked_soft
         _WINDOWED_COUNT_BAND_CRITERION.encode(
             sink, vars=all_vars, relation=relation, target=count,
             strength=_SOFT if fellow_is_soft else _HARD, weight=weight,

@@ -279,6 +279,8 @@ def _build_palette_constraints(
             continue
         migrated = _migrated_call_rule_to_constraint(rule)
         if migrated is not None:
+            if rule.get("applies_under_relaxed_locks"):
+                migrated.params["applies_under_relaxed_locks"] = True
             constraints.append(migrated)
             continue
         constraints.extend(palette_rule_to_constraints(

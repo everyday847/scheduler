@@ -50,6 +50,11 @@ def _make_xs_xn(opb, config):
     return xs, xn
 
 
+def _make_wr(opb, config):
+    """wr[w][role][f] — give the single fellow all 3 weekend roles each week."""
+    return [[{0: opb.new_var()} for _ in range(3)] for _ in range(config.num_weeks)]
+
+
 def _at_most_1(c):  # "+1 x.. +1 x.. <= 1 ;"
     return c.strip().endswith("<= 1 ;")
 
@@ -60,8 +65,9 @@ class TestNhsWeekNights:
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         opb = OpbBuilder()
         xs, xn = _make_xs_xn(opb, config)
+        wr = _make_wr(opb, config)
         soft = []
-        _encode_nhs_week_nights(opb, xn, xs, config, ["Jin"], shift_idx, soft)
+        _encode_nhs_week_nights(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
 
         nhs = xs[0][1][shift_idx["NHS"]]  # NHS in week 1
         start = config.start_dow
@@ -87,12 +93,30 @@ class TestNhsWeekNights:
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
         opb = OpbBuilder()
         xs, xn = _make_xs_xn(opb, config)
+        wr = _make_wr(opb, config)
         soft = []
-        _encode_nhs_week_nights(opb, xn, xs, config, ["Jin"], shift_idx, soft)
+        _encode_nhs_week_nights(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
         # Two penalty slacks (Mon + Tue of each NHS-capable week-fellow), each 100.
         assert NHS_NIGHT_PENALTY_WEIGHT == 100
         assert soft, "Mon/Tue NHS nights must add soft penalties"
         assert all(w == 100 for _, w in soft), "NHS night penalty weight must be 100"
+
+    def test_weekend_roles_hard_forbidden_on_nhs_week(self):
+        config = _config(num_days=21)
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs, xn = _make_xs_xn(opb, config)
+        wr = _make_wr(opb, config)
+        soft = []
+        _encode_nhs_week_nights(opb, xn, wr, xs, config, ["Jin"], shift_idx, soft)
+        nhs = xs[0][1][shift_idx["NHS"]]  # NHS in week 1
+        # All three weekend roles in the NHS week must be hard-forbidden.
+        for role_idx in range(3):
+            wr_var = wr[1][role_idx][0]
+            forbid = [c for c in opb._constraints
+                      if f"x{nhs} " in c.replace("~", "") and f"x{wr_var} " in c.replace("~", "")
+                      and _at_most_1(c)]
+            assert forbid, f"NHS week weekend role {role_idx} must be hard-forbidden"
 
 
 class TestPreAanForbid:

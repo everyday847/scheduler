@@ -570,12 +570,38 @@ rules:
   strength: hard
   type: max_consecutive
 - active: true
+  applies_under_relaxed_locks: true
   groups:
   - NCC_JR
   - NCC_SR
   - STROKE
+  - CCM
   max_weeks: 2
   name: Swing Max Consecutive
+  shifts:
+  - Swing
+  strength: hard
+  type: max_consecutive
+# Under relaxed locks the elective CCM bucket must still never do Swing (it has
+# no Swing weeks in the workbook; the float must not introduce any).
+- active: true
+  applies_under_relaxed_locks: true
+  fellow: CCM  Fellow (Elective) 1
+  name: 'CCM Elective: No Swing'
+  shifts:
+  - Swing
+  relation: at_most
+  count: 0
+  strength: hard
+  type: per_fellow_shift_total
+# Core CCM buckets must not do Swing in consecutive weeks (stricter than the
+# general max-2 rule above); re-imposed for them under relaxed locks.
+- active: true
+  applies_under_relaxed_locks: true
+  groups:
+  - CCM
+  max_weeks: 1
+  name: 'CCM Core: No Consecutive Swing'
   shifts:
   - Swing
   strength: hard
@@ -596,6 +622,7 @@ rules:
   type: max_consecutive
 - active: true
   allow_none: true
+  applies_under_relaxed_locks: true
   block_size: 2
   choices:
   - - NCC1
@@ -607,7 +634,12 @@ rules:
   - NCC_SR
   - CCM
   name: NCC 2-Week Team Continuity
-  strength: hard
+  # Soft: a 2-week block that mixes NCC1 and NCC2 pays a penalty rather than being
+  # forbidden. Hard here made the relaxed-lock float infeasible (the rotation_
+  # continuity encoder's hard structural clauses); soft + a genuinely-soft encoder
+  # lets it bend. Managed fellows also get it soft now (team continuity is a
+  # preference, not a hard requirement).
+  strength: soft
   type: rotation_continuity
 - active: false
   allow_none: true
@@ -623,19 +655,42 @@ rules:
   name: NCC 4-Week Team Preference
   strength: soft
   type: rotation_continuity
-- active: false
+# Swing must be covered every week but at most THREE. Hard floor (deficit 3 — the
+# measured minimum: deficit 2 is UNSAT, 3 is SAT under relax + the week-0 Swing
+# forbid + guardrails + AAN/NHS-hard). One of the three permitted uncovered weeks
+# is week 0 (orientation), pinned by the Swing-forbid rule below — so the solver
+# can't satisfy the floor by putting CCM on Swing in week 0.
+- active: true
   groups:
   - NCC_JR
   - NCC_SR
   - STROKE
   - CCM
   - NH
-  max_uncovered_weeks: 2
+  max_uncovered_weeks: 3
   name: Swing Coverage Target
   shifts:
   - Swing
-  strength: soft
+  strength: hard
   type: coverage_target
+# No Swing in week 0 (orientation): the one permitted uncovered Swing week.
+- active: true
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - STROKE
+  - CCM
+  - NH
+  window:
+  - 0
+  - 1
+  relation: at_most
+  count: 0
+  name: 'Swing: none in week 0'
+  shifts:
+  - Swing
+  strength: hard
+  type: staffing_per_week
 - active: false
   groups:
   - NCC_JR

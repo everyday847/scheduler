@@ -38,7 +38,15 @@ def palette_rule_to_constraints(
         raise ValueError(f"Unknown palette rule type: {rule_type!r}")
 
     converter = _CONVERTERS[rule_type]
-    return converter(rule, lifecycle)
+    constraints = converter(rule, lifecycle)
+    # Generic passthrough of the relax opt-in flag: a per-fellow rule that sets
+    # `applies_under_relaxed_locks: true` keeps binding locked fellows when relaxed
+    # locking floats their trio weeks (honored by the encoder's per-fellow skip).
+    # Injected here so every converter need not thread it.
+    if rule.get("applies_under_relaxed_locks"):
+        for c in constraints:
+            c.params["applies_under_relaxed_locks"] = True
+    return constraints
 
 
 def _convert_shift_total(
