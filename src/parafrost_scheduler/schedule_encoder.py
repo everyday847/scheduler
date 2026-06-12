@@ -2158,7 +2158,7 @@ def _encode_configured_weekend_gating(
                         crit.encode(
                             sink, role_var=role_var,
                             gate_var=(weekday_var if weekday_var != 0 else None),
-                            strength=_SOFT, weight=w_role,
+                            strength=cwg.strength, weight=w_role,
                         )
         else:  # gate
             weight = 1  # prevacation GATE used a literal weight of 1
@@ -2179,7 +2179,7 @@ def _encode_configured_weekend_gating(
                         for gate_var in gate_vars:
                             crit.encode(
                                 sink, role_var=wr[w][role_idx][f],
-                                gate_var=gate_var, strength=_SOFT, weight=weight,
+                                gate_var=gate_var, strength=cwg.strength, weight=weight,
                             )
 
 

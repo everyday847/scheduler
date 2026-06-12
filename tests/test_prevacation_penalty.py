@@ -10,6 +10,7 @@ Verifies:
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 
 import pytest
@@ -259,3 +260,72 @@ class TestPrevacationWeekendPenalty:
 
         # Both vacation weeks have var=0 → skipped, no penalties
         assert len(soft_violations) == 0
+
+
+# ---------------------------------------------------------------------------
+# ALIGN strength threading (regression for the lost-strength bug, 2026-06-12):
+# the encoder hardcoded SOFT for configured weekend_gating, so a config rule with
+# strength: hard + conditional: true was silently emitted soft. These pin the
+# EMITTED strength end-to-end — the gap the 562-green suite missed.
+# ---------------------------------------------------------------------------
+
+def _align_constraint(strength: ConstraintStrength, conditional: bool) -> SemanticConstraint:
+    return SemanticConstraint(
+        kind="weekend_gating",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=strength,
+        fellows=None,
+        params={
+            "name": "weekend_role_mismatch", "criterion": "weekend_role_mismatch",
+            "mode": "align",
+            "role_to_shift": {"Weekend NCC1": "NCC1", "Weekend NCC2": "NCC2",
+                              "Weekend Stroke": "Stroke"},
+            "role_weights": {"Weekend Stroke": 60},
+            "conditional": conditional,
+        },
+    )
+
+
+def _align_config(strength, conditional):
+    base = _make_config(num_weeks=2)
+    return dataclasses.replace(
+        base, shifts=["NCC1", "NCC2", "Stroke", "Vac"],
+        constraints=[_align_constraint(strength, conditional)])
+
+
+class TestAlignStrengthEmitted:
+    def test_hard_align_emits_hard_clause_not_soft(self):
+        """A hard align rule must emit `role + ~match <= 1` (hard), NOT a soft
+        mismatch indicator. This is the exact bug: config said hard, encoder
+        emitted soft."""
+        import dataclasses as _dc
+        config = _align_config(ConstraintStrength.HARD, conditional=True)
+        fellow_names = ["Alice"]
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs = _make_xs(opb, 1, 2, len(config.shifts))
+        wr = _make_wr(opb, 1, 2)
+        soft: list[tuple[int, int]] = []
+        _encode_configured_weekend_gating(opb, wr, xs, config, fellow_names, shift_idx, soft)
+
+        # Weekend NCC1 (role 0) in week 0 vs weekday NCC1 var.
+        role_var = wr[0][_ROLE_NCC1][0]
+        match_var = xs[0][0][shift_idx["NCC1"]]
+        assert f"+1 x{role_var} +1 ~x{match_var} <= 1 ;" in opb._constraints, \
+            "hard align must emit role + ~match <= 1"
+        # Hard ⇒ no soft mismatch indicators registered.
+        assert soft == [], "hard align must register NO soft penalties"
+
+    def test_soft_align_emits_soft_indicator(self):
+        config = _align_config(ConstraintStrength.SOFT, conditional=False)
+        fellow_names = ["Alice"]
+        shift_idx = {s: i for i, s in enumerate(config.shifts)}
+        opb = OpbBuilder()
+        xs = _make_xs(opb, 1, 2, len(config.shifts))
+        wr = _make_wr(opb, 1, 2)
+        soft: list[tuple[int, int]] = []
+        _encode_configured_weekend_gating(opb, wr, xs, config, fellow_names, shift_idx, soft)
+        # Soft ⇒ mismatch indicators registered (one per role×week with a match var).
+        assert soft, "soft align must register soft mismatch penalties"
+        # Weekend Stroke carries weight 60.
+        assert any(w == 60 for _, w in soft), "Weekend Stroke soft weight should be 60"

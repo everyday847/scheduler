@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from schedule_rules.sink import ConstraintSink
-from schedule_rules.strength import HARD, Strength
+from schedule_rules.strength import HARD, SOFT, Strength
 from schedule_rules.view import ScheduleView
 
 
@@ -149,6 +149,11 @@ class WeekendGatingCriterion:
 class ConfiguredWeekendGating:
     criterion: WeekendGatingCriterion
     resolved_targets: dict[str, frozenset[str]]
+    # The constraint's enforcement strength, threaded from the SemanticConstraint
+    # so the encoder emits hard vs soft per config. Defaults SOFT: the colorer /
+    # evaluator callers ignore it, and SOFT preserves the historical encode
+    # behavior for any path that doesn't set it.
+    strength: Strength = SOFT
 
 
 def weekend_gating_from_params(params: dict) -> tuple[WeekendGatingCriterion, dict[str, frozenset[str]]]:
@@ -181,5 +186,8 @@ def configured_weekend_gating(constraints) -> list[ConfiguredWeekendGating]:
     for c in constraints:
         if getattr(c, "kind", None) == "weekend_gating":
             crit, resolved = weekend_gating_from_params(c.params)
-            out.append(ConfiguredWeekendGating(crit, resolved))
+            # Map the SemanticConstraint's strength (its .value is "hard"/"soft")
+            # onto the leaf-package Strength; default SOFT if unset/unknown.
+            strength = HARD if getattr(getattr(c, "strength", None), "value", None) == "hard" else SOFT
+            out.append(ConfiguredWeekendGating(crit, resolved, strength=strength))
     return out
