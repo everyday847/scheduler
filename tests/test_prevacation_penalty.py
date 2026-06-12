@@ -298,7 +298,6 @@ class TestAlignStrengthEmitted:
         """A hard align rule must emit `role + ~match <= 1` (hard), NOT a soft
         mismatch indicator. This is the exact bug: config said hard, encoder
         emitted soft."""
-        import dataclasses as _dc
         config = _align_config(ConstraintStrength.HARD, conditional=True)
         fellow_names = ["Alice"]
         shift_idx = {s: i for i, s in enumerate(config.shifts)}
