@@ -6,10 +6,13 @@ scripts. All subcommands assemble their config via the SINGLE
 parafrost_scheduler.experiment.assemble_config (workbook import + SHIFT_MAP +
 locks + specific-assignment pins + NCC-Team-Cap softening + standing merge).
 
-    python schedule.py optimize --workbook WB.xlsx [--max-seconds S] [--preview L]
-    python schedule.py sat      --workbook WB.xlsx [--variant V]
+    python schedule.py optimize --workbook WB.xlsx [--max-seconds S] [--preview L] [--relax-locks]
+    python schedule.py sat      --workbook WB.xlsx [--relax-locks]
     python schedule.py mus      --workbook WB.xlsx
     python schedule.py diagnose --workbook WB.xlsx --what consec
+
+Run-level constraint dials (formerly the `--variant` flags) now live in the annual
+config's `solver_options:` block — config is the single activation channel.
 
 OPTIMIZE DISK-WRITE CONTRACT (important — read this):
   optimize_stream runs RoundingSat in budget SLICES (the --preview values, then
@@ -45,7 +48,7 @@ from schedule_rules.criteria.night_gating import configured_night_gating
 from schedule_rules.criteria.weekend_gating import configured_weekend_gating
 from schedule_rules.criteria.weekend_night import configured_weekend_night
 from scheduler.night_policy_types import (
-    CRITERION_ANAESTHESIA, CRITERION_SUNDAY_FOLLOWING, CRITERION_STROKE,
+    CRITERION_ANAESTHESIA, CRITERION_SUNDAY_FOLLOWING,
 )
 
 ROUNDINGSAT = Path("vendor/roundingsat/build/roundingsat")
@@ -57,71 +60,13 @@ _COLOR_HARD = frozenset({CRITERION_ANAESTHESIA, "weekend_night_friday",
                          CRITERION_SUNDAY_FOLLOWING})
 
 
-def _harden_sunday_weekend_night(config):
-    """Return a config whose Sunday weekend_night rule is HARD (role_strengths +
-    eligibility) — the `hard_sunday` variant: the Sunday-night holder MUST hold
-    Weekend Stroke, and a non-stroke-eligible fellow is forbidden Sunday night."""
-    new_constraints = []
-    for c in config.constraints:
-        if (c.kind == "weekend_night"
-                and c.params.get("criterion") == "weekend_night_sunday"):
-            params = {**c.params}
-            params["role_strengths"] = [
-                {**rs, "hard": True} for rs in params["role_strengths"]]
-            if params.get("eligibility"):
-                params["eligibility"] = {**params["eligibility"], "hard": True}
-            c = dataclasses.replace(c, params=params)
-        new_constraints.append(c)
-    return dataclasses.replace(config, constraints=new_constraints)
-
-
-def _without_stroke_role_weight(config):
-    """Return a config whose weekend_role_mismatch constraint no longer carries the
-    heavier Weekend-Stroke role weight (reverting Stroke to the base mismatch
-    weight) — the `no_stroke_align` isolation variant."""
-    new_constraints = []
-    for c in config.constraints:
-        if (c.kind == "weekend_gating"
-                and c.params.get("criterion") == "weekend_role_mismatch"
-                and c.params.get("role_weights")):
-            rw = {k: v for k, v in c.params["role_weights"].items()
-                  if k != "Weekend Stroke"}
-            c = dataclasses.replace(c, params={**c.params, "role_weights": rw})
-        new_constraints.append(c)
-    return dataclasses.replace(config, constraints=new_constraints)
-
-
-def _apply_variant(config, variant: str):
-    if variant in (None, "baseline"):
-        return config
-    if variant == "hard_stroke":
-        return dataclasses.replace(
-            config, night_hard_criteria=config.night_hard_criteria | {CRITERION_STROKE})
-    if variant == "hard_sunday":
-        return _harden_sunday_weekend_night(config)
-    if variant == "hard_consec":
-        return dataclasses.replace(config, weekend_consecutive_hard=True)
-    if variant == "aan_hard":
-        # NH AAN-week call avoidance becomes HARD (no night/weekend that week).
-        return dataclasses.replace(config, nh_aan_week_call_hard=True)
-    if variant == "no_stroke_align":
-        # Revert Weekend Stroke to the base mismatch weight (the former dedicated
-        # Stroke-alignment nudge is now the +40 folded into the weekend_role_mismatch
-        # role_weight; dropping it leaves only the shared mismatch-20 penalty).
-        return _without_stroke_role_weight(config)
-    if variant == "abpn_block":
-        # ABPN night-block + dual-stroke-Helena preference + wk26/27 on-off toggle.
-        return dataclasses.replace(
-            config, abpn_night_block=True, dual_stroke_helena="Helena Xeros",
-            stroke_wk2627_toggle="hard")
-    raise SystemExit(f"unknown variant: {variant!r}")
-
-
 def _load(args):
+    # Run-level dials (former `--variant` flags) now live in the annual config's
+    # `solver_options:` block — config is the single activation channel. The only
+    # CLI run-toggle is --relax-locks (a per-run flag, not a constraint variant).
     config, annual = assemble_config(
         Path(args.workbook), annual_path=Path(args.annual),
         standing_path=Path(args.standing), verbose=True)
-    config = _apply_variant(config, getattr(args, "variant", "baseline"))
     if getattr(args, "relax_locks", False):
         config = dataclasses.replace(config, relax_locked_ncc_trio=True)
     return config, annual
@@ -219,7 +164,6 @@ def main(argv=None):
 
     po = sub.add_parser("optimize", help="streaming optimization (see disk-write contract)")
     po.add_argument("--workbook", required=True)
-    po.add_argument("--variant", default="baseline")
     po.add_argument("--max-seconds", type=float, default=21600.0)
     po.add_argument("--preview", default="8,25,90,600,1800")
     po.add_argument("--out-prefix", default=None)
@@ -230,7 +174,6 @@ def main(argv=None):
 
     ps = sub.add_parser("sat", help="SAT-feasibility check")
     ps.add_argument("--workbook", required=True)
-    ps.add_argument("--variant", default="baseline")
     ps.add_argument("--sat-limit", type=float, default=400.0)
     ps.add_argument("--unsat-limit", type=float, default=1500.0)
     ps.add_argument("--relax-locks", action="store_true",

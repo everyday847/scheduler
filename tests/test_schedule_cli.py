@@ -39,14 +39,31 @@ def test_cli_parses_all_subcommands():
         # Re-create the parser via main's argparse by calling with a parse-only shim.
 
 
-def test_optimize_variant_apply_matches_shared_config():
-    """The CLI's _apply_variant on baseline returns the shared assemble_config
-    output unchanged (behavior-preserving for the default run)."""
-    cli = _load_cli()
-    from parafrost_scheduler.experiment import assemble_config
-    config, _ = assemble_config(WB6, verbose=False)
-    same = cli._apply_variant(config, "baseline")
-    assert same is config
-    hard_stroke = cli._apply_variant(config, "hard_stroke")
+def test_solver_options_replaces_variant_flags():
+    """Run-level dials moved from the retired `--variant` flags to the annual
+    config's `solver_options:` block. A config with no block is inert (baseline);
+    a block with night_hard_criteria=[..stroke] reproduces the old `hard_stroke`."""
+    from parafrost_scheduler.experiment import assemble_annual_dict
+    from scheduler.solver_bridge import build_solver_config_from_request
     from scheduler.night_policy_types import CRITERION_STROKE
-    assert CRITERION_STROKE in hard_stroke.night_hard_criteria
+    standing = REPO / "config/standing/stanford-fellowship-v3.yaml"
+
+    # No solver_options block -> baseline (stroke NOT hard).
+    base_annual = assemble_annual_dict(WB6, verbose=False)
+    base = build_solver_config_from_request(base_annual, standing_path=standing)
+    assert CRITERION_STROKE not in base.night_hard_criteria
+
+    # solver_options reproducing hard_stroke.
+    annual = assemble_annual_dict(WB6, verbose=False)
+    annual["solver_options"] = {
+        "night_hard_criteria": sorted(base.night_hard_criteria | {CRITERION_STROKE})}
+    hard = build_solver_config_from_request(annual, standing_path=standing)
+    assert CRITERION_STROKE in hard.night_hard_criteria
+
+
+def test_solver_options_rejects_unknown_key():
+    from scheduler.solver_bridge import _solver_options_kwargs
+    with pytest.raises(ValueError):
+        _solver_options_kwargs({"not_a_real_dial": True})
+    with pytest.raises(ValueError):
+        _solver_options_kwargs({"stroke_wk2627_toggle": "sometimes"})

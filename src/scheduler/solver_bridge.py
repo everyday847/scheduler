@@ -27,6 +27,63 @@ STANDING_RULE_CONFIG = CONFIG_DIR / "standing" / "stanford-fellowship-v3.yaml"
 DEFAULT_ANNUAL_CONFIG = CONFIG_DIR / "annual" / "my-2026-2027-v3.yaml"
 
 
+# Run-level dials settable via the annual config's `solver_options:` block. Each
+# maps to a ScheduleSolverConfig scalar field; an absent key leaves the field at
+# its dataclass default. These are the knobs the retired `--variant` flags used
+# to flip — now config is their single source.
+#   bool flags + the stroke toggle ride through verbatim; night_hard_criteria is a
+#   list[str] in YAML -> frozenset.
+_SOLVER_OPTION_BOOL_KEYS = (
+    "weekend_consecutive_hard",
+    "nh_aan_week_call_hard",
+    "abpn_night_block",
+    "weekend_night_saturday_hard",
+    "weekend_night_sunday_hard",
+)
+
+
+def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
+    """Translate a `solver_options` block into ScheduleSolverConfig kwargs.
+
+    Only keys actually present produce a kwarg, so the constructor falls back to
+    its own defaults for everything omitted. Unknown keys and bad enum values
+    raise ValueError (config typos should fail loudly, not be ignored)."""
+    if not opts:
+        return {}
+    from scheduler.night_policy_types import ALL_POLICY_CRITERIA
+
+    known = set(_SOLVER_OPTION_BOOL_KEYS) | {
+        "night_hard_criteria", "dual_stroke_helena", "stroke_wk2627_toggle",
+    }
+    unknown = set(opts) - known
+    if unknown:
+        raise ValueError(
+            f"Unknown solver_options key(s): {', '.join(sorted(unknown))}. "
+            f"Known keys: {', '.join(sorted(known))}.")
+
+    kwargs: Dict[str, Any] = {}
+    for key in _SOLVER_OPTION_BOOL_KEYS:
+        if key in opts:
+            kwargs[key] = bool(opts[key])
+    if "night_hard_criteria" in opts:
+        crits = frozenset(opts["night_hard_criteria"])
+        invalid = crits - ALL_POLICY_CRITERIA
+        if invalid:
+            raise ValueError(
+                f"Unknown night_hard_criteria: {', '.join(sorted(invalid))}. "
+                f"Valid: {', '.join(sorted(ALL_POLICY_CRITERIA))}.")
+        kwargs["night_hard_criteria"] = crits
+    if "dual_stroke_helena" in opts:
+        kwargs["dual_stroke_helena"] = opts["dual_stroke_helena"]  # str | None
+    if "stroke_wk2627_toggle" in opts:
+        val = opts["stroke_wk2627_toggle"]
+        if val not in ("off", "hard", "soft"):
+            raise ValueError(
+                f"stroke_wk2627_toggle must be 'off'|'hard'|'soft', got {val!r}.")
+        kwargs["stroke_wk2627_toggle"] = val
+    return kwargs
+
+
 def build_solver_config_from_request(
     raw_request: Dict[str, Any] | None,
     *,
@@ -179,6 +236,11 @@ def build_solver_config_from_request(
         palette_block = standing_config.get("shift_palette")
     shift_palette = ShiftPalette.from_config(palette_block)
 
+    # Run-level dials (formerly the CLI `--variant` flags) live in config under
+    # `solver_options:` — the single activation channel. Only keys present in the
+    # block override the ScheduleSolverConfig defaults; an absent block is inert.
+    opt_kwargs = _solver_options_kwargs(raw_request.get("solver_options") or {})
+
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,
@@ -190,6 +252,7 @@ def build_solver_config_from_request(
         start_dow=start_dow,
         num_days=num_days,
         shift_palette=shift_palette,
+        **opt_kwargs,
     )
 
 

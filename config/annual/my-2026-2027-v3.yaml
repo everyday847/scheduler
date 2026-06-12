@@ -1,3 +1,20 @@
+# Run-level solver dials — the single activation channel for what used to be the
+# CLI `--variant` flags (now retired). Omitted keys fall back to the
+# ScheduleSolverConfig defaults; values below are written explicitly only where
+# this year deviates from the default, or to document the available knobs.
+# Available keys:
+#   night_hard_criteria: [anaesthesia, friday_weekend_ncc1, ...]  (default the
+#       first two; add 'stroke' to reproduce the former hard_stroke variant)
+#   weekend_consecutive_hard: bool   (default false; true == old hard_consec —
+#       NOTE proven INFEASIBLE on wb7, kept only as an option)
+#   nh_aan_week_call_hard: bool      (default true — AAN week forbids call)
+#   abpn_night_block: bool           (default true)
+#   dual_stroke_helena: <name>|null  (default null)
+#   stroke_wk2627_toggle: off|hard|soft  (default off)
+#   weekend_night_saturday_hard / weekend_night_sunday_hard: bool
+# This year uses the shipped defaults, so the block is intentionally empty.
+solver_options: {}
+
 fellow_groups:
   CCM:
   - Pulmonary/Cardio CCM Fellow (Core NCC) 1
