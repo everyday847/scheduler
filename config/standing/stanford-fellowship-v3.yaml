@@ -400,23 +400,37 @@ weekend_rules:
 
   # Weekend-role gating criteria (WeekendGatingCriterion archetype). ALIGN: the
   # weekend role should be held by that week's matching weekday-service fellow.
-  - name: Weekend role / weekday mismatch
+  # Split into two rules because hard-aligning all three roles is INFEASIBLE
+  # (wb7 MUS, 2026-06-12): NCC1 alone is SAT and NCC2 alone is SAT, but NCC1+NCC2
+  # together is UNSAT (two distinct matchers can't always cover both weekend NCC
+  # roles), and Weekend Stroke can never be hard (the 4-fellow Stroke cohort
+  # rotates the weekend role independent of the single weekday-Stroke slot). So:
+  # hard-align Weekend NCC1 only; NCC2 + Stroke stay soft penalties.
+  # Distinct criterion name so the standing/annual merge (which dedups gating
+  # rules by `criterion`) keeps this hard NCC1 rule SEPARATE from the soft
+  # NCC2/Stroke rule below — same criterion name would collapse them to one.
+  - name: Weekend NCC1 alignment (hard)
+    type: weekend_gating
+    criterion: weekend_role_mismatch_ncc1
+    mode: align
+    description: "A fellow who can be on weekday NCC1 and holds a weekend role must hold Weekend NCC1 (hard, conditional)."
+    role_to_shift:
+      "Weekend NCC1": NCC1
+    strength: hard
+    conditional: true
+    active: true
+
+  - name: Weekend NCC2 / Stroke alignment (soft)
     type: weekend_gating
     criterion: weekend_role_mismatch
     mode: align
-    description: "A fellow on a weekday NCC/Stroke shift who also holds a weekend role must hold the MATCHING weekend role (NCC1->Weekend NCC1, etc.)."
+    description: "Weekend NCC2 / Weekend Stroke should match the weekday shift (soft; hard-aligning these is infeasible)."
     role_to_shift:
-      "Weekend NCC1": NCC1
       "Weekend NCC2": NCC2
       "Weekend Stroke": Stroke
-    # HARD + conditional: binds a fellow who CAN be on the matching weekday shift
-    # (weekday NCC1 + a weekend role => it must be Weekend NCC1), but does NOT
-    # forbid the weekend role to a fellow who cannot match (so coverage isn't
-    # starved). SAT-verified on wb7 under relaxed locks. conditional is align-only.
-    strength: hard
-    conditional: true
-    # Per-role weight is unused while hard, but retained: Weekend Stroke = 60 (the
-    # former 20 mismatch + 40 stroke-alignment nudge) if this ever reverts to soft.
+    strength: soft
+    # Weekend Stroke = 60 (former 20 mismatch + 40 stroke-alignment nudge);
+    # Weekend NCC2 falls back to weekend_mismatch_weight (20).
     role_weights:
       "Weekend Stroke": 60
     active: true
