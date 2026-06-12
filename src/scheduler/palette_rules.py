@@ -337,6 +337,10 @@ def weekend_gating_rule_to_constraint(
         # encode time). Lets Weekend Stroke carry a heavier pull than NCC matching
         # — the folded-in former stroke_weekend_misalign penalty.
         params["role_weights"] = dict(rule.get("role_weights", {}))
+        # Conditional hard (align only): when hard, bind a fellow who CAN match the
+        # weekday shift but do NOT forbid the role to one who cannot (else weekend
+        # coverage starves). Ignored when soft.
+        params["conditional"] = bool(rule.get("conditional", False))
     else:  # gate
         params["roles"] = list(rule["roles"])
         params["gate_week_offset"] = int(rule.get("gate_week_offset", 0))
@@ -349,10 +353,13 @@ def weekend_gating_rule_to_constraint(
         params["gate_target_key"] = key
         params["resolved_targets"] = {key: resolved}
 
+    # Default soft (the historical behavior for both weekend_gating criteria); a
+    # rule may opt into hard via `strength: hard` (e.g. conditional alignment).
+    strength = _parse_strength(rule["strength"]) if "strength" in rule else ConstraintStrength.SOFT
     return SemanticConstraint(
         kind="weekend_gating",
         lifecycle=lifecycle,
-        strength=ConstraintStrength.SOFT,
+        strength=strength,
         fellows=None,
         params=params,
     )

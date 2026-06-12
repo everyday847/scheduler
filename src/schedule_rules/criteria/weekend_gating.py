@@ -46,11 +46,18 @@ class WeekendGatingCriterion:
         roles: tuple[str, ...] | None = None,
         gate_target_key: str | None = None,
         gate_week_offset: int = 0,
+        conditional: bool = False,
     ) -> None:
         if mode not in (ALIGN, GATE):
             raise ValueError(f"WeekendGatingCriterion mode must be {ALIGN!r} or {GATE!r}")
         self.name = name
         self.mode = mode
+        # ALIGN only: when True, a HARD mismatch is CONDITIONAL — it binds a fellow
+        # who CAN be on the matching weekday shift (gate_var present), but does NOT
+        # forbid the role to a fellow who cannot (gate_var None ⇒ no-op) so weekend
+        # coverage isn't starved. Default False keeps the unconditional behavior
+        # (gate_var None ⇒ forbid the role). Soft mode is unaffected.
+        self.conditional = conditional
         self.role_to_shift = role_to_shift or {}
         # ALIGN: per-role mismatch weight (role name -> weight). A role absent
         # here falls back to the caller's default (weekend_mismatch_weight).
@@ -108,7 +115,11 @@ class WeekendGatingCriterion:
         if self.mode == ALIGN:
             if gate_var is None:
                 if strength is HARD:
-                    sink.add_unit(-role_var)
+                    # Conditional hard: a fellow who cannot be on the matching
+                    # weekday shift is NOT forbidden the role (no-op) — only those
+                    # who CAN match are constrained. Unconditional hard forbids it.
+                    if not self.conditional:
+                        sink.add_unit(-role_var)
                 else:
                     sink.soft(role_var, weight)
                 return
@@ -159,6 +170,7 @@ def weekend_gating_from_params(params: dict) -> tuple[WeekendGatingCriterion, di
         roles=tuple(params.get("roles", ())),
         gate_target_key=params.get("gate_target_key"),
         gate_week_offset=int(params.get("gate_week_offset", 0)),
+        conditional=bool(params.get("conditional", False)),
     )
     resolved = {k: frozenset(v) for k, v in params.get("resolved_targets", {}).items()}
     return crit, resolved

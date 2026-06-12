@@ -404,14 +404,19 @@ weekend_rules:
     type: weekend_gating
     criterion: weekend_role_mismatch
     mode: align
-    description: "A weekend role held by a fellow not on the matching weekday shift that week."
+    description: "A fellow on a weekday NCC/Stroke shift who also holds a weekend role must hold the MATCHING weekend role (NCC1->Weekend NCC1, etc.)."
     role_to_shift:
       "Weekend NCC1": NCC1
       "Weekend NCC2": NCC2
       "Weekend Stroke": Stroke
-    # Per-role mismatch weight (default per role -> weekend_mismatch_weight=20).
-    # Weekend Stroke carries 60 = the former 20 mismatch + 40 stroke-alignment
-    # nudge, folded here so a Stroke mismatch is one criterion at its full cost.
+    # HARD + conditional: binds a fellow who CAN be on the matching weekday shift
+    # (weekday NCC1 + a weekend role => it must be Weekend NCC1), but does NOT
+    # forbid the weekend role to a fellow who cannot match (so coverage isn't
+    # starved). SAT-verified on wb7 under relaxed locks. conditional is align-only.
+    strength: hard
+    conditional: true
+    # Per-role weight is unused while hard, but retained: Weekend Stroke = 60 (the
+    # former 20 mismatch + 40 stroke-alignment nudge) if this ever reverts to soft.
     role_weights:
       "Weekend Stroke": 60
     active: true
