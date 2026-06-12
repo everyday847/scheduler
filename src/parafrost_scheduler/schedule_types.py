@@ -184,6 +184,12 @@ class ScheduleSolverConfig:
     weekend_total_tolerance: int = 1
     swing_uncovered_weight: int = DEFAULT_SWING_UNCOVERED_WEIGHT
     locked_assignments: dict[str, list[str]] = field(default_factory=dict)
+    # Relaxed locking: float a locked fellow's workbook-marked NCC1/NCC2/Swing
+    # weeks among the trio (exactly-one per such week) instead of pinning the
+    # exact role. The set of trio weeks is preserved (totals unchanged); only the
+    # per-week role floats. CCM Swing guardrails + soft team-continuity are added
+    # in the encoder (see _encode_relaxed_lock_guardrails). Default off.
+    relax_locked_ncc_trio: bool = False
     call_rules: list[dict] = field(default_factory=list)
     # Shift Attributes (ADR-0003): config-driven table mapping shift name -> the
     # attribute flags it carries. The encoder projects historical shift-name

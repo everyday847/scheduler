@@ -122,6 +122,8 @@ def _load(args):
         Path(args.workbook), annual_path=Path(args.annual),
         standing_path=Path(args.standing), verbose=True)
     config = _apply_variant(config, getattr(args, "variant", "baseline"))
+    if getattr(args, "relax_locks", False):
+        config = dataclasses.replace(config, relax_locked_ncc_trio=True)
     return config, annual
 
 
@@ -159,7 +161,8 @@ def cmd_optimize(args):
     out_prefix = Path(args.out_prefix or f"output_{Path(args.workbook).stem}")
     preview = tuple(float(x) for x in args.preview.split(",") if x.strip())
     print(f"weekend_consecutive_hard={config.weekend_consecutive_hard} "
-          f"night_hard_criteria={sorted(config.night_hard_criteria)}", flush=True)
+          f"night_hard_criteria={sorted(config.night_hard_criteria)} "
+          f"relax_locked_ncc_trio={config.relax_locked_ncc_trio}", flush=True)
     print(f"preview slices (returning, write-to-disk) = {preview}", flush=True)
     runner = RoundingSatRunner(ROUNDINGSAT)
     best = None
@@ -220,6 +223,9 @@ def main(argv=None):
     po.add_argument("--max-seconds", type=float, default=21600.0)
     po.add_argument("--preview", default="8,25,90,600,1800")
     po.add_argument("--out-prefix", default=None)
+    po.add_argument("--relax-locks", action="store_true",
+                    help="float locked fellows' NCC1/NCC2/Swing weeks among the "
+                         "trio instead of pinning the exact role")
     po.set_defaults(func=cmd_optimize)
 
     ps = sub.add_parser("sat", help="SAT-feasibility check")
@@ -227,6 +233,9 @@ def main(argv=None):
     ps.add_argument("--variant", default="baseline")
     ps.add_argument("--sat-limit", type=float, default=400.0)
     ps.add_argument("--unsat-limit", type=float, default=1500.0)
+    ps.add_argument("--relax-locks", action="store_true",
+                    help="float locked fellows' NCC1/NCC2/Swing weeks among the "
+                         "trio instead of pinning the exact role")
     ps.set_defaults(func=cmd_sat)
 
     pm = sub.add_parser("mus", help="minimal-unsatisfiable-subset extraction")

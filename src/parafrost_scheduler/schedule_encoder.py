@@ -7,6 +7,7 @@ solutions back into structured types.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from typing import Any, Callable
 
@@ -29,7 +30,11 @@ from scheduler.weekend_call_types import (
     WeekendScheduleSolution,
     BackupScheduleSolution,
 )
-from scheduler.call_schedule_common import NIGHT_ROLES, WEEKEND_ROLES
+from scheduler.call_schedule_common import (
+    NIGHT_ROLES,
+    WEEKEND_ROLES,
+    DEFAULT_CCM_FELLOWS,
+)
 from scheduler.night_policy_types import (
     ALL_POLICY_CRITERIA,
     CRITERION_ANAESTHESIA,
@@ -62,6 +67,9 @@ from schedule_rules.strength import Strength as _Strength
 
 _GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
 _WEEKEND_ROLE_PIN = WeekendRolePin()
+# The near-interchangeable weekday NCC trio. Under relaxed locking, a locked
+# fellow's workbook-marked trio week floats freely among these three roles.
+_RELAX_NCC_TRIO = ("NCC1", "NCC2", "Swing")
 # Standing-tier weekend prerequisites: one archetype, two kind-specialized
 # instances (role-set + prereq weekday shift-set). The role-name strings match
 # _WEEKEND_ROLE_NAMES so the evaluate-side view lookups agree.
@@ -216,6 +224,8 @@ def build_full_schedule_opb(
     locked_fellow_indices = config.imported_fellow_indices(fellow_names)
     if config.locked_assignments:
         opb.add_comment("Locked fellow assignments (pinned)")
+        relax = config.relax_locked_ncc_trio
+        trio_si = [shift_idx[s] for s in _RELAX_NCC_TRIO if s in shift_idx]
         for fellow_name, weekly_shifts in config.locked_assignments.items():
             try:
                 f = fellow_mapping.get_fellow_index(fellow_name)
@@ -227,9 +237,26 @@ def build_full_schedule_opb(
                 si = shift_idx.get(shift_name)
                 if si is None:
                     continue
+                # Relaxed locking: a week the workbook marks NCC1/NCC2/Swing
+                # becomes a floating "exactly one of the trio" choice instead of
+                # an exact pin. The SET of trio weeks per fellow is unchanged, so
+                # each fellow's NCC+Swing total is preserved; only the per-week
+                # role floats — the freedom we want for NCC coverage + the Swing
+                # deficit. Non-trio weeks (MICU, Elec, Vac, ...) stay literal.
+                if relax and shift_name in _RELAX_NCC_TRIO:
+                    trio_vars = [xs[f][w][ti] for ti in trio_si if xs[f][w][ti] != 0]
+                    if trio_vars:
+                        opb.at_least_k(trio_vars, 1)
+                        opb.at_most_k(trio_vars, 1)
+                    continue
                 var = xs[f][w][si]
                 if var != 0:
                     opb.add_unit(var)
+        if relax:
+            _encode_relaxed_lock_guardrails(
+                opb, xs, config, fellow_mapping, fellow_names,
+                shift_idx, soft_violations, num_weeks,
+            )
 
     # -------------------------------------------------------------------
     # 3. Encode weekly shift rules from YAML config
@@ -352,6 +379,122 @@ def build_full_schedule_opb(
     )
 
     return opb, var_map
+
+
+def _encode_relaxed_lock_guardrails(
+    opb: OpbBuilder,
+    xs: list[list[list[int]]],
+    config: ScheduleSolverConfig,
+    fellow_mapping: FellowMapping,
+    fellow_names: list[str],
+    shift_idx: dict[str, int],
+    soft_violations: list[tuple[int, int]],
+    num_weeks: int,
+) -> None:
+    """Guardrails that apply ONLY when locked NCC trio weeks are floated
+    (config.relax_locked_ncc_trio). Without these, the floating exactly-one-of-
+    {NCC1,NCC2,Swing} choice would let the optimizer place Swing wherever it
+    likes on locked CCM fellows.
+
+    Three pieces:
+      1. CCM Elective fellow never does Swing (hard).
+      2. The two core CCM fellows: no Swing in consecutive weeks (hard).
+      3. 2-week NCC team-continuity, encoded as a GENUINELY soft penalty (no
+         hidden hard clauses — see _encode_soft_team_continuity).
+
+    History: piece 3 was first attempted by reusing the block_shift_set_choice
+    encoder at SOFT strength. That made the floating model UNSAT, because its
+    conditional_exactly_k helper emits an at-least-k clause
+    `sum(lits) + (n-k)*~sel >= k` that stops being selector-gated when n <= 2k-1
+    (it collapses to a hard `sum(lits) >= k`). A soft rule must NEVER be able to
+    flip a model UNSAT, so piece 3 is now a hand-rolled pure-penalty encoding.
+    """
+    locked = config.locked_assignments
+    ccm = set(config.fellow_groups.get("CCM", [])) or set(DEFAULT_CCM_FELLOWS)
+    ccm_elective = "CCM  Fellow (Elective) 1"
+    s_swing = shift_idx.get("Swing")
+
+    # 1 + 2: CCM Swing guardrails, scoped to relaxed (i.e. locked) CCM fellows.
+    if s_swing is not None:
+        for name in locked:
+            if name not in ccm:
+                continue
+            try:
+                f = fellow_mapping.get_fellow_index(name)
+            except ValueError:
+                continue
+            swing_vars = [xs[f][w][s_swing] if xs[f][w][s_swing] != 0 else 0
+                          for w in range(num_weeks)]
+            if name == ccm_elective:
+                # Elective CCM never does Swing.
+                for v in swing_vars:
+                    if v != 0:
+                        opb.add_unit(-v)
+            else:
+                # Core CCM: no Swing in consecutive weeks.
+                for w in range(num_weeks - 1):
+                    a, b = swing_vars[w], swing_vars[w + 1]
+                    if a != 0 and b != 0:
+                        opb.at_most_k([a, b], 1)
+
+    # 3: soft 2-week NCC team-continuity for the relaxed locked fellows.
+    s_ncc1 = shift_idx.get("NCC1")
+    s_ncc2 = shift_idx.get("NCC2")
+    weight = config.weekly_soft_weight
+    if s_ncc1 is not None and s_ncc2 is not None:
+        for name in locked:
+            try:
+                f = fellow_mapping.get_fellow_index(name)
+            except ValueError:
+                continue
+            _encode_soft_team_continuity(
+                opb, xs, f, num_weeks, s_ncc1, s_ncc2, soft_violations, weight,
+            )
+
+
+def _encode_soft_team_continuity(
+    opb: OpbBuilder,
+    xs: list[list[list[int]]],
+    f: int,
+    num_weeks: int,
+    s_ncc1: int,
+    s_ncc2: int,
+    soft_violations: list[tuple[int, int]],
+    weight: int,
+) -> None:
+    """GENUINELY soft 2-week NCC team-continuity for one fellow.
+
+    The team-continuity choices are [NCC1, Swing] and [NCC2, Swing]; Swing is in
+    BOTH, so within a 2-week block the only thing that breaks continuity is
+    holding NCC1 in one week and NCC2 in the other (mixing the two NCC teams).
+    Under the relaxed exactly-one-of-trio, that is exactly: some NCC1 var AND
+    some NCC2 var are both true in the block.
+
+    Pure-penalty encoding — for each block we mint ONE penalty var `pen` and emit,
+    for every cross pair (NCC1 var u, NCC2 var w) in the block:
+
+        pen + ~u + ~w >= 1          (i.e. u AND w  =>  pen)
+
+    Every such clause is satisfiable by pen=1, so `pen` can ALWAYS absorb it —
+    the constraint can never remove a feasible point (never causes UNSAT). The
+    objective minimizes pen, driving it to 0 unless a real NCC1/NCC2 mix forces
+    it to 1. No hard clause is emitted. (One pen per block bounds the penalty at
+    `weight` per broken block, matching the old rule's one-violation-per-block.)
+    """
+    for block_start in range(0, num_weeks, 2):
+        block_end = min(block_start + 2, num_weeks)
+        ncc1_vars = [xs[f][w][s_ncc1] for w in range(block_start, block_end)
+                     if xs[f][w][s_ncc1] != 0]
+        ncc2_vars = [xs[f][w][s_ncc2] for w in range(block_start, block_end)
+                     if xs[f][w][s_ncc2] != 0]
+        if not ncc1_vars or not ncc2_vars:
+            continue  # no possible NCC1/NCC2 mix in this block — nothing to penalize
+        pen = opb.new_var()
+        for u in ncc1_vars:
+            for w_var in ncc2_vars:
+                # pen >= u AND w_var  <=>  pen + ~u + ~w_var >= 1
+                opb.weighted_sum_at_least([(pen, 1), (-u, 1), (-w_var, 1)], 1)
+        soft_violations.append((pen, weight))
 
 
 # ---------------------------------------------------------------------------

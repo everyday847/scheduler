@@ -167,6 +167,24 @@ class TestStrokePrereqEncode:
         assert result.satisfiable is True
         assert soft == []  # non-empty prior never registers a slack
 
+    def test_role_with_free_prior_forces_prior_true(self, runner):
+        # The discriminating case: role forced true, prior left FREE. The
+        # implication role_var <= sum(prior) must FORCE prior=1. A tautological
+        # encoding (bound 0) would leave prior free and let prior=0 stand — the
+        # exact bug that let a non-exempt fellow hold Weekend Stroke with no
+        # prior weekday Stroke. Pin prior=0 and assert UNSAT.
+        opb = OpbBuilder()
+        soft: list[tuple[int, int]] = []
+        sink = OpbConstraintSink(opb, soft)
+        role_var = opb.new_var()
+        prior = opb.new_var()
+        opb.add_unit(role_var)   # hold the weekend role
+        opb.add_unit(-prior)     # but DID NOT serve weekday Stroke
+        STROKE_CRIT.encode(sink, role_var=role_var, prior_vars=[prior],
+                           strength=HARD, weight=20)
+        result = runner.solve(opb)
+        assert result.satisfiable is False
+
 
 # ---------------------------------------------------------------------------
 # validate.py driver wiring (both kinds register an _EVALUATORS entry)

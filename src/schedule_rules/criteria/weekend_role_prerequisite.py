@@ -13,7 +13,7 @@ encode reproduces the encoder's prior `_encode_weekend_prerequisites` against th
 sink, per (fellow, week, role):
 
   prior = the fellow's qualifying weekday vars in weeks w' <= w (inclusive).
-  - prior non-empty ⇒ weighted_sum_at_least(prior + [(-role_var,1)], 0), i.e.
+  - prior non-empty ⇒ weighted_sum_at_least(prior + [(-role_var,1)], 1), i.e.
     role_var <= sum(prior).
   - prior empty (no qualifying service is even POSSIBLE before w):
       HARD ⇒ add_unit(-role_var)  (forbid holding the role).
@@ -87,8 +87,12 @@ class WeekendRolePrerequisiteCriterion:
         non-empty prior ⇒ role_var <= sum(prior); empty prior ⇒ forbid (HARD) or
         a penalized slack (SOFT)."""
         if prior_vars:
+            # role_var <= sum(prior): with ~role_var = 1 - role_var, the line is
+            # sum(prior) + (1 - role_var) >= 1  ⟺  sum(prior) >= role_var. The
+            # bound MUST be 1 — bound 0 is a tautology (sum(prior) - role_var >= -1,
+            # always true), which silently disables this hard prerequisite.
             sink.weighted_sum_at_least(
-                [(v, 1) for v in prior_vars] + [(-role_var, 1)], 0
+                [(v, 1) for v in prior_vars] + [(-role_var, 1)], 1
             )
         elif strength is HARD:
             sink.add_unit(-role_var)

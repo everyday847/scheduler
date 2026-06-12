@@ -46,6 +46,12 @@ DEFAULT_STANDING = _REPO / "config/standing/stanford-fellowship-v3.yaml"
 _LOCKED_GROUPS = ("NCC_JR", "NCC_SR", "CCM")
 # Groups whose specific_assignments are injected as hard pins (solver-managed).
 _INJECT_GROUPS = ("STROKE", "NH")
+# Weekend-role prerequisite kinds that locked fellows are exempted from (their
+# weekday schedule is frozen, so the competency-ordering rule can't bind them).
+_PREREQ_EXEMPT_LOCKED_KINDS = (
+    "weekend_stroke_prerequisite",
+    "weekend_ncc_prerequisite",
+)
 
 
 def assemble_annual_dict(
@@ -79,6 +85,19 @@ def assemble_annual_dict(
         if verbose:
             print(f"Locked {len(locked)} fellows from workbook (NCC + CCM)")
     annual["locked_assignments"] = locked
+
+    # Locked fellows are exempt from the weekend-role prerequisites. Their
+    # weekday schedule is frozen from the workbook (authoritative), so the
+    # competency-ordering rule — "hold a weekend role only after serving the
+    # qualifying weekday shift" — must not retroactively forbid the weekend
+    # coverage the workbook already implies. Injected here (the single config
+    # source) so the encoder AND the evaluator see the same exempt set.
+    if locked:
+        for r in annual.get("rules", []):
+            if isinstance(r, dict) and r.get("type") in _PREREQ_EXEMPT_LOCKED_KINDS:
+                ex = set(r.get("exempt_fellows") or [])
+                ex.update(locked)
+                r["exempt_fellows"] = sorted(ex)
 
     if inject_specific:
         specific = annual.get("specific_assignments", {})
