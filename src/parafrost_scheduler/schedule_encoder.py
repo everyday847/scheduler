@@ -2222,6 +2222,7 @@ def _encode_configured_weekend_night(
                     if ri is not None and f in wr[w][ri]
                 }
                 eligible = bool(role_vars)  # can hold at least one required role
+                # Strength is per-role (role_strengths), resolved inside crit.encode; the SemanticConstraint.strength is intentionally INERT for weekend_night — see tests/test_dispatch_strength_weekend_night.py::test_constraint_level_strength_is_inert_for_weekend_night
                 crit.encode(sink, night_var=xn[d][f], role_vars=role_vars,
                             eligible=eligible)
 
