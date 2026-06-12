@@ -41,16 +41,54 @@ from parafrost_scheduler.schedule_encoder import (
 )
 from parafrost_scheduler.schedule_optimizer import optimize_stream
 from parafrost_scheduler.workbook import write_schedule_workbook
+from schedule_rules.criteria.night_gating import configured_night_gating
+from schedule_rules.criteria.weekend_gating import configured_weekend_gating
+from schedule_rules.criteria.weekend_night import configured_weekend_night
 from scheduler.night_policy_types import (
-    CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1, CRITERION_SUNDAY_FOLLOWING,
-    CRITERION_STROKE,
+    CRITERION_ANAESTHESIA, CRITERION_SUNDAY_FOLLOWING, CRITERION_STROKE,
 )
 
 ROUNDINGSAT = Path("vendor/roundingsat/build/roundingsat")
 # Workbook-coloring hard criteria (matches the shipped night_hard_criteria plus
 # sunday_following, which is now soft for the solve but still shown un-red here).
-_COLOR_HARD = frozenset({CRITERION_ANAESTHESIA, CRITERION_FRIDAY_WEEKEND_NCC1,
+# weekend_night_friday is the coalesced Friday rule (was friday_weekend_ncc1) —
+# the NCC1 case is hard, so it is shown un-red like the other hard criteria.
+_COLOR_HARD = frozenset({CRITERION_ANAESTHESIA, "weekend_night_friday",
                          CRITERION_SUNDAY_FOLLOWING})
+
+
+def _harden_sunday_weekend_night(config):
+    """Return a config whose Sunday weekend_night rule is HARD (role_strengths +
+    eligibility) — the `hard_sunday` variant: the Sunday-night holder MUST hold
+    Weekend Stroke, and a non-stroke-eligible fellow is forbidden Sunday night."""
+    new_constraints = []
+    for c in config.constraints:
+        if (c.kind == "weekend_night"
+                and c.params.get("criterion") == "weekend_night_sunday"):
+            params = {**c.params}
+            params["role_strengths"] = [
+                {**rs, "hard": True} for rs in params["role_strengths"]]
+            if params.get("eligibility"):
+                params["eligibility"] = {**params["eligibility"], "hard": True}
+            c = dataclasses.replace(c, params=params)
+        new_constraints.append(c)
+    return dataclasses.replace(config, constraints=new_constraints)
+
+
+def _without_stroke_role_weight(config):
+    """Return a config whose weekend_role_mismatch constraint no longer carries the
+    heavier Weekend-Stroke role weight (reverting Stroke to the base mismatch
+    weight) — the `no_stroke_align` isolation variant."""
+    new_constraints = []
+    for c in config.constraints:
+        if (c.kind == "weekend_gating"
+                and c.params.get("criterion") == "weekend_role_mismatch"
+                and c.params.get("role_weights")):
+            rw = {k: v for k, v in c.params["role_weights"].items()
+                  if k != "Weekend Stroke"}
+            c = dataclasses.replace(c, params={**c.params, "role_weights": rw})
+        new_constraints.append(c)
+    return dataclasses.replace(config, constraints=new_constraints)
 
 
 def _apply_variant(config, variant: str):
@@ -60,16 +98,17 @@ def _apply_variant(config, variant: str):
         return dataclasses.replace(
             config, night_hard_criteria=config.night_hard_criteria | {CRITERION_STROKE})
     if variant == "hard_sunday":
-        return dataclasses.replace(config, weekend_night_sunday_hard=True)
+        return _harden_sunday_weekend_night(config)
     if variant == "hard_consec":
         return dataclasses.replace(config, weekend_consecutive_hard=True)
     if variant == "aan_hard":
         # NH AAN-week call avoidance becomes HARD (no night/weekend that week).
         return dataclasses.replace(config, nh_aan_week_call_hard=True)
     if variant == "no_stroke_align":
-        # Disable the dedicated Stroke weekday->weekend alignment nudge (for the
-        # prereq-only isolation run; the shared mismatch-20 penalty still applies).
-        return dataclasses.replace(config, stroke_weekend_misalign_penalty=0)
+        # Revert Weekend Stroke to the base mismatch weight (the former dedicated
+        # Stroke-alignment nudge is now the +40 folded into the weekend_role_mismatch
+        # role_weight; dropping it leaves only the shared mismatch-20 penalty).
+        return _without_stroke_role_weight(config)
     if variant == "abpn_block":
         # ABPN night-block + dual-stroke-Helena preference + wk26/27 on-off toggle.
         return dataclasses.replace(
@@ -89,12 +128,19 @@ def _load(args):
 def _write_outputs(sol, config, out_prefix: Path):
     write_csv(sol, out_prefix.with_suffix(".csv"))
     parsed = solution_to_parsed(sol, list(sol.weekly_assignments.keys()))
+    # The configured gating-criterion registries — the same instances the encoder
+    # used — so the workbook colorer cannot drift from the solver.
+    night_gating = configured_night_gating(config.constraints)
+    weekend_gating = configured_weekend_gating(config.constraints)
+    weekend_night = configured_weekend_night(config.constraints)
     write_schedule_workbook(
         parsed, sol.night_solution, sol.weekend_solution,
         out_prefix.parent / f"{out_prefix.name}_workbook.xlsx",
         hard_criteria=_COLOR_HARD,
         backup_solution=getattr(sol, "backup_solution", None),
-        fellow_groups=config.fellow_groups)
+        fellow_groups=config.fellow_groups,
+        night_gating=night_gating, weekend_gating=weekend_gating,
+        weekend_night=weekend_night)
     # Guarded NCC weekend-role swap -> second workbook (a no-op when the model
     # already aligns NCC weekday/weekend roles).
     swapped = swap_ncc_weekend_roles(parsed, sol.weekend_solution, sol.night_solution)
@@ -103,7 +149,9 @@ def _write_outputs(sol, config, out_prefix: Path):
         out_prefix.parent / f"{out_prefix.name}_workbook_swapped.xlsx",
         hard_criteria=_COLOR_HARD,
         backup_solution=getattr(sol, "backup_solution", None),
-        fellow_groups=config.fellow_groups)
+        fellow_groups=config.fellow_groups,
+        night_gating=night_gating, weekend_gating=weekend_gating,
+        weekend_night=weekend_night)
 
 
 def cmd_optimize(args):

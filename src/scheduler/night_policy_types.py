@@ -15,21 +15,68 @@ from .night_call_types import (
     summarize_night_solution,
 )
 from .schedule_view import ParsedScheduleView
-from schedule_rules.criteria.stroke import StrokeCriterion
-from schedule_rules.criteria.anaesthesia import AnaesthesiaCriterion
-from schedule_rules.criteria.clinic import ClinicCriterion
-from schedule_rules.criteria.friday_weekend_ncc1 import FridayWeekendNcc1Criterion
-from schedule_rules.criteria.sunday_following import SundayFollowingCriterion
-from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
-from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
 
-_STROKE_CRITERION = StrokeCriterion()
-_ANAESTHESIA_CRITERION = AnaesthesiaCriterion()
-_CLINIC_CRITERION = ClinicCriterion()
-_FRIDAY_CRITERION = FridayWeekendNcc1Criterion()
-_SUNDAY_CRITERION = SundayFollowingCriterion()
-_WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
-_PREVACATION_CRITERION = PrevacationWeekendCriterion()
+
+_DEFAULT_REGISTRIES = None
+
+
+def _default_gating_registries():
+    """Build the (night_gating, weekend_gating, weekend_night) registries from the
+    on-disk standing config — the lazy default for evaluator callers that don't
+    thread an explicit registry (the violation counter, focused tests). Cached:
+    the standing gating rules don't change within a process. Built through the
+    SAME converters the solver config uses, so the default evaluator agrees with
+    the encoder. Imported lazily to avoid a circular import (solver_bridge imports
+    this module)."""
+    global _DEFAULT_REGISTRIES
+    if _DEFAULT_REGISTRIES is not None:
+        return _DEFAULT_REGISTRIES
+    import yaml
+    from pathlib import Path
+    from .palette_rules import (
+        night_gating_rule_to_constraint, weekend_gating_rule_to_constraint,
+        weekend_night_rule_to_constraint)
+    from .shift_palette import ShiftPalette
+    from schedule_rules.criteria.night_gating import configured_night_gating
+    from schedule_rules.criteria.weekend_gating import configured_weekend_gating
+    from schedule_rules.criteria.weekend_night import configured_weekend_night
+
+    standing_path = (Path(__file__).resolve().parents[2]
+                     / "config" / "standing" / "stanford-fellowship-v3.yaml")
+    standing = yaml.safe_load(standing_path.read_text())
+    palette = ShiftPalette.from_config(standing.get("shift_palette"))
+    cons = []
+    # night_gating + weekend_night both live in the night_rules block.
+    for r in standing.get("night_rules", []):
+        if r.get("type") == "night_gating":
+            c = night_gating_rule_to_constraint(r, palette)
+        elif r.get("type") == "weekend_night":
+            c = weekend_night_rule_to_constraint(r, palette)
+        else:
+            c = None
+        if c is not None:
+            cons.append(c)
+    for r in standing.get("weekend_rules", []):
+        if r.get("type") == "weekend_gating":
+            c = weekend_gating_rule_to_constraint(r, palette)
+            if c is not None:
+                cons.append(c)
+    _DEFAULT_REGISTRIES = (
+        configured_night_gating(cons), configured_weekend_gating(cons),
+        configured_weekend_night(cons))
+    return _DEFAULT_REGISTRIES
+
+
+def _night_gating_registry(night_gating):
+    return night_gating if night_gating is not None else _default_gating_registries()[0]
+
+
+def _weekend_gating_registry(weekend_gating):
+    return weekend_gating if weekend_gating is not None else _default_gating_registries()[1]
+
+
+def _weekend_night_registry(weekend_night):
+    return weekend_night if weekend_night is not None else _default_gating_registries()[2]
 
 
 CRITERION_ANAESTHESIA = "anaesthesia"
@@ -167,11 +214,19 @@ def criteria_for_assignment(
     config: NightSolverConfig | None = None,
     weekend_solution=None,
     dual_stroke_weeks: frozenset[int] | None = None,
+    night_gating=None,
+    weekend_night=None,
 ) -> tuple[str, ...]:
     """The SINGLE source of truth for which night-policy criteria a given
     (week, day-of-week, fellow) night assignment triggers. Both the violation
     counter (criteria_counts_for_solution) and the workbook cell-colorer call
     this — do not re-implement the logic elsewhere.
+
+    night_gating:
+        The configured NightGatingCriterion registry (list of
+        ConfiguredNightGating) threaded from the solver config. A criterion
+        present here is evaluated from its config-driven archetype; one absent
+        falls back to its module singleton (the migration is per-criterion).
 
     weekend_solution:
         The SOLVED weekend assignments. When provided, the Friday/Weekend-NCC1
@@ -185,22 +240,25 @@ def criteria_for_assignment(
     if not fellow_name:
         return ()
     dual = dual_stroke_weeks or frozenset()
-    # All five night criteria are delegated to their single co-located
-    # definitions (ADR-0005), so this evaluator and the solver encoder consume
-    # ONE shared geometry per criterion and cannot drift. The Stroke criterion
-    # takes the legacy dual-stroke exemption set; the others read the view.
+    # Night criteria are the config-driven NightGatingCriterion archetype: this
+    # evaluator and the solver encoder build their instances from the SAME
+    # SemanticConstraint params (one resolved-target source per criterion), so
+    # they cannot drift (ADR-0005). The threaded *night_gating* registry IS the
+    # set of active criteria; iterate it directly.
     view = ParsedScheduleView(parsed, weekend_solution=weekend_solution)
     criteria = []
-    if _ANAESTHESIA_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
-        criteria.append(CRITERION_ANAESTHESIA)
-    if _CLINIC_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
-        criteria.append(CRITERION_CLINIC)
-    if _STROKE_CRITERION.evaluate(view, week_index, day_of_week, fellow_name, exempt_weeks=dual):
-        criteria.append(CRITERION_STROKE)
-    if _FRIDAY_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
-        criteria.append(CRITERION_FRIDAY_WEEKEND_NCC1)
-    if _SUNDAY_CRITERION.evaluate(view, week_index, day_of_week, fellow_name):
-        criteria.append(CRITERION_SUNDAY_FOLLOWING)
+    for cng in _night_gating_registry(night_gating):
+        if cng.criterion.evaluate(
+            view, week_index, day_of_week, fellow_name,
+            resolved_targets=cng.resolved_targets, exempt_weeks=dual,
+        ):
+            criteria.append(cng.criterion.name)
+    # Weekend-night ↔ weekend-role criteria (the WeekendNightCriterion archetype):
+    # the fellow holds THIS night (week, dow); each criterion judges it against the
+    # fellow's weekend roles that week.
+    for cwn in _weekend_night_registry(weekend_night):
+        if cwn.criterion.evaluate(view, week_index, day_of_week, fellow_name):
+            criteria.append(cwn.criterion.name)
     return tuple(criteria)
 
 
@@ -222,6 +280,7 @@ def weekend_criteria_for_role(
     fellow_name: str,
     *,
     weekend_solution=None,
+    weekend_gating=None,
 ) -> tuple[str, ...]:
     """Which cell-localizable weekend criteria a given (week, role, fellow)
     weekend assignment triggers. Both criteria are delegated to their single
@@ -237,10 +296,12 @@ def weekend_criteria_for_role(
         return ()
     view = ParsedScheduleView(parsed, weekend_solution=weekend_solution)
     out = []
-    if _WEEKEND_MISMATCH_CRITERION.evaluate(view, week_index, role, fellow_name):
-        out.append(CRITERION_WEEKEND_ROLE_MISMATCH)
-    if _PREVACATION_CRITERION.evaluate(view, week_index, role, fellow_name):
-        out.append(CRITERION_PREVACATION_WEEKEND)
+    for cwg in _weekend_gating_registry(weekend_gating):
+        if cwg.criterion.evaluate(
+            view, week_index, role, fellow_name,
+            resolved_targets=cwg.resolved_targets,
+        ):
+            out.append(cwg.criterion.name)
     return tuple(out)
 
 

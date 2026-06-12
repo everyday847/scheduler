@@ -22,13 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from schedule_rules.criteria.anaesthesia import AnaesthesiaCriterion
-from schedule_rules.criteria.clinic import ClinicCriterion
-from schedule_rules.criteria.friday_weekend_ncc1 import FridayWeekendNcc1Criterion
-from schedule_rules.criteria.sunday_following import (
-    SundayFollowingCriterion,
-    NON_PREFERRED_SUNDAY_FOLLOWING,
-)
+from schedule_rules.criteria.night_gating import NightGatingCriterion, NightTermSpec
 from schedule_rules.strength import HARD, SOFT
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.constraint_sink import OpbConstraintSink
@@ -39,6 +33,36 @@ ROUNDINGSAT_BINARY = (
     Path(__file__).resolve().parent.parent / "vendor" / "roundingsat" / "build" / "roundingsat"
 )
 _MON, _TUE, _WED, _THU, _FRI, _SAT, _SUN = range(7)
+
+# The four night criteria are now instances of the NightGatingCriterion archetype
+# (config supplies the gating table + targets; no shift name is hardcoded in the
+# rule code). These mirror the standing config's night_gating entries.
+NON_PREFERRED_SUNDAY_FOLLOWING = frozenset(
+    {"Anaesthesia", "Clinic/Elective", "Telestroke/Clinic", "Vac", "NS", "NIR", "SICU", "SCVMC Rehab"}
+)
+_ANAESTHESIA_TARGETS = {"anaesthesia_gating": frozenset({"Anaesthesia"})}
+_CLINIC_TARGETS = {"clinic_gating": frozenset({"Clinic/Elective"})}
+_SUNDAY_TARGETS = {"sunday_nonpref": NON_PREFERRED_SUNDAY_FOLLOWING}
+
+
+def _anaesthesia_criterion() -> NightGatingCriterion:
+    return NightGatingCriterion("anaesthesia", terms=(
+        NightTermSpec(dows=(0, 1, 2, 3, 4), week_offset=0, target_key="anaesthesia_gating"),))
+
+
+def _clinic_criterion() -> NightGatingCriterion:
+    return NightGatingCriterion("clinic", terms=(
+        NightTermSpec(dows=(1, 2), week_offset=0, target_key="clinic_gating"),
+        NightTermSpec(dows=(6,), week_offset=1, target_key="clinic_gating"),))
+
+
+# (The former friday_weekend_ncc1 criterion was coalesced into the Friday
+# WeekendNightCriterion instance — see test_weekend_night_contract.py.)
+
+
+def _sunday_criterion() -> NightGatingCriterion:
+    return NightGatingCriterion("sunday_following", terms=(
+        NightTermSpec(dows=(6,), week_offset=1, target_key="sunday_nonpref"),))
 
 
 @pytest.fixture
@@ -81,18 +105,21 @@ class DictScheduleView:
 # ---------------------------------------------------------------------------
 class TestAnaesthesiaEvaluate:
     def setup_method(self):
-        self.crit = AnaesthesiaCriterion()
+        self.crit = _anaesthesia_criterion()
         self.view = DictScheduleView([{"A": "Anaesthesia", "B": "NCC1"}])
 
+    def _eval(self, w, dow, f):
+        return self.crit.evaluate(self.view, w, dow, f, resolved_targets=_ANAESTHESIA_TARGETS)
+
     def test_weekday_night_on_anaesthesia_fires(self):
-        assert self.crit.evaluate(self.view, 0, _MON, "A") is True
+        assert self._eval(0, _MON, "A") is True
 
     def test_weekend_night_does_not_fire(self):
-        assert self.crit.evaluate(self.view, 0, _SAT, "A") is False
-        assert self.crit.evaluate(self.view, 0, _SUN, "A") is False
+        assert self._eval(0, _SAT, "A") is False
+        assert self._eval(0, _SUN, "A") is False
 
     def test_non_anaesthesia_fellow_does_not_fire(self):
-        assert self.crit.evaluate(self.view, 0, _MON, "B") is False
+        assert self._eval(0, _MON, "B") is False
 
 
 # ---------------------------------------------------------------------------
@@ -100,45 +127,28 @@ class TestAnaesthesiaEvaluate:
 # ---------------------------------------------------------------------------
 class TestClinicEvaluate:
     def setup_method(self):
-        self.crit = ClinicCriterion()
+        self.crit = _clinic_criterion()
+
+    def _eval(self, view, w, dow, f):
+        return self.crit.evaluate(view, w, dow, f, resolved_targets=_CLINIC_TARGETS)
 
     def test_tuesday_night_same_week_clinic_fires(self):
         view = DictScheduleView([{"C": "Clinic/Elective"}])
-        assert self.crit.evaluate(view, 0, _TUE, "C") is True
+        assert self._eval(view, 0, _TUE, "C") is True
 
     def test_wednesday_night_same_week_clinic_fires(self):
         view = DictScheduleView([{"C": "Clinic/Elective"}])
-        assert self.crit.evaluate(view, 0, _WED, "C") is True
+        assert self._eval(view, 0, _WED, "C") is True
 
     def test_sunday_night_gates_next_week(self):
         view = DictScheduleView([{"C": "NCC1"}, {"C": "Clinic/Elective"}])
-        assert self.crit.evaluate(view, 0, _SUN, "C") is True
+        assert self._eval(view, 0, _SUN, "C") is True
 
     def test_monday_thursday_friday_do_not_gate(self):
         view = DictScheduleView([{"C": "Clinic/Elective"}])
-        assert self.crit.evaluate(view, 0, _MON, "C") is False
-        assert self.crit.evaluate(view, 0, _THU, "C") is False
-        assert self.crit.evaluate(view, 0, _FRI, "C") is False
-
-
-# ---------------------------------------------------------------------------
-# Friday / Weekend NCC1
-# ---------------------------------------------------------------------------
-class TestFridayWeekendNcc1Evaluate:
-    def setup_method(self):
-        self.crit = FridayWeekendNcc1Criterion()
-        self.view = DictScheduleView(
-            [{"A": "NCC1", "B": "NCC2"}], [{"Weekend NCC1": "A"}]
-        )
-
-    def test_friday_night_weekend_ncc1_holder_fires(self):
-        assert self.crit.evaluate(self.view, 0, _FRI, "A") is True
-
-    def test_non_holder_does_not_fire(self):
-        assert self.crit.evaluate(self.view, 0, _FRI, "B") is False
-
-    def test_non_friday_does_not_fire(self):
-        assert self.crit.evaluate(self.view, 0, _THU, "A") is False
+        assert self._eval(view, 0, _MON, "C") is False
+        assert self._eval(view, 0, _THU, "C") is False
+        assert self._eval(view, 0, _FRI, "C") is False
 
 
 # ---------------------------------------------------------------------------
@@ -146,15 +156,18 @@ class TestFridayWeekendNcc1Evaluate:
 # ---------------------------------------------------------------------------
 class TestSundayFollowingEvaluate:
     def setup_method(self):
-        self.crit = SundayFollowingCriterion()
+        self.crit = _sunday_criterion()
+
+    def _eval(self, view, w, dow, f):
+        return self.crit.evaluate(view, w, dow, f, resolved_targets=_SUNDAY_TARGETS)
 
     def test_sunday_before_non_preferred_next_week_fires(self):
         view = DictScheduleView([{"A": "NCC1"}, {"A": "Vac"}])  # Vac is non-preferred
-        assert self.crit.evaluate(view, 0, _SUN, "A") is True
+        assert self._eval(view, 0, _SUN, "A") is True
 
     def test_sunday_before_preferred_next_week_does_not_fire(self):
         view = DictScheduleView([{"A": "NCC1"}, {"A": "NCC2"}])  # NCC2 preferred
-        assert self.crit.evaluate(view, 0, _SUN, "A") is False
+        assert self._eval(view, 0, _SUN, "A") is False
 
     def test_ns_scvmc_vac_are_non_preferred(self):
         # The resolved divergence: encoder's set wins; these 3 canonical shifts
@@ -164,11 +177,11 @@ class TestSundayFollowingEvaluate:
 
     def test_last_week_sunday_does_not_fire(self):
         view = DictScheduleView([{"A": "NCC1"}])  # no next week
-        assert self.crit.evaluate(view, 0, _SUN, "A") is False
+        assert self._eval(view, 0, _SUN, "A") is False
 
     def test_non_sunday_does_not_fire(self):
         view = DictScheduleView([{"A": "NCC1"}, {"A": "Vac"}])
-        assert self.crit.evaluate(view, 0, _SAT, "A") is False
+        assert self._eval(view, 0, _SAT, "A") is False
 
 
 # ---------------------------------------------------------------------------
@@ -177,36 +190,51 @@ class TestSundayFollowingEvaluate:
 class TestEncodeEvaluateAgreeSingleTerm:
     """Anaesthesia, Clinic, Friday: single-gating-term 'pair' criteria."""
 
-    def _agree(self, runner, crit, view, nights, role_for_term=None):
+    def _agree(self, runner, crit, view, nights, resolved_targets):
         opb = OpbBuilder()
         soft: list[tuple[int, int]] = []
         sink = OpbConstraintSink(opb, soft)
 
-        expected = sum(1 for (w, dow, f) in nights if crit.evaluate(view, w, dow, f))
+        expected = sum(1 for (w, dow, f) in nights
+                       if crit.evaluate(view, w, dow, f, resolved_targets=resolved_targets))
 
-        # Pin every gating term referenced by the placed nights.
+        # Pin every gating term referenced by the placed nights. A weekday-shift
+        # term resolves to its set of shift vars (target_key -> resolved shifts);
+        # a weekend-role term resolves to the single role var.
         term_vars: dict[tuple, int] = {}
         night_vars: dict[tuple, int] = {}
+
+        def _resolve(term, f) -> list[int]:
+            if term.is_weekend_role:
+                key = (term.week, term.target_key, True, f)
+                if key not in term_vars:
+                    tv = opb.new_var()
+                    term_vars[key] = tv
+                    holds = view.weekend_role_holder(term.week, term.target_key) == f
+                    opb.add_unit(tv if holds else -tv)
+                return [term_vars[key]]
+            out = []
+            for shift in sorted(resolved_targets.get(term.target_key, ())):
+                key = (term.week, shift, False, f)
+                if key not in term_vars:
+                    tv = opb.new_var()
+                    term_vars[key] = tv
+                    opb.add_unit(tv if view.weekday_service(term.week, f) == shift else -tv)
+                out.append(term_vars[key])
+            return out
+
         for (w, dow, f) in nights:
             nv = opb.new_var()
             night_vars[(w, dow, f)] = nv
             opb.add_unit(nv)
             for term in crit.gating_terms(w, dow):
-                key = (term.week, term.target, term.is_weekend_role, f)
-                if key not in term_vars:
-                    tv = opb.new_var()
-                    term_vars[key] = tv
-                    if term.is_weekend_role:
-                        holds = view.weekend_role_holder(term.week, term.target) == f
-                    else:
-                        holds = view.weekday_service(term.week, f) == term.target
-                    opb.add_unit(tv if holds else -tv)
+                _resolve(term, f)
 
         for (w, dow, f) in nights:
             for term in crit.gating_terms(w, dow):
-                tv = term_vars[(term.week, term.target, term.is_weekend_role, f)]
-                crit.encode(sink, night_var=night_vars[(w, dow, f)], term_var=tv,
-                            strength=SOFT, weight=1)
+                tvs = _resolve(term, f)
+                crit.encode(sink, night_var=night_vars[(w, dow, f)], term_vars=tvs,
+                            exempt_var=None, strength=SOFT, weight=1)
 
         result = runner.solve(opb)
         assert result.satisfiable
@@ -215,39 +243,26 @@ class TestEncodeEvaluateAgreeSingleTerm:
         return expected
 
     def test_anaesthesia_agrees(self, runner):
-        crit = AnaesthesiaCriterion()
+        crit = _anaesthesia_criterion()
         view = DictScheduleView([{"A": "Anaesthesia", "B": "NCC1"}])
         nights = [(0, _MON, "A"), (0, _SAT, "A"), (0, _MON, "B")]
-        assert self._agree(runner, crit, view, nights) == 1
+        assert self._agree(runner, crit, view, nights, _ANAESTHESIA_TARGETS) == 1
 
     def test_clinic_agrees(self, runner):
-        crit = ClinicCriterion()
+        crit = _clinic_criterion()
         view = DictScheduleView([{"C": "Clinic/Elective"}, {"C": "Clinic/Elective"}])
         nights = [(0, _TUE, "C"), (0, _MON, "C"), (0, _SUN, "C")]
-        assert self._agree(runner, crit, view, nights) == 2  # Tue + Sun(next-week clinic)
+        assert self._agree(runner, crit, view, nights, _CLINIC_TARGETS) == 2  # Tue + Sun(next-week clinic)
 
-    def test_friday_agrees(self, runner):
-        crit = FridayWeekendNcc1Criterion()
-        view = DictScheduleView([{"A": "NCC1", "B": "NCC2"}], [{"Weekend NCC1": "A"}])
-        nights = [(0, _FRI, "A"), (0, _FRI, "B")]
-        assert self._agree(runner, crit, view, nights) == 1
-
-    def test_friday_hard_forbids_violation(self, runner):
-        crit = FridayWeekendNcc1Criterion()
-        opb = OpbBuilder()
-        soft: list[tuple[int, int]] = []
-        sink = OpbConstraintSink(opb, soft)
-        term = opb.new_var(); opb.add_unit(term)     # holds Weekend NCC1
-        night = opb.new_var(); opb.add_unit(night)   # takes Friday night
-        crit.encode(sink, night_var=night, term_var=term, strength=HARD, weight=1)
-        assert runner.solve(opb).satisfiable is False
+    # (Friday agreement is now covered by test_weekend_night_contract.py, where
+    # the coalesced Friday rule lives as a WeekendNightCriterion instance.)
 
 
 class TestSundayFollowingEncodeEvaluateAgree:
     """Sunday: OR-over-non-preferred-shifts then one pair."""
 
     def test_or_then_pair_agrees(self, runner):
-        crit = SundayFollowingCriterion()
+        crit = _sunday_criterion()
         view = DictScheduleView([{"A": "NCC1"}, {"A": "Vac"}])
         opb = OpbBuilder()
         soft: list[tuple[int, int]] = []
@@ -262,10 +277,14 @@ class TestSundayFollowingEncodeEvaluateAgree:
             opb.add_unit(v if s == "Vac" else -v)
         night = opb.new_var(); opb.add_unit(night)
 
-        expected = 1 if crit.evaluate(view, 0, _SUN, "A") else 0
-        term_vars = [shift_var[t.target] for t in crit.gating_terms(0, _SUN)
-                     if t.target in shift_var]
-        crit.encode(sink, night_var=night, term_vars=term_vars, strength=SOFT, weight=1)
+        expected = 1 if crit.evaluate(view, 0, _SUN, "A", resolved_targets=_SUNDAY_TARGETS) else 0
+        # The single sunday term's resolved targets are the non-preferred shifts
+        # present in week 1; collect the pinned vars for those shifts.
+        term = crit.gating_terms(0, _SUN)[0]
+        term_vars = [shift_var[s] for s in sorted(_SUNDAY_TARGETS[term.target_key])
+                     if s in shift_var]
+        crit.encode(sink, night_var=night, term_vars=term_vars, exempt_var=None,
+                    strength=SOFT, weight=1)
 
         result = runner.solve(opb)
         assert result.satisfiable

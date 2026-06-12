@@ -15,6 +15,8 @@
 #   consec_weekend_buffer   - "light" week that buffers consecutive weekends
 #   anaesthesia_gating      - drives the anaesthesia night-policy criterion
 #   clinic_gating           - drives the clinic night-policy criterion
+#   stroke_gating           - drives the stroke night-policy criterion (night
+#                             before a Stroke workday)
 #   stroke_wk2627_on        - counts as "on" for the wk26/27 holiday toggle
 # The long-form aliases in the annual shift list (Vacation, Anesthesia, MSICU,
 # NS SCVMC, Elective, Elective/SICU) carry no behavior today, so they are omitted.
@@ -34,7 +36,7 @@ shift_palette:
   NHS: [consec_weekend_buffer]
   NCC1: [holiday_eligible, stroke_wk2627_on]
   NCC2: [holiday_eligible, stroke_wk2627_on]
-  Stroke: [holiday_eligible, stroke_wk2627_on]
+  Stroke: [holiday_eligible, stroke_wk2627_on, stroke_gating]
   Telestroke/Clinic: [stroke_wk2627_on]
   Swing: [stroke_wk2627_on]
 
@@ -267,6 +269,114 @@ night_rules:
     window_days: 3
     active: true
 
+  # Night-policy gating criteria (NightGatingCriterion archetype). Geometry is
+  # config data: which nights gate, the week offset, and the gating target. A
+  # shift-intrinsic target ("night before THIS service") is sourced from a Shift
+  # Attribute; rule-level sets/roles ride in the rule. Per-criterion weight +
+  # hard/soft are keyed by `criterion` in the night_penalties/night_hard_criteria.
+  - name: Anaesthesia night
+    type: night_gating
+    criterion: anaesthesia
+    description: "Weekday night (Mon-Fri) by a fellow on Anaesthesia that week."
+    terms:
+      - dows: [0, 1, 2, 3, 4]
+        week_offset: 0
+        target_attribute: anaesthesia_gating
+    active: true
+
+  - name: Clinic night
+    type: night_gating
+    criterion: clinic
+    description: "Tue/Wed night before a same-week Clinic/Elective day; Sun night before next week's."
+    terms:
+      - dows: [1, 2]
+        week_offset: 0
+        target_attribute: clinic_gating
+      - dows: [6]
+        week_offset: 1
+        target_attribute: clinic_gating
+    active: true
+
+  # (The former `friday_weekend_ncc1` night_gating rule is coalesced into the
+  # "Friday weekend-night" weekend_night rule below — one Friday rule now covers
+  # all three weekend roles with per-role strength: NCC1 hard, NCC2/Stroke soft.)
+
+  - name: Stroke night
+    type: night_gating
+    criterion: stroke
+    description: >
+      Night before a Stroke workday. Mon-Thu nights gate on the SAME week's Stroke
+      shift; the Sunday night gates on the NEXT week's. The Saturday night gates on
+      the same-week Weekend Stroke role. A dual-stroke week (>=2 fellows on Stroke)
+      exempts that gating week (the second fellow covers the night).
+    terms:
+      - dows: [0, 1, 2, 3]
+        week_offset: 0
+        target_attribute: stroke_gating
+      - dows: [6]
+        week_offset: 1
+        target_attribute: stroke_gating
+      - dows: [5]
+        week_offset: 0
+        target_role: "Weekend Stroke"
+    exemption:
+      target_attribute: stroke_gating
+      threshold: 2
+    active: true
+
+  - name: Sunday following night
+    type: night_gating
+    criterion: sunday_following
+    description: >
+      Sunday night rolling into a next-week service where the following Monday is
+      undesirable to be post-call. The non-preferred set is an explicit rule-level
+      list (not a Shift Attribute): it is the historical encoder set, the canonical
+      truth chosen when co-locating encode+evaluate.
+    terms:
+      - dows: [6]
+        week_offset: 1
+        target_key: sunday_nonpref
+        target_shifts:
+          [Anaesthesia, "Clinic/Elective", "Telestroke/Clinic", Vac, NS, NIR, SICU, "SCVMC Rehab"]
+    active: true
+
+  # Weekend-night / weekend-role relationship (WeekendNightCriterion archetype):
+  # a positive-or-negative, hard-or-soft link between holding a weekend role and
+  # taking that night's call. One instance per weekend night.
+  - name: Friday weekend-night
+    type: weekend_night
+    criterion: weekend_night_friday
+    dow: 4
+    polarity: forbid         # the Friday-night holder should hold NO weekend role
+    role_strengths:
+      - {role: "Weekend NCC1", hard: true}              # forbidden hard (was friday_weekend_ncc1)
+      - {role: "Weekend NCC2", hard: false, weight: 40}
+      - {role: "Weekend Stroke", hard: false, weight: 40}
+    active: true
+
+  - name: Saturday weekend-night
+    type: weekend_night
+    criterion: weekend_night_saturday
+    dow: 5
+    polarity: require        # the Saturday-night holder SHOULD hold an NCC weekend role
+    role_strengths:
+      - {role: "Weekend NCC1", hard: true}
+      - {role: "Weekend NCC2", hard: true}
+    active: true
+
+  - name: Sunday weekend-night
+    type: weekend_night
+    criterion: weekend_night_sunday
+    dow: 6
+    polarity: require        # the Sunday-night holder SHOULD hold Weekend Stroke
+    role_strengths:
+      - {role: "Weekend Stroke", hard: false, weight: 10}
+    eligibility:             # a non-stroke-eligible fellow is penalized off Sunday night
+      role: "Weekend Stroke"
+      hard: false
+      weight: 10
+    active: true
+
   - name: Night soft penalties
     type: night_penalties
     description: "Weights for undesirable night call patterns"
@@ -279,20 +389,6 @@ night_rules:
       sunday_following: 1
     active: true
 
-  - name: Sunday following preference
-    type: night_sunday_following
-    description: "Preferred weekday service after Sunday night call"
-    groups: [STROKE, NCC_JR, NCC_SR, NH]
-    preferred_services:
-      - Elec
-      - Telestroke/Clinic
-      - Clinic/Elective
-      - SCVMC Rehab
-      - NIR
-      - ISC
-      - Vac
-    active: true
-
 weekend_rules:
   - name: Weekend spacing
     type: weekend_spacing
@@ -300,6 +396,35 @@ weekend_rules:
     groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
     max_weekends: 1
     window_weeks: 2
+    active: true
+
+  # Weekend-role gating criteria (WeekendGatingCriterion archetype). ALIGN: the
+  # weekend role should be held by that week's matching weekday-service fellow.
+  - name: Weekend role / weekday mismatch
+    type: weekend_gating
+    criterion: weekend_role_mismatch
+    mode: align
+    description: "A weekend role held by a fellow not on the matching weekday shift that week."
+    role_to_shift:
+      "Weekend NCC1": NCC1
+      "Weekend NCC2": NCC2
+      "Weekend Stroke": Stroke
+    # Per-role mismatch weight (default per role -> weekend_mismatch_weight=20).
+    # Weekend Stroke carries 60 = the former 20 mismatch + 40 stroke-alignment
+    # nudge, folded here so a Stroke mismatch is one criterion at its full cost.
+    role_weights:
+      "Weekend Stroke": 60
+    active: true
+
+  - name: Pre-vacation weekend
+    type: weekend_gating
+    criterion: prevacation_weekend
+    mode: gate
+    description: "Any weekend role held in the week immediately before the fellow is on Vac."
+    roles: ["Weekend NCC1", "Weekend NCC2", "Weekend Stroke"]
+    gate_target_key: vac
+    target_shifts: [Vac]
+    gate_week_offset: 1
     active: true
 
   - name: Weekend soft penalties

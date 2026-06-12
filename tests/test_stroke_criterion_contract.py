@@ -34,7 +34,8 @@ from pathlib import Path
 
 import pytest
 
-from schedule_rules.criteria.stroke import StrokeCriterion
+from schedule_rules.criteria.night_gating import (
+    NightGatingCriterion, NightTermSpec, ExemptionSpec)
 from schedule_rules.strength import HARD, SOFT
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.constraint_sink import OpbConstraintSink
@@ -48,6 +49,24 @@ ROUNDINGSAT_BINARY = (
 # dow: Mon=0 Tue=1 Wed=2 Thu=3 Fri=4 Sat=5 Sun=6
 _MON, _TUE, _WED, _THU, _FRI, _SAT, _SUN = range(7)
 _WEEKEND_STROKE = "Weekend Stroke"
+
+# The Stroke criterion is now an instance of the NightGatingCriterion archetype
+# (config selects the gating table + targets; no shift name is hardcoded in the
+# rule code). These match the standing config's `stroke` night_gating entry.
+_STROKE_TARGETS = {"stroke_gating": frozenset({"Stroke"})}
+
+
+def _stroke_criterion() -> NightGatingCriterion:
+    return NightGatingCriterion(
+        "stroke",
+        terms=(
+            NightTermSpec(dows=(0, 1, 2, 3), week_offset=0, target_key="stroke_gating"),
+            NightTermSpec(dows=(6,), week_offset=1, target_key="stroke_gating"),
+            NightTermSpec(dows=(5,), week_offset=0, target_key=_WEEKEND_STROKE,
+                          is_weekend_role=True),
+        ),
+        exemption=ExemptionSpec(target_shift="Stroke", threshold=2),
+    )
 
 
 @pytest.fixture
@@ -123,9 +142,10 @@ _NIGHTS = [
 ]
 
 
-def _evaluate_count(view: DictScheduleView, crit: StrokeCriterion) -> int:
+def _evaluate_count(view: DictScheduleView, crit: NightGatingCriterion) -> int:
     return sum(
-        1 for (w, dow, f) in _NIGHTS if crit.evaluate(view, w, dow, f)
+        1 for (w, dow, f) in _NIGHTS
+        if crit.evaluate(view, w, dow, f, resolved_targets=_STROKE_TARGETS)
     )
 
 
@@ -133,23 +153,26 @@ class TestEvaluateGeometry:
     """The evaluate side alone, branch by branch (fast, no solver)."""
 
     def setup_method(self):
-        self.crit = StrokeCriterion()
+        self.crit = _stroke_criterion()
         self.view = _schedule()
 
+    def _eval(self, w, dow, f):
+        return self.crit.evaluate(self.view, w, dow, f, resolved_targets=_STROKE_TARGETS)
+
     def test_weekday_monday_before_stroke_fires(self):
-        assert self.crit.evaluate(self.view, 0, _MON, "A") is True
+        assert self._eval(0, _MON, "A") is True
 
     def test_friday_does_not_gate(self):
-        assert self.crit.evaluate(self.view, 0, _FRI, "A") is False
+        assert self._eval(0, _FRI, "A") is False
 
     def test_weekend_stroke_holder_saturday_fires(self):
-        assert self.crit.evaluate(self.view, 0, _SAT, "A") is True
+        assert self._eval(0, _SAT, "A") is True
 
     def test_non_weekend_stroke_holder_saturday_does_not_fire(self):
-        assert self.crit.evaluate(self.view, 0, _SAT, "B") is False
+        assert self._eval(0, _SAT, "B") is False
 
     def test_dual_stroke_week_is_exempt(self):
-        assert self.crit.evaluate(self.view, 1, _MON, "A") is False
+        assert self._eval(1, _MON, "A") is False
 
 
 class TestEncodeEvaluateAgree:
@@ -158,7 +181,7 @@ class TestEncodeEvaluateAgree:
 
     def test_soft_violation_counts_match(self, runner):
         view = _schedule()
-        crit = StrokeCriterion()
+        crit = _stroke_criterion()
         expected = _evaluate_count(view, crit)
 
         opb = OpbBuilder()
@@ -209,16 +232,16 @@ class TestEncodeEvaluateAgree:
         for (w, dow, f) in _NIGHTS:
             for term in crit.gating_terms(w, dow):
                 if term.is_weekend_role:
-                    tv = wr_fellow_var.get((term.week, term.target, f))
+                    tv = wr_fellow_var.get((term.week, term.target_key, f))
                 else:
-                    tv = shift_var.get((term.week, f, term.target))
+                    tv = shift_var.get((term.week, f, "Stroke"))
                 if tv is None:
                     continue  # gating week out of range
                 exempt = dual_var.get(term.week)
                 crit.encode(
                     sink,
                     night_var=night_var[(w, dow, f)],
-                    term_var=tv,
+                    term_vars=[tv],
                     exempt_var=exempt,
                     strength=SOFT,
                     weight=5,
@@ -233,7 +256,7 @@ class TestEncodeEvaluateAgree:
         """With HARD strength, a pinned stroke violation (Mon night before a
         Stroke week) must be UNSAT."""
         view = _schedule()
-        crit = StrokeCriterion()
+        crit = _stroke_criterion()
         opb = OpbBuilder()
         soft: list[tuple[int, int]] = []
         sink = OpbConstraintSink(opb, soft)
@@ -243,7 +266,7 @@ class TestEncodeEvaluateAgree:
         night_v = opb.new_var()
         opb.add_unit(night_v)    # A takes the Monday night
         # no dual exemption
-        crit.encode(sink, night_var=night_v, term_var=stroke_v, exempt_var=None,
+        crit.encode(sink, night_var=night_v, term_vars=[stroke_v], exempt_var=None,
                     strength=HARD, weight=5)
 
         result = runner.solve(opb)

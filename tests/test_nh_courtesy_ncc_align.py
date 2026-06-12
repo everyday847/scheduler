@@ -19,14 +19,13 @@ from parafrost_scheduler.schedule_types import (
 from parafrost_scheduler.schedule_encoder import (
     _encode_nh_courtesy_weeks,
     _encode_ncc_weekend_alignment,
-    _encode_stroke_weekend_alignment,
 )
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 
 
 def _config(num_days=28, nh_aan=100, nh_abpn=100, ncc_align=10,
-            nh_aan_hard=False, stroke_align=40, fellow_groups=None, shifts=None):
+            nh_aan_hard=False, fellow_groups=None, shifts=None):
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={}, total_night_multisets=(),
         friday_night_multisets=(), ccm_fellows=frozenset(), holiday_dates=(),
@@ -45,7 +44,6 @@ def _config(num_days=28, nh_aan=100, nh_abpn=100, ncc_align=10,
         nh_aan_week_call_penalty=nh_aan, nh_abpn_week_call_penalty=nh_abpn,
         nh_aan_week_call_hard=nh_aan_hard,
         ncc_weekend_misalign_penalty=ncc_align,
-        stroke_weekend_misalign_penalty=stroke_align,
     )
 
 
@@ -214,46 +212,6 @@ class TestNccWeekendAlignment:
         assert soft == [], "Zero weight must add no penalties"
 
 
-class TestStrokeWeekendAlignment:
-    """Dedicated soft nudge: Weekend Stroke should be held by that week's weekday
-    Stroke fellow. Uses an AND-NOT mismatch indicator (holds Weekend Stroke but
-    NOT on weekday Stroke), weighted by stroke_weekend_misalign_penalty."""
-
-    _SHIFTS = ["NCC1", "NCC2", "Stroke", "Elec"]
-
-    def test_stroke_misalignment_penalized_weight_40(self):
-        config = _config(shifts=self._SHIFTS)
-        shift_idx = {s: i for i, s in enumerate(config.shifts)}
-        opb = OpbBuilder()
-        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
-        soft = []
-        _encode_stroke_weekend_alignment(opb, wr, xs, config, ["Jin"], shift_idx, soft)
-        # Holds Weekend Stroke (week 0) but the mismatch is gated on weekday Stroke:
-        # there must be a soft term linking the Weekend-Stroke var and weekday Stroke.
-        we_stroke = wr[0][_ROLE_STROKE][0]
-        wd_stroke = xs[0][0][shift_idx["Stroke"]]
-        assert _links(opb, we_stroke, wd_stroke), "Weekend Stroke must be linked to weekday Stroke (mismatch nudge)"
-        assert soft and all(w == 40 for _, w in soft), "Stroke align weight must be 40"
-
-    def test_no_weekday_stroke_var_still_penalizes_holding_role(self):
-        # If the fellow can't be on weekday Stroke that week (var forbidden=0),
-        # holding Weekend Stroke is always a mismatch -> direct soft penalty on the
-        # weekend var.
-        config = _config(shifts=self._SHIFTS)
-        shift_idx = {s: i for i, s in enumerate(config.shifts)}
-        opb = OpbBuilder()
-        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
-        xs[0][0][shift_idx["Stroke"]] = 0  # cannot be on weekday Stroke week 0
-        soft = []
-        _encode_stroke_weekend_alignment(opb, wr, xs, config, ["Jin"], shift_idx, soft)
-        we_stroke = wr[0][_ROLE_STROKE][0]
-        assert (we_stroke, 40) in soft, "no weekday-Stroke option => weekend-Stroke role is a direct 40 penalty"
-
-    def test_stroke_zero_weight_disables(self):
-        config = _config(shifts=self._SHIFTS, stroke_align=0)
-        shift_idx = {s: i for i, s in enumerate(config.shifts)}
-        opb = OpbBuilder()
-        xs, xn, wr = _make_xs_xn_wr(opb, config, ["Jin"])
-        soft = []
-        _encode_stroke_weekend_alignment(opb, wr, xs, config, ["Jin"], shift_idx, soft)
-        assert soft == [], "Zero weight must add no penalties"
+# (The dedicated Stroke weekday→weekend alignment nudge was folded into the
+# weekend_role_mismatch criterion's per-role weight — Weekend Stroke = 60. Its
+# encode/evaluate coverage now lives in test_weekend_criteria_contract.py.)

@@ -113,7 +113,7 @@ class TestFailFast:
         with pytest.raises(ValueError, match="Unknown shift attribute flag"):
             ShiftPalette.from_config({"MICU": ["night_blocked_all_week", "bogus_flag"]})
 
-    def test_known_flags_vocabulary_is_eight(self):
+    def test_known_flags_vocabulary(self):
         # The fixed code vocabulary (the directly-assignable flags).
         assert KNOWN_FLAGS == frozenset({
             "night_blocked_all_week",
@@ -123,6 +123,7 @@ class TestFailFast:
             "consec_weekend_buffer",
             "anaesthesia_gating",
             "clinic_gating",
+            "stroke_gating",
             "stroke_wk2627_on",
         })
 

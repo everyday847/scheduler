@@ -97,6 +97,48 @@ def build_solver_config_from_request(
     night_config = build_night_config_from_request(raw_request, fellow_groups)
     weekend_config = build_weekend_config_from_request(raw_request, fellow_groups)
 
+    # night_gating / weekend_gating rules → typed SemanticConstraints. Targets
+    # are resolved against the palette HERE so the schedule_rules leaf stays
+    # palette-free (one resolved source for encode + evaluate). These are Standing
+    # structural rules, so they are sourced from the standing config and always
+    # apply even when the annual config overrides the tunable night/weekend rules;
+    # an annual night_gating entry overrides a standing one by `criterion`.
+    if is_palette_format:
+        palette_for_gating = ShiftPalette.from_config(
+            raw_request.get("shift_palette") or standing_config.get("shift_palette")
+        )
+        # Standing night_gating rules survive the standing_rules override path via
+        # the request's `standing_night_rules` copy (set by experiment.assemble_*),
+        # falling back to the on-disk standing config when present.
+        standing_night_rules = (
+            raw_request.get("standing_night_rules")
+            or standing_config.get("night_rules", [])
+        )
+        gating_night_rules = _merge_gating_rules(
+            standing_night_rules,
+            raw_request.get("night_rules", []),
+            kind="night_gating",
+        )
+        standing_weekend_rules = (
+            raw_request.get("standing_weekend_rules")
+            or standing_config.get("weekend_rules", [])
+        )
+        gating_weekend_rules = _merge_gating_rules(
+            standing_weekend_rules,
+            raw_request.get("weekend_rules", []),
+            kind="weekend_gating",
+        )
+        # weekend_night rules (the WeekendNightCriterion archetype) live in the
+        # night_rules block (they gate a weekend night) → ride standing_night_rules.
+        weekend_night_rules = _merge_gating_rules(
+            standing_night_rules,
+            raw_request.get("night_rules", []),
+            kind="weekend_night",
+        )
+        constraints.extend(_build_gating_constraints(
+            gating_night_rules, gating_weekend_rules, weekend_night_rules,
+            palette_for_gating))
+
     locked_assignments = raw_request.get("locked_assignments", {})
     # The `call_rules` channel was fully dissolved into the typed `rules:`
     # pipeline. A request that still carries call_rules is stale config — reject
@@ -249,6 +291,46 @@ def _build_palette_constraints(
                                                call_rules=request.get("call_rules", [])))
 
     return constraints
+
+
+def _merge_gating_rules(standing: list, annual: list, *, kind: str) -> list:
+    """Merge standing + annual gating rules of the given `kind` by `criterion`:
+    an annual entry overrides the standing one for the same criterion; standing
+    entries with no annual override survive (unlike the all-or-nothing override
+    the tunable night/weekend rules use). Non-gating types are dropped here —
+    they ride the separate NightSolverConfig/WeekendSolverConfig path."""
+    def gating_only(rules):
+        return [r for r in rules if r.get("type") == kind]
+
+    merged = {r["criterion"]: r for r in gating_only(standing)}
+    for r in gating_only(annual):
+        merged[r["criterion"]] = r
+    return list(merged.values())
+
+
+def _build_gating_constraints(
+    night_rules: list, weekend_rules: list, weekend_night_rules: list, palette,
+) -> list:
+    """Convert night_gating + weekend_gating + weekend_night rules into typed
+    SemanticConstraints, resolving targets against the palette."""
+    from .palette_rules import (
+        night_gating_rule_to_constraint,
+        weekend_gating_rule_to_constraint,
+        weekend_night_rule_to_constraint,
+    )
+    from .semantic_constraints import ConstraintLifecycle
+
+    out = []
+    for rules, convert in (
+        (night_rules, night_gating_rule_to_constraint),
+        (weekend_rules, weekend_gating_rule_to_constraint),
+        (weekend_night_rules, weekend_night_rule_to_constraint),
+    ):
+        for rule in rules:
+            con = convert(rule, palette, lifecycle=ConstraintLifecycle.STANDING_RULE)
+            if con is not None:
+                out.append(con)
+    return out
 
 
 def _migrated_call_rule_to_constraint(rule: Dict[str, Any]):

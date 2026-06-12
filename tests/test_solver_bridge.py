@@ -68,15 +68,6 @@ def test_apply_night_rules_penalties():
     assert result["penalty_weights"] == {"anaesthesia": 2, "stroke": 10}
 
 
-def test_apply_night_rules_sunday_following():
-    result = _apply_night_rules({
-        "night_rules": [
-            {"name": "Sunday", "type": "night_sunday_following", "active": True, "preferred_services": ["Elec", "Vac"]},
-        ],
-    })
-    assert result["sunday_preferred_services"] == ("Elec", "Vac")
-
-
 def test_apply_night_rules_inactive_skipped():
     result = _apply_night_rules({
         "night_rules": [
@@ -93,14 +84,12 @@ def test_apply_night_rules_all_types():
             {"name": "B", "type": "night_blocked_services", "active": True, "exact_services": ["V"], "substring_services": ["S"]},
             {"name": "H", "type": "night_holiday_eligibility", "active": True, "allowed_services": ["N1"]},
             {"name": "P", "type": "night_penalties", "active": True, "weights": {"a": 1}},
-            {"name": "Su", "type": "night_sunday_following", "active": True, "preferred_services": ["E"]},
         ],
     })
     assert result["spacing_max_nights"] == 1
     assert result["blocking_exact_services"] == ("V",)
     assert result["holiday_allowed_services"] == ("N1",)
     assert result["penalty_weights"] == {"a": 1}
-    assert result["sunday_preferred_services"] == ("E",)
 
 
 # ---------------------------------------------------------------------------

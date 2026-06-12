@@ -338,8 +338,6 @@ def _apply_night_rules(request: Dict[str, Any]) -> dict:
             result["holiday_allowed_services"] = tuple(rule.get("allowed_services", []))
         elif rule_type == "night_penalties":
             result["penalty_weights"] = dict(rule.get("weights", {}))
-        elif rule_type == "night_sunday_following":
-            result["sunday_preferred_services"] = tuple(rule.get("preferred_services", []))
 
     return result
 

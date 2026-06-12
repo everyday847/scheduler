@@ -149,51 +149,11 @@ def _thin_all_border() -> Border:
 # Violation detection
 # ---------------------------------------------------------------------------
 
-def _has_soft_violation(
-    parsed: ParsedCallScheduleCsv,
-    night_solution: NightScheduleSolution,
-    weekend_solution: WeekendScheduleSolution | None,
-    week_index: int,
-    fellow_name: str,
-    hard_criteria: frozenset[str],
-    dual_stroke_weeks: frozenset[int] | None = None,
-) -> bool:
-    """Return True if the fellow has any un-hard-enforced soft violation that week.
-
-    Delegates the per-night criteria decision to the single canonical evaluator
-    criteria_for_assignment (in night_policy_types) so the workbook coloring can
-    never drift from the reported violation counts.
-    """
-    night_assignments = night_solution.assignments_by_week[week_index]
-    if dual_stroke_weeks is None:
-        dual_stroke_weeks = _weeks_with_dual_stroke(parsed)
-
-    for day_of_week, role in enumerate(NIGHT_ROLES):
-        if night_assignments.get(role) != fellow_name:
-            continue
-        criteria = criteria_for_assignment(
-            parsed, week_index, day_of_week, fellow_name,
-            weekend_solution=weekend_solution, dual_stroke_weeks=dual_stroke_weeks,
-        )
-        if any(c not in hard_criteria for c in criteria):
-            return True
-
-    return False
-
-
 # ---------------------------------------------------------------------------
 # Sheet 1: Fellow Schedule
 # ---------------------------------------------------------------------------
 
 _DAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-
-
-def _night_days_string(night_assignments: dict[str, str], fellow_name: str) -> str:
-    days = []
-    for day_of_week, role in enumerate(NIGHT_ROLES):
-        if night_assignments.get(role) == fellow_name:
-            days.append(_DAY_ABBR[day_of_week])
-    return ", ".join(days)
 
 
 def _weekend_role_for_fellow(
@@ -207,58 +167,58 @@ def _weekend_role_for_fellow(
     return ""
 
 
+# Per-fellow column block: Weekday, Weekend, then one column per night Mon..Sun.
+_FELLOW_STRIDE = 2 + 7
+_NIGHT_HDR = ("M", "T", "W", "T", "F", "S", "S")  # narrow single-letter night cols
+
+
 def _build_fellow_schedule_sheet(
     ws,
     parsed: ParsedCallScheduleCsv,
     night_solution: NightScheduleSolution,
     weekend_solution: WeekendScheduleSolution | None,
     hard_criteria: frozenset[str],
+    night_gating=None,
+    weekend_gating=None,
+    weekend_night=None,
 ) -> None:
     fellows = parsed.fellow_names
     n_fellows = len(fellows)
+    dual_stroke_weeks = _weeks_with_dual_stroke(parsed)
 
     # ---- Column widths ----
-    # Column A = week number
     ws.column_dimensions["A"].width = 6
     for fi in range(n_fellows):
-        base_col = 2 + fi * 3  # 1-based: B=2
+        base_col = 2 + fi * _FELLOW_STRIDE  # 1-based: B=2
         ws.column_dimensions[get_column_letter(base_col)].width = 18     # Weekday
         ws.column_dimensions[get_column_letter(base_col + 1)].width = 8  # Weekend
-        ws.column_dimensions[get_column_letter(base_col + 2)].width = 14  # Nights
+        for d in range(7):                                               # Mon..Sun
+            ws.column_dimensions[get_column_letter(base_col + 2 + d)].width = 3
 
     # ---- Row 1: merged fellow name headers ----
     ws.cell(row=1, column=1, value="Week").font = _bold_font()
     ws.cell(row=1, column=1).alignment = Alignment(horizontal="center")
     for fi, fellow in enumerate(fellows):
-        start_col = 2 + fi * 3
-        end_col = start_col + 2
-        ws.merge_cells(
-            start_row=1, start_column=start_col,
-            end_row=1, end_column=end_col,
-        )
+        start_col = 2 + fi * _FELLOW_STRIDE
+        end_col = start_col + _FELLOW_STRIDE - 1
+        ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
         cell = ws.cell(row=1, column=start_col, value=fellow)
         cell.font = _bold_font()
         cell.alignment = Alignment(horizontal="center")
-        # Thick right border after each fellow group
         for col in range(start_col, end_col + 1):
-            c = ws.cell(row=1, column=col)
             right_side = _THICK if col == end_col else Side(style=None)
-            c.border = Border(
-                left=Side(style=None),
-                right=right_side,
-            )
+            ws.cell(row=1, column=col).border = Border(left=Side(style=None), right=right_side)
 
-    # ---- Row 2: sub-headers ----
+    # ---- Row 2: sub-headers (Weekday, Weekend, M T W T F S S) ----
     ws.cell(row=2, column=1, value="Week").font = _bold_font()
     ws.cell(row=2, column=1).alignment = Alignment(horizontal="center")
     for fi in range(n_fellows):
-        base_col = 2 + fi * 3
-        for offset, label in enumerate(("Weekday", "Weekend", "Nights")):
+        base_col = 2 + fi * _FELLOW_STRIDE
+        for offset, label in enumerate(("Weekday", "Weekend", *_NIGHT_HDR)):
             cell = ws.cell(row=2, column=base_col + offset, value=label)
             cell.font = _bold_font()
             cell.alignment = Alignment(horizontal="center")
-        # Thick right border on last column of group
-        ws.cell(row=2, column=base_col + 2).border = Border(right=_THICK)
+        ws.cell(row=2, column=base_col + _FELLOW_STRIDE - 1).border = Border(right=_THICK)
 
     # ---- Data rows ----
     for week_index, week_row in enumerate(parsed.week_rows):
@@ -274,11 +234,10 @@ def _build_fellow_schedule_sheet(
         )
 
         for fi, fellow in enumerate(fellows):
-            base_col = 2 + fi * 3
+            base_col = 2 + fi * _FELLOW_STRIDE
 
             weekday_service = week_row.weekday_assignments.get(fellow, "")
             weekend_role = _weekend_role_for_fellow(weekend_assignments, fellow)
-            nights_str = _night_days_string(night_assignments, fellow)
 
             # Weekday cell
             wd_cell = ws.cell(row=row, column=base_col, value=weekday_service)
@@ -286,27 +245,35 @@ def _build_fellow_schedule_sheet(
             if color:
                 wd_cell.fill = _make_fill(color)
 
-            # Weekend cell (red font when the weekend itself is at fault:
-            # role/weekday mismatch, or weekend call before a vacation)
+            # Weekend cell (red font when the weekend itself is at fault).
             weekend_cell = ws.cell(row=row, column=base_col + 1, value=weekend_role)
             if weekend_role:
                 full_role = "Weekend " + weekend_role
                 if weekend_criteria_for_role(
                     parsed, week_index, full_role, fellow,
-                    weekend_solution=weekend_solution,
+                    weekend_solution=weekend_solution, weekend_gating=weekend_gating,
                 ):
                     weekend_cell.font = _normal_font(_RED_FONT)
 
-            # Nights cell
-            night_cell = ws.cell(row=row, column=base_col + 2, value=nights_str)
-            violation = _has_soft_violation(
-                parsed, night_solution, weekend_solution, week_index, fellow, hard_criteria,
-            )
-            if violation and nights_str:
-                night_cell.font = _normal_font(_RED_FONT)
+            # One cell per night Mon..Sun: marked "X" when the fellow holds that
+            # night, reddened when THAT specific night triggers a soft criterion.
+            for dow, role in enumerate(NIGHT_ROLES):
+                cell = ws.cell(row=row, column=base_col + 2 + dow)
+                cell.alignment = Alignment(horizontal="center")
+                if night_assignments.get(role) != fellow:
+                    continue
+                cell.value = "X"
+                criteria = criteria_for_assignment(
+                    parsed, week_index, dow, fellow,
+                    weekend_solution=weekend_solution,
+                    dual_stroke_weeks=dual_stroke_weeks,
+                    night_gating=night_gating, weekend_night=weekend_night,
+                )
+                if any(c not in hard_criteria for c in criteria):
+                    cell.font = _normal_font(_RED_FONT)
 
-            # Thick right border on last column of group
-            ws.cell(row=row, column=base_col + 2).border = Border(right=_THICK)
+            # Thick right border on last column of the fellow block.
+            ws.cell(row=row, column=base_col + _FELLOW_STRIDE - 1).border = Border(right=_THICK)
 
     # ---- Freeze panes ----
     ws.freeze_panes = ws.cell(row=3, column=2)
@@ -332,10 +299,12 @@ def _has_shift_soft_violation(
     fellow_name: str,
     col_role: str,  # e.g. "Weekend NCC1" or "Night Fri"
     hard_criteria: frozenset[str],
+    night_gating=None,
+    weekend_night=None,
 ) -> bool:
     """Check whether this specific shift cell (fellow, week, role) violates a
     soft criterion. Delegates to the canonical criteria_for_assignment so it
-    agrees with both _has_soft_violation and the reported violation counts."""
+    agrees with the per-night fellow-sheet coloring and the reported counts."""
     if col_role.startswith("Night "):
         day_abbr = col_role[len("Night "):]
         day_of_week = _DAY_ABBR.index(day_abbr)
@@ -343,6 +312,7 @@ def _has_shift_soft_violation(
             parsed, week_index, day_of_week, fellow_name,
             weekend_solution=weekend_solution,
             dual_stroke_weeks=_weeks_with_dual_stroke(parsed),
+            night_gating=night_gating, weekend_night=weekend_night,
         )
         return any(c not in hard_criteria for c in criteria)
 
@@ -356,6 +326,8 @@ def _build_shift_coverage_sheet(
     night_solution: NightScheduleSolution,
     weekend_solution: WeekendScheduleSolution | None,
     hard_criteria: frozenset[str],
+    night_gating=None,
+    weekend_night=None,
 ) -> None:
     # Column widths
     ws.column_dimensions["A"].width = 6
@@ -402,6 +374,7 @@ def _build_shift_coverage_sheet(
                 violation = _has_shift_soft_violation(
                     parsed, night_solution, weekend_solution,
                     week_index, fellow, role, hard_criteria,
+                    night_gating=night_gating, weekend_night=weekend_night,
                 )
                 if violation:
                     cell.font = _normal_font(_RED_FONT)
@@ -522,23 +495,33 @@ def write_schedule_workbook(
     weights: NightPolicyWeights = NightPolicyWeights(),
     backup_solution: BackupScheduleSolution | None = None,
     fellow_groups: dict[str, list[str]] | None = None,
+    night_gating=None,
+    weekend_gating=None,
+    weekend_night=None,
 ) -> None:
     """Write a color-coded Excel workbook for the combined night + weekend schedule.
 
     When ``backup_solution`` is provided, two extra sheets are added: a per-fellow
     "Backup Schedule" (NCC_JR/NCC_SR/STROKE only) and a per-service
     "Backup Coverage".
+
+    ``night_gating`` / ``weekend_gating`` / ``weekend_night`` are the configured
+    gating-criterion registries threaded to the cell-colorer so coloring uses the
+    same config-driven criteria the solver encoded (no drift).
     """
     wb = openpyxl.Workbook()
 
     # Sheet 1
     ws1 = wb.active
     ws1.title = "Fellow Schedule"
-    _build_fellow_schedule_sheet(ws1, parsed, night_solution, weekend_solution, hard_criteria)
+    _build_fellow_schedule_sheet(ws1, parsed, night_solution, weekend_solution, hard_criteria,
+                                 night_gating=night_gating, weekend_gating=weekend_gating,
+                                 weekend_night=weekend_night)
 
     # Sheet 2
     ws2 = wb.create_sheet(title="Shift Coverage")
-    _build_shift_coverage_sheet(ws2, parsed, night_solution, weekend_solution, hard_criteria)
+    _build_shift_coverage_sheet(ws2, parsed, night_solution, weekend_solution, hard_criteria,
+                                night_gating=night_gating, weekend_night=weekend_night)
 
     # Sheets 3 & 4: Backup (optional)
     if backup_solution is not None:

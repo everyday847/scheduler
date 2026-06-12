@@ -195,25 +195,6 @@ night_rules:
       friday_weekend_ncc1: 1
       stroke: 5
       sunday_following: 1
-- name: Sunday following preference
-  groups:
-  - STROKE
-  - NCC_JR
-  - NCC_SR
-  - NH
-  strength: hard
-  active: true
-  description: Preferred weekday service after Sunday night call
-  type: night_sunday_following
-  params:
-    preferredServices:
-    - Elec
-    - Telestroke/Clinic
-    - Clinic/Elective
-    - SCVMC Rehab
-    - NIR
-    - ISC
-    - Vac
 rules:
 # Sparse specific assignments (week is 0-indexed). Stroke fellows do Elec in
 # week 0; Aditya included (he cannot hold Telestroke that week). Helena does

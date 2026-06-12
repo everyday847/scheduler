@@ -43,16 +43,6 @@ from scheduler.night_policy_types import (
 
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.constraint_sink import OpbConstraintSink
-from schedule_rules.criteria.stroke import StrokeCriterion
-from schedule_rules.criteria.anaesthesia import AnaesthesiaCriterion
-from schedule_rules.criteria.clinic import ClinicCriterion
-from schedule_rules.criteria.friday_weekend_ncc1 import FridayWeekendNcc1Criterion
-from schedule_rules.criteria.sunday_following import (
-    SundayFollowingCriterion,
-    NON_PREFERRED_SUNDAY_FOLLOWING as _SUNDAY_NON_PREFERRED,
-)
-from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
-from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
 from schedule_rules.criteria.group_count_balance import GroupCountBalanceCriterion
 from schedule_rules.criteria.weekend_role_pin import WeekendRolePin, PIN as _PIN, FORBID as _FORBID
 from schedule_rules.criteria.weekend_role_prerequisite import (
@@ -63,17 +53,13 @@ from schedule_rules.weekly.specific_assignment import SpecificAssignmentCriterio
 from schedule_rules.weekly.zero_shifts import ZeroShiftsCriterion
 from schedule_rules.weekly.windowed_count_band import WindowedCountBandCriterion
 from schedule_rules.criteria.windowed_supervision import WindowedSupervisionCriterion
+from schedule_rules.criteria.night_gating import configured_night_gating
+from schedule_rules.criteria.weekend_gating import configured_weekend_gating
+from schedule_rules.criteria.weekend_night import configured_weekend_night
 from schedule_rules.night.night_literal_pin import NightLiteralPin, PIN, FORBID
 from schedule_rules.strength import HARD as _HARD, SOFT as _SOFT
 from schedule_rules.strength import Strength as _Strength
 
-_STROKE_CRITERION = StrokeCriterion()
-_ANAESTHESIA_CRITERION = AnaesthesiaCriterion()
-_CLINIC_CRITERION = ClinicCriterion()
-_FRIDAY_CRITERION = FridayWeekendNcc1Criterion()
-_SUNDAY_CRITERION = SundayFollowingCriterion()
-_WEEKEND_MISMATCH_CRITERION = WeekendRoleMismatchCriterion()
-_PREVACATION_CRITERION = PrevacationWeekendCriterion()
 _GROUP_COUNT_BALANCE_CRITERION = GroupCountBalanceCriterion()
 _WEEKEND_ROLE_PIN = WeekendRolePin()
 # Standing-tier weekend prerequisites: one archetype, two kind-specialized
@@ -400,6 +386,12 @@ PER_FELLOW_KINDS = frozenset({
 # nothing else in build_full_schedule_opb changes.
 _WEEKEND_HANDLERS: dict[str, Callable] = {}
 _NIGHT_HANDLERS: dict[str, Callable] = {}
+# Gating-criteria kinds encoded specially inside the night-policy / weekend
+# passes (NOT via a registry walk) — they need the dual-stroke exemption vars and
+# the weekday/weekend/night var maps together. Listed so the weekly walk's
+# unknown-kind guard skips rather than rejects them.
+_NIGHT_POLICY_KINDS: frozenset[str] = frozenset(
+    {"night_gating", "weekend_gating", "weekend_night"})
 
 
 def _encode_weekly_rules(
@@ -455,10 +447,12 @@ def _encode_weekly_rules(
             # A kind owned by another layer (weekend/night) is encoded by that
             # layer's walk after its vars are allocated — skip it here, don't
             # raise. Only a kind registered to NO layer is a typo.
-            if constraint.kind in _WEEKEND_HANDLERS or constraint.kind in _NIGHT_HANDLERS:
+            if (constraint.kind in _WEEKEND_HANDLERS
+                    or constraint.kind in _NIGHT_HANDLERS
+                    or constraint.kind in _NIGHT_POLICY_KINDS):
                 continue
             name = constraint.params.get("name", constraint.kind)
-            known = sorted({*handlers, *_WEEKEND_HANDLERS, *_NIGHT_HANDLERS})
+            known = sorted({*handlers, *_WEEKEND_HANDLERS, *_NIGHT_HANDLERS, *_NIGHT_POLICY_KINDS})
             raise ValueError(
                 f"Unknown constraint kind '{constraint.kind}' "
                 f"(rule: {name!r}). Known kinds: {', '.join(known)}. "
@@ -1748,44 +1742,6 @@ def _encode_ncc_weekend_alignment(
                 _and_penalty(wd2, wr[w][_ROLE_NCC1][f])
 
 
-def _encode_stroke_weekend_alignment(
-    opb: OpbBuilder,
-    wr: list[list[dict[int, int]]],
-    xs: list[list[list[int]]],
-    config: ScheduleSolverConfig,
-    fellow_names: list[str],
-    shift_idx: dict[str, int],
-    soft_violations: list[tuple[int, int]],
-) -> None:
-    """Dedicated SOFT nudge: the Weekend Stroke role should be held by that week's
-    weekday-Stroke fellow. A fellow holding Weekend Stroke while NOT on weekday
-    Stroke that week is penalized at stroke_weekend_misalign_penalty. This stacks
-    on the shared _encode_weekend_mismatch_penalty (weekend_mismatch_weight), so
-    Stroke gets a stronger pull toward alignment than NCC1/NCC2 matching.
-    """
-    weight = config.stroke_weekend_misalign_penalty
-    if weight == 0:
-        return
-    s_stroke = shift_idx.get("Stroke")
-    if s_stroke is None:
-        return
-    num_weeks = config.num_weeks
-    for w in range(num_weeks):
-        for f, wr_var in wr[w][_ROLE_STROKE].items():
-            wd_stroke = xs[f][w][s_stroke]
-            if wd_stroke == 0:
-                # Can't be on weekday Stroke this week -> holding the role is always
-                # a mismatch.
-                soft_violations.append((wr_var, weight))
-            else:
-                # mismatch = wr_stroke AND NOT wd_stroke.
-                mismatch = opb.new_var()
-                opb.weighted_sum_at_most([(wr_var, 1), (-wd_stroke, 1), (-mismatch, 1)], 2)
-                opb.weighted_sum_at_least([(wr_var, 1), (-mismatch, 1)], 1)
-                opb.weighted_sum_at_least([(-wd_stroke, 1), (-mismatch, 1)], 1)
-                soft_violations.append((mismatch, weight))
-
-
 def _encode_weekend_constraints(
     opb: OpbBuilder,
     wr: list[list[dict[int, int]]],
@@ -1826,18 +1782,16 @@ def _encode_weekend_constraints(
             if len(vars_for_f) > 1:
                 opb.at_most_k(vars_for_f, 1)
 
-    # NCC weekday/weekend role alignment (soft nudge).
+    # NCC weekday/weekend role alignment (soft nudge). This is distinct from the
+    # weekend_role_mismatch criterion: it expresses a PREFERENCE between the two
+    # interchangeable NCC weekend roles (weekday-NCC1 prefers Weekend-NCC1 over
+    # Weekend-NCC2), which the one-role→one-shift mismatch ALIGN shape can't model.
     opb.add_comment("Weekend: NCC1/NCC2 weekday-weekend alignment (soft)")
     _encode_ncc_weekend_alignment(
         opb, wr, xs, config, fellow_names, shift_idx, soft_violations,
     )
-
-    # Stroke weekday->weekend alignment (dedicated soft nudge, stronger than the
-    # shared weekend mismatch penalty).
-    opb.add_comment("Weekend: Stroke weekday-weekend alignment (soft)")
-    _encode_stroke_weekend_alignment(
-        opb, wr, xs, config, fellow_names, shift_idx, soft_violations,
-    )
+    # (The former dedicated Stroke weekday→weekend alignment nudge is folded into
+    # the weekend_role_mismatch criterion's per-role weight — Weekend Stroke = 60.)
 
     # Weekend eligibility gated by weekly shift (dynamic)
     opb.add_comment("Weekend: dynamic eligibility based on weekly shift")
@@ -2011,49 +1965,10 @@ def _encode_weekend_constraints(
     # routed through the weekend-layer registry walk (_encode_weekend_prerequisite_rule),
     # not this legacy call_rules pass.
 
-    # Weekend role matches weekday service (soft bonus for matching)
-    opb.add_comment("Weekend: prefer role matches weekday service (soft)")
-    _encode_weekend_mismatch_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
-
-    # Penalize weekend call in the week before a vacation
-    opb.add_comment("Weekend: pre-vacation weekend penalty (soft)")
-    _encode_prevacation_weekend_penalty(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
-
-
-def _encode_prevacation_weekend_penalty(
-    opb: OpbBuilder,
-    wr: list[list[dict[int, int]]],
-    xs: list[list[list[int]]],
-    config: ScheduleSolverConfig,
-    fellow_names: list[str],
-    shift_idx: dict[str, int],
-    soft_violations: list[tuple[int, int]],
-) -> None:
-    """Soft penalty for weekend call in the week before vacation."""
-    vac_idx = shift_idx.get("Vac")
-    if vac_idx is None:
-        return
-
-    num_weeks = config.num_weeks
-    num_fellows = len(fellow_names)
-
-    for f in range(num_fellows):
-        for w in range(1, num_weeks):  # Start at 1 (need week w-1)
-            if xs[f][w][vac_idx] == 0:
-                continue
-            # Fellow f has vacation in week w.
-            # Penalize any weekend role in week w-1.
-            for role_idx in range(3):
-                if f not in wr[w - 1][role_idx]:
-                    continue
-                wr_var = wr[w - 1][role_idx][f]
-                _PREVACATION_CRITERION.encode(
-                    OpbConstraintSink(opb, soft_violations),
-                    role_var=wr_var,
-                    vac_var=xs[f][w][vac_idx],
-                    strength=_SOFT,
-                    weight=1,
-                )
+    # Weekend-role gating criteria (the WeekendGatingCriterion archetype): role/
+    # weekday mismatch (ALIGN) and pre-vacation weekend (GATE), now config-driven.
+    opb.add_comment("Weekend: weekend-role gating criteria (soft)")
+    _encode_configured_weekend_gating(opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
 
 
 def _encode_weekend_eligibility(
@@ -2138,7 +2053,7 @@ def _encode_weekend_eligibility(
                     opb.add_unit(-wr[w][_ROLE_STROKE][f])
 
 
-def _encode_weekend_mismatch_penalty(
+def _encode_configured_weekend_gating(
     opb: OpbBuilder,
     wr: list[list[dict[int, int]]],
     xs: list[list[list[int]]],
@@ -2147,31 +2062,102 @@ def _encode_weekend_mismatch_penalty(
     shift_idx: dict[str, int],
     soft_violations: list[tuple[int, int]],
 ) -> None:
-    """Penalize weekend role not matching weekday service."""
+    """Encode every `weekend_gating` constraint via the WeekendGatingCriterion
+    archetype (ADR-0005). ALIGN: per week×role×holder, the gate var is the
+    matching weekday-shift var (role_to_shift), or None when the fellow cannot be
+    on that shift. GATE: per week×role×holder, the gate var is the gating service
+    in the offset week (skip when absent). Per-criterion weight is sourced as the
+    legacy inline code did, keyed off the criterion name."""
+    configured = configured_weekend_gating(config.constraints)
+    if not configured:
+        return
     num_weeks = config.num_weeks
-    weight = config.weekend_mismatch_weight
-
-    # Matching: Weekend NCC1 ↔ NCC1, Weekend NCC2 ↔ NCC2, Weekend Stroke ↔ Stroke
-    role_to_shift = {
-        _ROLE_NCC1: shift_idx.get("NCC1"),
-        _ROLE_NCC2: shift_idx.get("NCC2"),
-        _ROLE_STROKE: shift_idx.get("Stroke"),
-    }
-
     sink = OpbConstraintSink(opb, soft_violations)
-    for w in range(num_weeks):
-        for role_idx, si in role_to_shift.items():
-            if si is None:
+    for cwg in configured:
+        crit = cwg.criterion
+        if crit.mode == "align":
+            # Per-role weight (role_weights from config), defaulting to
+            # weekend_mismatch_weight. This carries the folded-in former
+            # stroke_weekend_misalign penalty (Weekend Stroke -> 60).
+            role_weights = getattr(crit, "role_weights", {}) or {}
+            role_to_idx = {r: weekend_role_index(r) for r in crit.role_to_shift}
+            for w in range(num_weeks):
+                for role, role_idx in role_to_idx.items():
+                    if role_idx is None:
+                        continue
+                    si = shift_idx.get(crit.role_to_shift[role])
+                    w_role = role_weights.get(role, config.weekend_mismatch_weight)
+                    for f, role_var in wr[w][role_idx].items():
+                        weekday_var = xs[f][w][si] if si is not None else 0
+                        crit.encode(
+                            sink, role_var=role_var,
+                            gate_var=(weekday_var if weekday_var != 0 else None),
+                            strength=_SOFT, weight=w_role,
+                        )
+        else:  # gate
+            weight = 1  # prevacation GATE used a literal weight of 1
+            targets = cwg.resolved_targets.get(crit.gate_target_key, frozenset())
+            target_indices = [shift_idx[s] for s in targets if s in shift_idx]
+            role_indices = [weekend_role_index(r) for r in crit.roles]
+            for w in range(num_weeks):
+                gw = w + crit.gate_week_offset
+                if not (0 <= gw < num_weeks):
+                    continue
+                for f in range(len(fellow_names)):
+                    gate_vars = [xs[f][gw][si] for si in target_indices if xs[f][gw][si] != 0]
+                    if not gate_vars:
+                        continue
+                    for role_idx in role_indices:
+                        if role_idx is None or f not in wr[w][role_idx]:
+                            continue
+                        for gate_var in gate_vars:
+                            crit.encode(
+                                sink, role_var=wr[w][role_idx][f],
+                                gate_var=gate_var, strength=_SOFT, weight=weight,
+                            )
+
+
+def _encode_configured_weekend_night(
+    opb: OpbBuilder,
+    xn: list[list[int]],
+    wr: list[list[dict[int, int]]],
+    config: ScheduleSolverConfig,
+    fellow_names: list[str],
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """Encode every `weekend_night` constraint via the WeekendNightCriterion
+    archetype (ADR-0005): the relationship between a fellow's weekend role and
+    their weekend-night call. Per criterion (one weekend night dow), per fellow
+    who could take that night, resolve the fellow's weekend-role vars for the
+    criterion's roles and delegate to the archetype's encode. For REQUIRE, a
+    fellow holding no var for any required role is `eligible=False` (the
+    eligibility-forbid)."""
+    configured = configured_weekend_night(config.constraints)
+    if not configured:
+        return
+    num_weeks = config.num_weeks
+    num_days = config.num_days
+    start_dow = config.start_dow
+    num_fellows = len(fellow_names)
+    sink = OpbConstraintSink(opb, soft_violations)
+    for cwn in configured:
+        crit = cwn.criterion
+        role_idx = {r: weekend_role_index(r) for r in crit.roles}
+        for w in range(num_weeks):
+            d = _week_day(w, crit.dow, start_dow)
+            if not (0 <= d < num_days):
                 continue
-            for f, wr_var in wr[w][role_idx].items():
-                weekday_var = xs[f][w][si]
-                _WEEKEND_MISMATCH_CRITERION.encode(
-                    sink,
-                    role_var=wr_var,
-                    weekday_match_var=(weekday_var if weekday_var != 0 else None),
-                    strength=_SOFT,
-                    weight=weight,
-                )
+            for f in range(num_fellows):
+                if xn[d][f] == 0:
+                    continue
+                role_vars = {
+                    r: wr[w][ri][f]
+                    for r, ri in role_idx.items()
+                    if ri is not None and f in wr[w][ri]
+                }
+                eligible = bool(role_vars)  # can hold at least one required role
+                crit.encode(sink, night_var=xn[d][f], role_vars=role_vars,
+                            eligible=eligible)
 
 
 # ---------------------------------------------------------------------------
@@ -2491,8 +2477,8 @@ def _encode_night_constraints(
         opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
     )
 
-    # Weekend night linking: Fri/Sat/Sun night ↔ weekend roles (soft)
-    _encode_weekend_night_linking(opb, xn, wr, config, fellow_names, soft_violations)
+    # Weekend night ↔ weekend role (WeekendNightCriterion archetype, config-driven).
+    _encode_configured_weekend_night(opb, xn, wr, config, fellow_names, soft_violations)
 
     # Night spacing: at most maxNights in any windowDays window
     spacing_max = night_config.spacing_max_nights if hasattr(night_config, 'spacing_max_nights') else 1
@@ -2543,6 +2529,63 @@ def _encode_night_constraints(
                                friday_only=True, soft_violations=soft_violations, weight=night_weight)
 
 
+def _encode_configured_night_gating(
+    opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
+    *, num_days, start_dow, num_weeks, num_fellows, dual_stroke_vars,
+    weights, hard_criteria,
+) -> None:
+    """Encode every `night_gating` constraint via the NightGatingCriterion
+    archetype (ADR-0005 — same object the evaluator uses). For each criterion,
+    walk days×fellows; for each gating term the night fires on, resolve the
+    term's solver vars (weekday-shift vars in the resolved target set, or the
+    weekend-role var) and the gating week's dual-stroke exemption var, then emit.
+
+    A weekday-shift term ORs the resolved-set's shift vars for that fellow/week;
+    a weekend-role term contributes the single role var. Per-criterion weight and
+    hard/soft are looked up by the criterion name (preserving the existing
+    night_weights / night_hard_criteria plumbing and the CRITERION_* keys)."""
+    configured = configured_night_gating(config.constraints)
+    if not configured:
+        return
+    sink = OpbConstraintSink(opb, soft_violations)
+    for cng in configured:
+        crit = cng.criterion
+        # Resolve each weekday-shift target key to its shift-index list once.
+        target_indices = {
+            key: [shift_idx[s] for s in shifts if s in shift_idx]
+            for key, shifts in cng.resolved_targets.items()
+        }
+        strength = _strength_for(crit.name, hard_criteria)
+        weight = weights.for_criterion(crit.name)
+        for d in range(num_days):
+            week = _day_to_week(d, start_dow)
+            dow = _day_of_week(d, start_dow)
+            for f in range(num_fellows):
+                if xn[d][f] == 0:
+                    continue
+                for term in crit.gating_terms(week, dow):
+                    tw = term.week
+                    if not (0 <= tw < num_weeks):
+                        continue
+                    if term.is_weekend_role:
+                        role_idx = weekend_role_index(term.target_key)
+                        var = wr[tw][role_idx].get(f, 0) if role_idx is not None else 0
+                        term_vars = [var] if var != 0 else []
+                    else:
+                        term_vars = [xs[f][tw][si] for si in target_indices.get(term.target_key, [])
+                                     if xs[f][tw][si] != 0]
+                    if not term_vars:
+                        continue
+                    exempt_var = None
+                    if crit.exemption is not None:
+                        ds = dual_stroke_vars[tw] if tw < len(dual_stroke_vars) else 0
+                        exempt_var = ds if ds != 0 else None
+                    crit.encode(
+                        sink, night_var=xn[d][f], term_vars=term_vars,
+                        exempt_var=exempt_var, strength=strength, weight=weight,
+                    )
+
+
 def _encode_night_policy_criteria(
     opb: OpbBuilder,
     xn: list[list[int]],
@@ -2561,8 +2604,6 @@ def _encode_night_policy_criteria(
     weights = config.night_weights
     hard_criteria = config.night_hard_criteria
 
-    anaesthesia_indices = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("anaesthesia_gating") if s in shift_idx]
-    clinic_indices = [shift_idx[s] for s in config.shift_palette.shifts_with_attribute("clinic_gating") if s in shift_idx]
     stroke_idx = shift_idx.get("Stroke")
 
     # Compute dual-stroke indicator variables
@@ -2590,237 +2631,15 @@ def _encode_night_policy_criteria(
     else:
         dual_stroke_vars = [0] * num_weeks
 
-    # Anaesthesia criterion: weekday nights only (Mon-Fri, dow 0-4)
-    for d in range(num_days):
-        week_idx = _day_to_week(d, start_dow)
-        dow = _day_of_week(d, start_dow)
-        if dow > 4:
-            continue  # Weekend nights: no anaesthesia criterion
-        for f in range(num_fellows):
-            if xn[d][f] == 0:
-                continue
-            for si in anaesthesia_indices:
-                if xs[f][week_idx][si] == 0:
-                    continue
-                _ANAESTHESIA_CRITERION.encode(
-                    OpbConstraintSink(opb, soft_violations),
-                    night_var=xn[d][f], term_var=xs[f][week_idx][si],
-                    strength=_strength_for(CRITERION_ANAESTHESIA, hard_criteria),
-                    weight=weights.for_criterion(CRITERION_ANAESTHESIA),
-                )
-
-    # Clinic criterion: only Sun/Tue/Wed nights (before Mon/Wed/Thu clinic days)
-    for d in range(num_days):
-        dow = _day_of_week(d, start_dow)
-        if dow not in (6, 1, 2):  # Only Sun, Tue, Wed nights
-            continue
-        next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
-        for f in range(num_fellows):
-            if xn[d][f] == 0:
-                continue
-            for si in clinic_indices:
-                if xs[f][next_day_week][si] == 0:
-                    continue
-                _CLINIC_CRITERION.encode(
-                    OpbConstraintSink(opb, soft_violations),
-                    night_var=xn[d][f], term_var=xs[f][next_day_week][si],
-                    strength=_strength_for(CRITERION_CLINIC, hard_criteria),
-                    weight=weights.for_criterion(CRITERION_CLINIC),
-                )
-
-    # Stroke criterion: block night before Stroke workday (Sun-Thu only)
-    if stroke_idx is not None:
-        for d in range(num_days):
-            dow = _day_of_week(d, start_dow)
-            if dow in (4, 5):  # Fri/Sat — next day is not a stroke workday
-                continue
-            next_day_week = _day_to_week(d + 1, start_dow) if d + 1 < num_days else _day_to_week(d, start_dow)
-            ds_var = dual_stroke_vars[next_day_week] if next_day_week < num_weeks else 0
-            for f in range(num_fellows):
-                if xn[d][f] == 0:
-                    continue
-                if xs[f][next_day_week][stroke_idx] == 0:
-                    continue
-                _encode_stroke_term(
-                    opb, soft_violations,
-                    term_var=xs[f][next_day_week][stroke_idx], night_var=xn[d][f],
-                    exempt_var=(ds_var if ds_var != 0 else None),
-                    hard=CRITERION_STROKE in hard_criteria,
-                    weight=weights.for_criterion(CRITERION_STROKE),
-                )
-
-    # Weekend stroke → weekend night penalty (Saturday only; Sunday is steered to
-    # the weekend-Stroke fellow by _encode_weekend_night_linking, so penalizing it
-    # here would contradict that intended outcome)
-    if stroke_idx is not None:
-        for w in range(num_weeks):
-            ds_var = dual_stroke_vars[w]
-            for f in range(num_fellows):
-                if f not in wr[w][_ROLE_STROKE]:
-                    continue
-                wr_stroke = wr[w][_ROLE_STROKE][f]
-                for dow_target in (5,):  # Sat only (Sunday is steered to the weekend-Stroke fellow by _encode_weekend_night_linking)
-                    d = _week_day(w, dow_target, start_dow)
-                    if d < 0 or d >= num_days or xn[d][f] == 0:
-                        continue
-                    _encode_stroke_term(
-                        opb, soft_violations,
-                        term_var=wr_stroke, night_var=xn[d][f],
-                        exempt_var=(ds_var if ds_var != 0 else None),
-                        hard=CRITERION_STROKE in hard_criteria,
-                        weight=weights.for_criterion(CRITERION_STROKE),
-                    )
-
-    # Friday/weekend NCC1 criterion
-    for w in range(num_weeks):
-        friday_d = _week_day(w, 4, start_dow)
-        if friday_d < 0 or friday_d >= num_days:
-            continue
-        for f in range(num_fellows):
-            if f not in wr[w][_ROLE_NCC1]:
-                continue
-            if xn[friday_d][f] == 0:
-                continue
-            wr_ncc1 = wr[w][_ROLE_NCC1][f]
-            _FRIDAY_CRITERION.encode(
-                OpbConstraintSink(opb, soft_violations),
-                night_var=xn[friday_d][f], term_var=wr_ncc1,
-                strength=_strength_for(CRITERION_FRIDAY_WEEKEND_NCC1, hard_criteria),
-                weight=weights.for_criterion(CRITERION_FRIDAY_WEEKEND_NCC1),
-            )
-
-    # Sunday following criterion: Sunday night fellow's next-week service is non-preferred
-    non_preferred_indices = [shift_idx[s] for s in _SUNDAY_NON_PREFERRED if s in shift_idx]
-    for w in range(num_weeks - 1):
-        sunday_d = _week_day(w, 6, start_dow)
-        if sunday_d < 0 or sunday_d >= num_days:
-            continue
-        for f in range(num_fellows):
-            if xn[sunday_d][f] == 0:
-                continue
-            # Check next week's service
-            next_week_non_pref = [xs[f][w + 1][si] for si in non_preferred_indices if xs[f][w + 1][si] != 0]
-            if not next_week_non_pref:
-                continue
-            _SUNDAY_CRITERION.encode(
-                OpbConstraintSink(opb, soft_violations),
-                night_var=xn[sunday_d][f], term_vars=next_week_non_pref,
-                strength=_strength_for(CRITERION_SUNDAY_FOLLOWING, hard_criteria),
-                weight=weights.for_criterion(CRITERION_SUNDAY_FOLLOWING),
-            )
-
-
-def _encode_weekend_night_linking(
-    opb: OpbBuilder,
-    xn: list[list[int]],
-    wr: list[list[dict[int, int]]],
-    config: ScheduleSolverConfig,
-    fellow_names: list[str],
-    soft_violations: list[tuple[int, int]],
-) -> None:
-    """Link weekend night call assignments to weekend role assignments.
-
-    Per-occurrence rules (one penalty/forbid per offending fellow-week):
-    - Friday night (soft, weight 40): fellow should NOT have a weekend role that
-      week. The Friday + Weekend-NCC1 case is owned by the (hard-by-default)
-      policy criterion ``friday_weekend_ncc1`` (see _encode_night_policy_criteria),
-      so this loop covers only NCC2/Stroke to avoid double-encoding it.
-    - Saturday night: fellow must be Weekend NCC1 or NCC2.
-    - Sunday night: fellow must be Weekend Stroke.
-    Saturday/Sunday are HARD by default (config flags), having verified a k=0
-    mismatch bound is feasible; they fall back to scaled soft penalties if the
-    flags are cleared.
-    """
-    num_days = config.num_days
-    num_weeks = config.num_weeks
-    start_dow = config.start_dow
-    num_fellows = len(fellow_names)
-    friday_weight = config.weekend_night_friday_weight
-    saturday_weight = config.weekend_night_saturday_weight
-    sunday_weight = config.weekend_night_sunday_weight
-    # Pass the criterion name in hard_criteria to make _encode_night_criterion_pair
-    # emit a hard at-most-1 instead of a penalized indicator.
-    sat_hard = frozenset({"weekend_night_saturday"}) if config.weekend_night_saturday_hard else frozenset()
-    sun_hard = frozenset({"weekend_night_sunday"}) if config.weekend_night_sunday_hard else frozenset()
-
-    opb.add_comment("Night: weekend night linking (Fri soft; Sat/Sun hard by default)")
-
-    for w in range(num_weeks):
-        # --- Friday night: penalize having a weekend role (NCC1 handled by the
-        # hard friday_weekend_ncc1 criterion, so only NCC2/Stroke here) ---
-        friday_d = _week_day(w, 4, start_dow)
-        if 0 <= friday_d < num_days:
-            for f in range(num_fellows):
-                if xn[friday_d][f] == 0:
-                    continue
-                for role_idx in (_ROLE_NCC2, _ROLE_STROKE):
-                    if f in wr[w][role_idx]:
-                        _encode_night_criterion_pair(
-                            opb, xn[friday_d][f], wr[w][role_idx][f],
-                            "weekend_night_friday", frozenset(),
-                            _SoftWeightProxy(friday_weight), soft_violations,
-                        )
-
-        # --- Saturday night: prefer Weekend NCC1 or NCC2 ---
-        sat_d = _week_day(w, 5, start_dow)
-        if 0 <= sat_d < num_days:
-            for f in range(num_fellows):
-                if xn[sat_d][f] == 0:
-                    continue
-                ncc_vars = []
-                if f in wr[w][_ROLE_NCC1]:
-                    ncc_vars.append(wr[w][_ROLE_NCC1][f])
-                if f in wr[w][_ROLE_NCC2]:
-                    ncc_vars.append(wr[w][_ROLE_NCC2][f])
-
-                if ncc_vars:
-                    # Soft: xn[sat_d][f] AND NOT OR(ncc_vars) → penalty
-                    # Create violation = xn AND all(~ncc)
-                    not_ncc = opb.new_var()
-                    # not_ncc >= 1 - sum(ncc_vars)  →  sum(ncc) + not_ncc >= 1
-                    opb.weighted_sum_at_least(
-                        [(v, 1) for v in ncc_vars] + [(not_ncc, 1)], 1
-                    )
-                    # not_ncc <= ~each_ncc  →  ncc_i + not_ncc <= 1
-                    for nv in ncc_vars:
-                        opb.at_most_k([nv, not_ncc], 1)
-                    _encode_night_criterion_pair(
-                        opb, xn[sat_d][f], not_ncc,
-                        "weekend_night_saturday", sat_hard,
-                        _SoftWeightProxy(saturday_weight), soft_violations,
-                    )
-
-        # --- Sunday night: must be covered by the Weekend Stroke fellow ---
-        # Two cases per fellow who could work Sunday night:
-        #  (a) stroke-eligible (has a weekend-Stroke var): working Sunday night
-        #      implies holding the weekend-Stroke role that week.
-        #  (b) NOT stroke-eligible (no weekend-Stroke var): cannot be the weekend
-        #      -Stroke fellow, so cannot work Sunday night at all. Without this
-        #      branch, NCC_JR fellows slipped through and took Sunday night while
-        #      someone else held weekend-Stroke.
-        sun_d = _week_day(w, 6, start_dow)
-        if 0 <= sun_d < num_days:
-            for f in range(num_fellows):
-                if xn[sun_d][f] == 0:
-                    continue
-                if f in wr[w][_ROLE_STROKE]:
-                    # xn AND NOT wr_stroke → violation (hard forbid, or penalty)
-                    not_stroke = opb.new_var()
-                    stroke_var = wr[w][_ROLE_STROKE][f]
-                    opb.weighted_sum_at_least([(stroke_var, 1), (not_stroke, 1)], 1)
-                    opb.at_most_k([stroke_var, not_stroke], 1)
-                    _encode_night_criterion_pair(
-                        opb, xn[sun_d][f], not_stroke,
-                        "weekend_night_sunday", sun_hard,
-                        _SoftWeightProxy(sunday_weight), soft_violations,
-                    )
-                elif config.weekend_night_sunday_hard:
-                    # Not stroke-eligible → can never be the weekend-Stroke fellow,
-                    # so forbid Sunday night outright.
-                    opb.add_unit(-xn[sun_d][f])
-                else:
-                    # Soft mode: penalize a non-eligible fellow on Sunday night.
-                    soft_violations.append((xn[sun_d][f], sunday_weight))
+    # Config-driven night-gating criteria (the NightGatingCriterion archetype).
+    # Each migrated criterion is a `night_gating` entry in config.constraints; its
+    # former hardcoded inline block below is deleted as it moves to config.
+    _encode_configured_night_gating(
+        opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
+        num_days=num_days, start_dow=start_dow, num_weeks=num_weeks,
+        num_fellows=num_fellows, dual_stroke_vars=dual_stroke_vars,
+        weights=weights, hard_criteria=hard_criteria,
+    )
 
 
 
@@ -2926,91 +2745,6 @@ def _encode_dual_stroke_helena(
             soft_violations.append((viol, nohel_w))
 
 
-
-
-class _SoftWeightProxy:
-    """Adapter so _encode_night_criterion_pair can use a fixed weight."""
-    def __init__(self, w: int):
-        self._w = w
-    def for_criterion(self, _name: str) -> int:
-        return self._w
-
-
-def _encode_stroke_term(
-    opb: OpbBuilder,
-    soft_violations: list[tuple[int, int]],
-    *,
-    term_var: int,
-    night_var: int,
-    exempt_var: int | None,
-    hard: bool,
-    weight: int,
-) -> None:
-    """Emit one Stroke gating term via the co-located StrokeCriterion (ADR-0005),
-    so the solver's encoding and the model's evaluation share one definition."""
-    sink = OpbConstraintSink(opb, soft_violations)
-    _STROKE_CRITERION.encode(
-        sink,
-        night_var=night_var,
-        term_var=term_var,
-        exempt_var=exempt_var,
-        strength=_HARD if hard else _SOFT,
-        weight=weight,
-    )
-
-
-def _encode_night_criterion_pair(
-    opb: OpbBuilder,
-    condition_var: int,
-    night_var: int,
-    criterion: str,
-    hard_criteria: frozenset[str],
-    weights: NightPolicyWeights,
-    soft_violations: list[tuple[int, int]],
-) -> None:
-    """Encode: condition_var AND night_var triggers a criterion violation."""
-    if criterion in hard_criteria:
-        opb.at_most_k([condition_var, night_var], 1)
-    else:
-        ind = opb.new_var()
-        # ind >= condition + night - 1
-        opb.weighted_sum_at_most([(condition_var, 1), (night_var, 1), (-ind, 1)], 2)
-        # ind <= condition  (ind implies condition: condition + ~ind >= 1)
-        opb.weighted_sum_at_least([(condition_var, 1), (-ind, 1)], 1)
-        # ind <= night  (ind implies night: night + ~ind >= 1)
-        opb.weighted_sum_at_least([(night_var, 1), (-ind, 1)], 1)
-        soft_violations.append((ind, weights.for_criterion(criterion)))
-
-
-def _encode_night_criterion_triple(
-    opb: OpbBuilder,
-    condition_var: int,
-    night_var: int,
-    exempt_var: int,
-    criterion: str,
-    hard_criteria: frozenset[str],
-    weights: NightPolicyWeights,
-    soft_violations: list[tuple[int, int]],
-) -> None:
-    """Encode: condition AND night AND NOT exempt triggers violation."""
-    if criterion in hard_criteria:
-        # condition + night + ~exempt <= 2 (can't all be true)
-        # i.e., condition + night - exempt <= 1 → condition + night + (1-exempt) <= 2
-        opb.weighted_sum_at_most([(condition_var, 1), (night_var, 1), (-exempt_var, 1)], 2)
-    else:
-        ind = opb.new_var()
-        # ind = condition AND night AND ~exempt
-        # ind >= condition + night + ~exempt - 2
-        opb.weighted_sum_at_most(
-            [(condition_var, 1), (night_var, 1), (-exempt_var, 1), (-ind, 1)], 3
-        )
-        # ind <= condition  (condition + ~ind >= 1)
-        opb.weighted_sum_at_least([(condition_var, 1), (-ind, 1)], 1)
-        # ind <= night  (night + ~ind >= 1)
-        opb.weighted_sum_at_least([(night_var, 1), (-ind, 1)], 1)
-        # ind <= ~exempt  (~exempt + ~ind >= 1)
-        opb.weighted_sum_at_least([(-exempt_var, 1), (-ind, 1)], 1)
-        soft_violations.append((ind, weights.for_criterion(criterion)))
 
 
 def _encode_night_multiset(

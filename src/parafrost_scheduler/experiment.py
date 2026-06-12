@@ -102,6 +102,11 @@ def assemble_annual_dict(
     # Carry the standing Shift-Attribute table (ADR-0003) onto the request so it
     # survives the standing_rules override path in build_solver_config_from_request.
     annual["shift_palette"] = standing.get("shift_palette", {})
+    # Likewise carry the standing night_rules + weekend_rules so the Standing
+    # night_gating / weekend_gating criteria (the gating archetypes) survive the
+    # override path — the annual's own rules override these by `criterion`.
+    annual["standing_night_rules"] = standing.get("night_rules", [])
+    annual["standing_weekend_rules"] = standing.get("weekend_rules", [])
 
     return annual
 

@@ -20,9 +20,35 @@ from parafrost_scheduler.schedule_types import (
     _ROLE_NCC1,
     _ROLE_NCC2,
     _ROLE_STROKE)
-from parafrost_scheduler.schedule_encoder import _encode_prevacation_weekend_penalty
+from parafrost_scheduler.schedule_encoder import _encode_configured_weekend_gating
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
+from scheduler.semantic_constraints import (
+    ConstraintLifecycle, ConstraintStrength, SemanticConstraint)
+
+
+# The prevacation criterion is now the config-driven WeekendGatingCriterion (GATE
+# mode). This shim drives the new encoder so these tests pin the same behavior the
+# inline _encode_prevacation_weekend_penalty used to.
+def _encode_prevacation_weekend_penalty(
+    opb, wr, xs, config, fellow_names, shift_idx, soft_violations):
+    _encode_configured_weekend_gating(
+        opb, wr, xs, config, fellow_names, shift_idx, soft_violations)
+
+
+def _prevac_constraint() -> SemanticConstraint:
+    return SemanticConstraint(
+        kind="weekend_gating",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.SOFT,
+        fellows=None,
+        params={
+            "name": "prevacation_weekend", "criterion": "prevacation_weekend",
+            "mode": "gate", "roles": ["Weekend NCC1", "Weekend NCC2", "Weekend Stroke"],
+            "gate_target_key": "vac", "gate_week_offset": 1,
+            "resolved_targets": {"vac": ["Vac"]},
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +81,7 @@ def _make_config(
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=["NCC1", "Vac"],
-        constraints=[],
+        constraints=[_prevac_constraint()],
         night_config=night_config,
         weekend_config=weekend_config,
         night_hard_criteria=frozenset(),

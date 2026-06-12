@@ -22,8 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from schedule_rules.criteria.weekend_mismatch import WeekendRoleMismatchCriterion
-from schedule_rules.criteria.prevacation_weekend import PrevacationWeekendCriterion
+from schedule_rules.criteria.weekend_gating import WeekendGatingCriterion
 from schedule_rules.strength import SOFT
 from parafrost_scheduler.opb_encoder import OpbBuilder
 from parafrost_scheduler.constraint_sink import OpbConstraintSink
@@ -34,6 +33,22 @@ ROUNDINGSAT_BINARY = (
     Path(__file__).resolve().parent.parent / "vendor" / "roundingsat" / "build" / "roundingsat"
 )
 _NCC1, _NCC2, _STROKE = "Weekend NCC1", "Weekend NCC2", "Weekend Stroke"
+
+# Both weekend cell criteria are instances of the WeekendGatingCriterion archetype
+# (config selects mode + targets; no shift name hardcoded in the rule code).
+_ROLE_TO_SHIFT = {_NCC1: "NCC1", _NCC2: "NCC2", _STROKE: "Stroke"}
+_PREVAC_TARGETS = {"vac": frozenset({"Vac"})}
+
+
+def _mismatch_criterion() -> WeekendGatingCriterion:
+    return WeekendGatingCriterion(
+        "weekend_role_mismatch", mode="align", role_to_shift=dict(_ROLE_TO_SHIFT))
+
+
+def _prevacation_criterion() -> WeekendGatingCriterion:
+    return WeekendGatingCriterion(
+        "prevacation_weekend", mode="gate",
+        roles=(_NCC1, _NCC2, _STROKE), gate_target_key="vac", gate_week_offset=1)
 
 
 @pytest.fixture
@@ -76,7 +91,7 @@ class DictScheduleView:
 # ---------------------------------------------------------------------------
 class TestWeekendMismatchEvaluate:
     def setup_method(self):
-        self.crit = WeekendRoleMismatchCriterion()
+        self.crit = _mismatch_criterion()
 
     def test_match_does_not_fire(self):
         view = DictScheduleView([{"A": "NCC1"}], [{_NCC1: "A"}])
@@ -101,20 +116,23 @@ class TestWeekendMismatchEvaluate:
 # ---------------------------------------------------------------------------
 class TestPrevacationEvaluate:
     def setup_method(self):
-        self.crit = PrevacationWeekendCriterion()
+        self.crit = _prevacation_criterion()
+
+    def _eval(self, view, w, role, f):
+        return self.crit.evaluate(view, w, role, f, resolved_targets=_PREVAC_TARGETS)
 
     def test_weekend_before_vac_fires(self):
         # A on Vac in week 1; holds Weekend NCC1 in week 0 -> fires for week 0.
         view = DictScheduleView([{"A": "NCC1"}, {"A": "Vac"}], [{_NCC1: "A"}, {}])
-        assert self.crit.evaluate(view, 0, _NCC1, "A") is True
+        assert self._eval(view, 0, _NCC1, "A") is True
 
     def test_weekend_not_before_vac_does_not_fire(self):
         view = DictScheduleView([{"A": "NCC1"}, {"A": "NCC2"}], [{_NCC1: "A"}, {}])
-        assert self.crit.evaluate(view, 0, _NCC1, "A") is False
+        assert self._eval(view, 0, _NCC1, "A") is False
 
     def test_last_week_weekend_does_not_fire(self):
         view = DictScheduleView([{"A": "NCC1"}], [{_NCC1: "A"}])
-        assert self.crit.evaluate(view, 0, _NCC1, "A") is False
+        assert self._eval(view, 0, _NCC1, "A") is False
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +140,7 @@ class TestPrevacationEvaluate:
 # ---------------------------------------------------------------------------
 class TestWeekendMismatchAgreement:
     def test_mismatch_counts_match(self, runner):
-        crit = WeekendRoleMismatchCriterion()
+        crit = _mismatch_criterion()
         view = DictScheduleView(
             [{"A": "Stroke", "B": "NCC1"}],
             [{_NCC1: "A", _NCC2: "B"}],  # A mismatches (Stroke vs NCC1); B mismatches (NCC1 vs NCC2)
@@ -135,11 +153,10 @@ class TestWeekendMismatchAgreement:
         sink = OpbConstraintSink(opb, soft)
         for (w, r, f) in placements:
             wr_var = opb.new_var(); opb.add_unit(wr_var)  # holds the role
-            matching_shift = {_NCC1: "NCC1", _NCC2: "NCC2", _STROKE: "Stroke"}[r]
             wd_var = opb.new_var()
-            on_match = view.weekday_service(w, f) == matching_shift
+            on_match = view.weekday_service(w, f) == _ROLE_TO_SHIFT[r]
             opb.add_unit(wd_var if on_match else -wd_var)
-            crit.encode(sink, role_var=wr_var, weekday_match_var=wd_var,
+            crit.encode(sink, role_var=wr_var, gate_var=wd_var,
                         strength=SOFT, weight=20)
 
         result = runner.solve(opb)
@@ -150,16 +167,16 @@ class TestWeekendMismatchAgreement:
 
 class TestPrevacationAgreement:
     def test_prevacation_counts_match(self, runner):
-        crit = PrevacationWeekendCriterion()
+        crit = _prevacation_criterion()
         view = DictScheduleView([{"A": "NCC1"}, {"A": "Vac"}], [{_NCC1: "A"}, {}])
-        expected = 1 if crit.evaluate(view, 0, _NCC1, "A") else 0
+        expected = 1 if crit.evaluate(view, 0, _NCC1, "A", resolved_targets=_PREVAC_TARGETS) else 0
 
         opb = OpbBuilder()
         soft: list[tuple[int, int]] = []
         sink = OpbConstraintSink(opb, soft)
         role_var = opb.new_var(); opb.add_unit(role_var)   # holds Weekend NCC1 week 0
         vac_var = opb.new_var(); opb.add_unit(vac_var)     # on Vac week 1
-        crit.encode(sink, role_var=role_var, vac_var=vac_var, strength=SOFT, weight=1)
+        crit.encode(sink, role_var=role_var, gate_var=vac_var, strength=SOFT, weight=1)
 
         result = runner.solve(opb)
         assert result.satisfiable

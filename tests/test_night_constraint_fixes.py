@@ -43,6 +43,7 @@ for _s in ("NCC1", "NCC2", "Stroke"):
     _NIGHT_FLAGS_BY_SHIFT.setdefault(_s, []).append("holiday_eligible")
 _NIGHT_FLAGS_BY_SHIFT.setdefault("Anaesthesia", []).append("anaesthesia_gating")
 _NIGHT_FLAGS_BY_SHIFT.setdefault("Clinic/Elective", []).append("clinic_gating")
+_NIGHT_FLAGS_BY_SHIFT.setdefault("Stroke", []).append("stroke_gating")
 _NIGHT_BLOCK_PALETTE = ShiftPalette.from_config(_NIGHT_FLAGS_BY_SHIFT)
 from scheduler.night_policy_types import (
     CRITERION_ANAESTHESIA,
@@ -61,6 +62,31 @@ from scheduler.semantic_constraints import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _night_gating_constraints(palette):
+    """The standard anaesthesia + clinic night_gating constraints, built through
+    the production converter so the geometry/target-resolution matches YAML."""
+    from scheduler.palette_rules import night_gating_rule_to_constraint
+    rules = [
+        {"type": "night_gating", "criterion": "anaesthesia", "name": "anaesthesia",
+         "terms": [{"dows": [0, 1, 2, 3, 4], "week_offset": 0,
+                    "target_attribute": "anaesthesia_gating"}]},
+        {"type": "night_gating", "criterion": "clinic", "name": "clinic",
+         "terms": [{"dows": [1, 2], "week_offset": 0, "target_attribute": "clinic_gating"},
+                   {"dows": [6], "week_offset": 1, "target_attribute": "clinic_gating"}]},
+        {"type": "night_gating", "criterion": "stroke", "name": "stroke",
+         "terms": [{"dows": [0, 1, 2, 3], "week_offset": 0, "target_attribute": "stroke_gating"},
+                   {"dows": [6], "week_offset": 1, "target_attribute": "stroke_gating"},
+                   {"dows": [5], "week_offset": 0, "target_role": "Weekend Stroke"}],
+         "exemption": {"target_attribute": "stroke_gating", "threshold": 2}},
+    ]
+    out = []
+    for r in rules:
+        con = night_gating_rule_to_constraint(r, palette)
+        if con is not None:
+            out.append(con)
+    return out
+
 
 def _make_config(
     shifts: list[str],
@@ -105,6 +131,10 @@ def _make_config(
             strength=ConstraintStrength.HARD,
             fellows=FellowSelector.by_groups(*fellow_groups.keys()),
             params={"name": "full_assignment"}))
+    # The anaesthesia/clinic night criteria are now config-driven (the
+    # NightGatingCriterion archetype): supply their gating constraints so the
+    # encoder-under-test reproduces them (production sources these from YAML).
+    constraints.extend(_night_gating_constraints(_NIGHT_BLOCK_PALETTE))
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
         shifts=shifts,

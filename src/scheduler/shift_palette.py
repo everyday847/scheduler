@@ -29,6 +29,7 @@ HOLIDAY_ELIGIBLE = "holiday_eligible"
 CONSEC_WEEKEND_BUFFER = "consec_weekend_buffer"
 ANAESTHESIA_GATING = "anaesthesia_gating"
 CLINIC_GATING = "clinic_gating"
+STROKE_GATING = "stroke_gating"
 STROKE_WK2627_ON = "stroke_wk2627_on"
 
 #: The fixed set of attribute flags a shift may carry directly via config.
@@ -40,6 +41,7 @@ KNOWN_FLAGS: frozenset[str] = frozenset({
     CONSEC_WEEKEND_BUFFER,
     ANAESTHESIA_GATING,
     CLINIC_GATING,
+    STROKE_GATING,
     STROKE_WK2627_ON,
 })
 
