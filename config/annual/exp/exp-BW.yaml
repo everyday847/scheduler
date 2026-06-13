@@ -1,0 +1,1394 @@
+solver_options: {}
+fellow_groups:
+  CCM:
+  - Pulmonary/Cardio CCM Fellow (Core NCC) 1
+  - Pulmonary/Cardio CCM Fellow (Core NCC) 2
+  - CCM  Fellow (Elective) 1
+  NCC_JR:
+  - Cindy Wong
+  - Alex Hanson
+  NCC_SR:
+  - Raya Aliakbar
+  - Joseph Conovaloff
+  NH:
+  - Jinyuan Liu
+  - Sokena Zaidi
+  STROKE:
+  - Aditya Srivatsan
+  - Cameron Schmidt
+  - Harneet Dhillon
+  - Helena Xeros
+shifts:
+- SICU
+- MICU
+- NS
+- Anaesthesia
+- NCC1
+- NCC2
+- Swing
+- Elec
+- Vac
+- Stroke
+- Telestroke/Clinic
+- Clinic/Elective
+- SCVMC Rehab
+- NIR
+- ISC
+- Anesthesia
+- Elective
+- MSICU
+- NS SCVMC
+- Vacation
+- ABPN
+- NCS 2026
+- RWC
+- Elective/SICU
+- NHS
+- AAN
+fellow_week_pairs:
+  Pulmonary/Cardio CCM Fellow (Core NCC) 1: []
+  Pulmonary/Cardio CCM Fellow (Core NCC) 2: []
+  CCM  Fellow (Elective) 1: []
+  Cindy Wong: []
+  Alex Hanson: []
+  Raya Aliakbar: []
+  Joseph Conovaloff: []
+  Jinyuan Liu:
+  - 25
+  - 26
+  - 42
+  Sokena Zaidi:
+  - 25
+  - 31
+  - 32
+  Aditya Srivatsan:
+  - 6
+  - 39
+  - 48
+  Cameron Schmidt:
+  - 16
+  - 35
+  - 36
+  Harneet Dhillon:
+  - 17
+  - 34
+  - 49
+  Helena Xeros:
+  - 10
+  - 25
+  - 44
+night_call:
+- friday_nights: 32
+  group: STROKE
+  total_nights: 236
+- friday_nights: 8
+  group: NCC_SR
+  total_nights: 58
+- friday_nights: 6
+  group: NCC_JR
+  total_nights: 40
+- friday_nights: 6
+  group: NH
+  total_nights: 31
+weekend_call:
+- group: STROKE
+  ncc_total: 22
+  stroke_total: 51
+- group: NCC_SR
+  ncc_total: 32
+  stroke_total: 2
+- group: NCC_JR
+  ncc_total: 24
+  stroke_total: 0
+- group: NH
+  ncc_total: 6
+  stroke_total: 0
+- group: CCM
+  ncc_total: 22
+  stroke_total: 0
+  ncc_ranges:
+    Pulmonary/Cardio CCM Fellow (Core NCC) 1:
+    - 15
+    - 22
+    Pulmonary/Cardio CCM Fellow (Core NCC) 2:
+    - 4
+    - 7
+    CCM  Fellow (Elective) 1:
+    - 0
+    - 4
+  every_other_weekend: true
+holiday_dates:
+- '2026-07-04'
+- '2026-09-07'
+- '2026-11-26'
+- '2026-11-27'
+- '2026-12-24'
+- '2026-12-25'
+- '2027-01-01'
+- '2027-01-18'
+- '2027-02-15'
+- '2027-05-31'
+num_weeks: 53
+_has_draft: false
+horizon_start: '2026-07-01'
+night_rules:
+- name: Night spacing
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Max 1 night in any 3-consecutive-day window
+  type: night_spacing
+  params:
+    maxNights: 1
+    windowDays: 3
+- name: Night blocked services
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  - CCM
+  strength: hard
+  active: true
+  description: Weekday services that preclude night call
+  type: night_blocked_services
+  params:
+    exactServices:
+    - Vacation
+    - NS SCVMC
+    - AAN
+    - NCS 2026
+    substringServices:
+    - SICU
+    - MSICU
+- name: Holiday eligibility
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Only NCC1/NCC2/Stroke fellows can do night call on holidays
+  type: night_holiday_eligibility
+  params:
+    allowedServices:
+    - NCC1
+    - NCC2
+    - Stroke
+- name: Night soft penalties
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Weights for undesirable night call patterns
+  type: night_penalties
+  params:
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      friday_weekend_ncc1: 1
+      stroke: 5
+      sunday_following: 1
+rules:
+- type: specific_assignment
+  name: Aditya wk0 Elec
+  fellow: Aditya Srivatsan
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: Cameron wk0 Elec
+  fellow: Cameron Schmidt
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: Harneet wk0 Elec
+  fellow: Harneet Dhillon
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: Helena wk0 Elec
+  fellow: Helena Xeros
+  week: 0
+  shift: Elec
+  strength: hard
+  active: true
+- type: specific_assignment
+  name: Helena wk1 Stroke
+  fellow: Helena Xeros
+  week: 1
+  shift: Stroke
+  strength: hard
+  active: true
+- type: staffing_per_week
+  name: Helena wk1 not alone on Stroke
+  groups:
+  - STROKE
+  - NCC_SR
+  - NH
+  shifts:
+  - Stroke
+  relation: at_least
+  count: 2
+  window:
+  - 1
+  - 2
+  strength: hard
+  active: true
+- active: true
+  count: 20
+  groups:
+  - NCC_JR
+  name: 'NCC Junior: MICU Total'
+  relation: exactly
+  shifts:
+  - MICU
+  strength: hard
+  type: shift_total
+- active: true
+  count: 4
+  groups:
+  - NCC_JR
+  name: 'NCC Junior: Anaesthesia Total'
+  relation: exactly
+  shifts:
+  - Anaesthesia
+  strength: hard
+  type: shift_total
+- active: true
+  count: 8
+  groups:
+  - NCC_JR
+  name: 'NCC Junior: Elective Total'
+  relation: exactly
+  shifts:
+  - Elec
+  strength: soft
+  type: shift_total
+- active: true
+  count: 4
+  groups:
+  - NCC_JR
+  name: 'NCC Junior: Vacation Total'
+  relation: exactly
+  shifts:
+  - Vac
+  strength: soft
+  type: shift_total
+- active: true
+  count: 4
+  groups:
+  - NCC_JR
+  name: 'NCC Junior: SICU Total'
+  relation: at_least
+  shifts:
+  - SICU
+  strength: soft
+  type: shift_total
+- active: true
+  count: 12
+  groups:
+  - NCC_JR
+  name: 'NCC Junior: NCC+Swing Total'
+  relation: exactly
+  shifts:
+  - Swing
+  - NCC1
+  - NCC2
+  strength: hard
+  type: shift_total
+- active: true
+  count: 8
+  groups:
+  - NCC_SR
+  name: 'NCC Senior: MICU Total'
+  relation: exactly
+  shifts:
+  - MICU
+  strength: hard
+  type: shift_total
+- active: true
+  count: 10
+  groups:
+  - NCC_SR
+  name: 'NCC Senior: Elective Total'
+  relation: at_least
+  shifts:
+  - Elec
+  strength: soft
+  type: shift_total
+- active: true
+  count: 4
+  groups:
+  - NCC_SR
+  name: 'NCC Senior: Vacation Total'
+  relation: at_least
+  shifts:
+  - Vac
+  strength: soft
+  type: shift_total
+- active: true
+  count: 6
+  groups:
+  - NCC_SR
+  name: 'NCC Senior: NS Total'
+  relation: exactly
+  shifts:
+  - NS
+  strength: soft
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - NCC_SR
+  name: 'NCC Senior: Stroke Total'
+  relation: exactly
+  shifts:
+  - Stroke
+  strength: hard
+  type: shift_total
+- active: true
+  count: 22
+  groups:
+  - NCC_SR
+  name: 'NCC Senior: NCC+Swing Total'
+  relation: exactly
+  shifts:
+  - Swing
+  - NCC1
+  - NCC2
+  strength: hard
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - STROKE
+  name: 'Stroke: Swing Cap'
+  relation: at_most
+  shifts:
+  - Swing
+  strength: hard
+  type: shift_total
+- active: true
+  count: 6
+  groups:
+  - STROKE
+  name: 'Stroke: NCC+Swing Total'
+  relation: exactly
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  strength: hard
+  type: shift_total
+- active: true
+  count: 12
+  groups:
+  - STROKE
+  name: 'Stroke: Stroke Service Total'
+  relation: at_least
+  shifts:
+  - Stroke
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - STROKE
+  name: 'Stroke: Elective Total'
+  relation: at_least
+  shifts:
+  - Elec
+  strength: soft
+  type: shift_total
+- active: true
+  count: 3
+  groups:
+  - STROKE
+  name: 'Stroke: Vacation Total'
+  relation: exactly
+  shifts:
+  - Vac
+  strength: hard
+  type: shift_total
+- active: true
+  count: 11
+  groups:
+  - STROKE
+  name: 'Stroke: Telestroke Total'
+  relation: at_least
+  shifts:
+  - Telestroke/Clinic
+  strength: hard
+  type: shift_total
+- active: true
+  groups:
+  - STROKE
+  name: Stroke Pre-ABPN On-Service Balance
+  type: group_count_balance
+  shifts:
+  - Stroke
+  - NCC1
+  - NCC2
+  - Swing
+  window:
+  - 0
+  - 11
+  max_difference: 2
+  strength: soft
+- active: true
+  count: 12
+  groups:
+  - STROKE
+  name: 'Stroke: Clinic/Elective Total'
+  relation: at_least
+  shifts:
+  - Clinic/Elective
+  strength: hard
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - STROKE
+  name: 'Stroke: SCVMC Rehab Total'
+  relation: exactly
+  shifts:
+  - SCVMC Rehab
+  strength: hard
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - STROKE
+  name: 'Stroke: NIR Total'
+  relation: exactly
+  shifts:
+  - NIR
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - STROKE
+  name: 'Stroke: ISC Total'
+  relation: exactly
+  shifts:
+  - ISC
+  strength: hard
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - NH
+  name: 'NH: NCC Total'
+  relation: exactly
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  strength: hard
+  type: shift_total
+- active: true
+  count: 3
+  groups:
+  - NH
+  name: 'NH: Vacation Total'
+  relation: at_least
+  shifts:
+  - Vac
+  strength: soft
+  type: shift_total
+- active: true
+  count: 3
+  groups:
+  - CCM
+  name: 'CCM: NCC Total'
+  relation: at_least
+  shifts:
+  - NCC1
+  - NCC2
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - CCM
+  name: 'CCM: Swing Total'
+  relation: at_least
+  shifts:
+  - Swing
+  strength: hard
+  type: shift_total
+- active: true
+  block_size: 4
+  groups:
+  - CCM
+  name: CCM NCC Block
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  strength: hard
+  type: block_rotation
+- active: true
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - STROKE
+  - NH
+  max_weeks: 8
+  name: Core ICU Max Consecutive
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  - SICU
+  - MICU
+  - Stroke
+  strength: hard
+  type: max_consecutive
+- active: true
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - STROKE
+  - NH
+  max_weeks: 6
+  name: NCC Team Max Consecutive
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  strength: hard
+  type: max_consecutive
+- active: true
+  applies_under_relaxed_locks: true
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - STROKE
+  - CCM
+  max_weeks: 2
+  name: Swing Max Consecutive
+  shifts:
+  - Swing
+  strength: hard
+  type: max_consecutive
+- active: true
+  applies_under_relaxed_locks: true
+  fellow: CCM  Fellow (Elective) 1
+  name: 'CCM Elective: No Swing'
+  shifts:
+  - Swing
+  relation: at_most
+  count: 0
+  strength: hard
+  type: per_fellow_shift_total
+- active: true
+  applies_under_relaxed_locks: true
+  groups:
+  - CCM
+  max_weeks: 1
+  name: 'CCM Core: No Consecutive Swing'
+  shifts:
+  - Swing
+  strength: hard
+  type: max_consecutive
+- active: false
+  groups:
+  - STROKE
+  max_weeks: 2
+  name: Stroke Short Core ICU Runs
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  - SICU
+  - MICU
+  - Stroke
+  strength: soft
+  type: max_consecutive
+- active: true
+  allow_none: true
+  applies_under_relaxed_locks: true
+  block_size: 2
+  choices:
+  - - NCC1
+    - Swing
+  - - NCC2
+    - Swing
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - CCM
+  name: NCC 2-Week Team Continuity
+  strength: soft
+  type: rotation_continuity
+- active: false
+  allow_none: true
+  block_size: 4
+  choices:
+  - - NCC1
+    - Swing
+  - - NCC2
+    - Swing
+  groups:
+  - NCC_JR
+  - NCC_SR
+  name: NCC 4-Week Team Preference
+  strength: soft
+  type: rotation_continuity
+- active: true
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - STROKE
+  - CCM
+  - NH
+  max_uncovered_weeks: 3
+  name: Swing Coverage Target
+  shifts:
+  - Swing
+  strength: hard
+  type: coverage_target
+- active: true
+  groups:
+  - NCC_JR
+  - NCC_SR
+  - STROKE
+  - CCM
+  - NH
+  window:
+  - 0
+  - 1
+  relation: at_most
+  count: 0
+  name: 'Swing: none in week 0'
+  shifts:
+  - Swing
+  strength: hard
+  type: staffing_per_week
+- active: false
+  groups:
+  - NCC_JR
+  - NCC_SR
+  max_difference: 4
+  name: Half-Year Balance
+  shifts:
+  - MICU
+  strength: soft
+  type: windowed_balance
+  window_a:
+  - 0
+  - 26
+  window_b:
+  - 26
+  - 52
+- active: true
+  count: 1
+  groups:
+  - STROKE
+  name: Stroke NIR First Half
+  relation: exactly
+  shifts:
+  - NIR
+  strength: hard
+  type: shift_total
+  window:
+  - 0
+  - 26
+- active: true
+  count: 1
+  groups:
+  - STROKE
+  name: Stroke NIR Second Half
+  relation: exactly
+  shifts:
+  - NIR
+  strength: hard
+  type: shift_total
+  window:
+  - 26
+  - 52
+- active: true
+  count: 2
+  groups:
+  - STROKE
+  name: Stroke SCVMC Second Half
+  relation: exactly
+  shifts:
+  - SCVMC Rehab
+  strength: hard
+  type: shift_total
+  window:
+  - 26
+  - 52
+- active: false
+  block_size: 2
+  groups:
+  - STROKE
+  name: Stroke 2-Week Blocks
+  shifts:
+  - Stroke
+  - Telestroke/Clinic
+  strength: hard
+  type: block_rotation
+- active: true
+  hard_request_count: 3
+  name: vacation_requests
+  type: vacation_request_policy
+- active: true
+  groups:
+  - STROKE
+  max_weeks: 3
+  name: Short Stroke/Telestroke/Clinic/Elective
+  shifts:
+  - Stroke
+  - Telestroke/Clinic
+  - Clinic/Elective
+  strength: hard
+  type: max_consecutive
+- active: true
+  count: 1
+  groups:
+  - NH
+  name: Only One NH on Core ICU Rotations
+  relation: at_most
+  shifts:
+  - NCC1
+  - NCC2
+  - Swing
+  - Stroke
+  - Telestroke/Clinic
+  strength: hard
+  type: staffing_per_week
+- active: false
+  count: 2
+  groups:
+  - NH
+  name: NH Stroke (superseded by per-fellow targets)
+  relation: at_least
+  shifts:
+  - Stroke
+  strength: soft
+  type: shift_total
+- active: true
+  count: 2
+  groups:
+  - NH
+  name: Telestroke
+  relation: exactly
+  shifts:
+  - Telestroke/Clinic
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - NH
+  name: NH NHS
+  relation: exactly
+  shifts:
+  - NHS
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - NH
+  name: NH AAN
+  relation: exactly
+  shifts:
+  - AAN
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - NH
+  name: NH Elective/ABPN
+  relation: at_least
+  shifts:
+  - ABPN
+  strength: hard
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - NH
+  name: NH Elective Budget
+  relation: at_least
+  shifts:
+  - Elec
+  strength: soft
+  type: shift_total
+- active: true
+  count: 1
+  groups:
+  - STROKE
+  name: STROKE Elective/ABPN
+  relation: exactly
+  shifts:
+  - ABPN
+  strength: hard
+  type: shift_total
+- type: weekend_stroke_prerequisite
+  name: Stroke weekend requires prior Stroke week
+  exempt_fellows:
+  - Aditya Srivatsan
+  - Cameron Schmidt
+  - Harneet Dhillon
+  strength: hard
+  active: true
+- type: weekend_ncc_prerequisite
+  name: NCC weekend requires prior NCC week
+  exempt_groups:
+  - NCC_SR
+  strength: hard
+  active: true
+- type: group_night_requirement
+  name: NCC night call June 2027
+  groups:
+  - NCC_JR
+  - NCC_SR
+  dates:
+  - '2027-06-11'
+  - '2027-06-18'
+  strength: hard
+  active: true
+- type: per_fellow_shift_total
+  name: Jinyuan Stroke total
+  fellow: Jinyuan Liu
+  shifts:
+  - Stroke
+  relation: exactly
+  count: 2
+  strength: hard
+  active: true
+- type: per_fellow_shift_total
+  name: Sokena Stroke minimum
+  fellow: Sokena Zaidi
+  shifts:
+  - Stroke
+  relation: at_least
+  count: 4
+  strength: hard
+  active: true
+- type: per_fellow_shift_total
+  name: Sokena Stroke maximum
+  fellow: Sokena Zaidi
+  shifts:
+  - Stroke
+  relation: at_most
+  count: 6
+  strength: hard
+  active: true
+- type: per_fellow_shift_total
+  name: Jinyuan total assigned weeks
+  fellow: Jinyuan Liu
+  shifts:
+  - SICU
+  - MICU
+  - NS
+  - Anaesthesia
+  - NCC1
+  - NCC2
+  - Swing
+  - Elec
+  - Vac
+  - Stroke
+  - Telestroke/Clinic
+  - Clinic/Elective
+  - SCVMC Rehab
+  - NIR
+  - ISC
+  - Anesthesia
+  - Elective
+  - MSICU
+  - NS SCVMC
+  - Vacation
+  - ABPN
+  - NCS 2026
+  - Elective/SICU
+  - NHS
+  - AAN
+  relation: at_most
+  count: 13
+  strength: hard
+  active: true
+- type: per_fellow_shift_total
+  name: Sokena total assigned weeks
+  fellow: Sokena Zaidi
+  shifts:
+  - SICU
+  - MICU
+  - NS
+  - Anaesthesia
+  - NCC1
+  - NCC2
+  - Swing
+  - Elec
+  - Vac
+  - Stroke
+  - Telestroke/Clinic
+  - Clinic/Elective
+  - SCVMC Rehab
+  - NIR
+  - ISC
+  - Anesthesia
+  - Elective
+  - MSICU
+  - NS SCVMC
+  - Vacation
+  - ABPN
+  - NCS 2026
+  - Elective/SICU
+  - NHS
+  - AAN
+  relation: at_most
+  count: 15
+  strength: hard
+  active: true
+- type: dual_stroke_window
+  name: Supervised dual Stroke weeks 1-10
+  window:
+  - 0
+  - 10
+  supervisors:
+  - Aditya Srivatsan
+  - Cameron Schmidt
+  - Harneet Dhillon
+  strength: hard
+  active: true
+- name: SCVMC 2-Week Blocks
+  type: block_rotation
+  groups:
+  - STROKE
+  shifts:
+  - SCVMC Rehab
+  block_size: 2
+  strength: hard
+  active: true
+- name: Aditya weekend off (wks 5,38,47)
+  type: blocked_weekend
+  fellow: Aditya Srivatsan
+  weeks:
+  - 5
+  - 38
+  - 47
+  strength: hard
+  active: true
+- name: Helena weekend off (wks 43)
+  type: blocked_weekend
+  fellow: Helena Xeros
+  weeks:
+  - 43
+  strength: hard
+  active: true
+- name: Harneet weekend off (wks 16)
+  type: blocked_weekend
+  fellow: Harneet Dhillon
+  weeks:
+  - 16
+  strength: hard
+  active: true
+weekend_rules:
+- name: Weekend spacing
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  - CCM
+  strength: hard
+  active: true
+  description: Max 1 weekend in any 2-consecutive-week window
+  type: weekend_spacing
+  params:
+    maxWeekends: 1
+    windowWeeks: 4
+- name: Weekend blocked services
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  - CCM
+  strength: hard
+  active: true
+  description: Weekday services that preclude weekend call
+  type: weekend_blocked_services
+  params:
+    exactServices:
+    - Vacation
+    - NCS 2026
+    substringServices:
+    - SICU
+    - MSICU
+- name: Weekend Stroke eligibility
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Which services make a fellow eligible for Weekend Stroke
+  type: weekend_stroke_eligibility
+  params:
+    eligibleServices:
+    - Stroke
+- name: Weekend soft penalties
+  groups:
+  - STROKE
+  - NCC_JR
+  - NCC_SR
+  - NH
+  strength: hard
+  active: true
+  description: Weights for undesirable weekend call patterns
+  type: weekend_penalties
+  params:
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      friday_weekend_ncc1: 1
+      stroke: 5
+specific_assignments:
+  Aditya Srivatsan:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ABPN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Cameron Schmidt:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ABPN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Helena Xeros:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ABPN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Harneet Dhillon:
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ABPN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ISC
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Jinyuan Liu:
+  - Elec
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - NHS
+  - ''
+  - ''
+  - ABPN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - AAN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  Sokena Zaidi:
+  - Elec
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ABPN
+  - ''
+  - NHS
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - AAN
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
+  - ''
