@@ -383,6 +383,7 @@ PER_FELLOW_KINDS = frozenset({
     "stroke_no_block_one_ncc", "jr_ncc_before_swing",
     "comparable_half_year_distribution", "block_rotation",
     "rotation_continuity", "block_shift_count", "zero_shifts",
+    "no_isolated_week",
 })
 
 
@@ -434,6 +435,7 @@ def _encode_weekly_rules(
         "ncc_coverage": _encode_ncc_coverage,
         "minimize_uncovered_shift_weeks": _encode_minimize_uncovered,
         "max_consecutive": _encode_max_consecutive,
+        "no_isolated_week": _encode_no_isolated_week,
         "jr_ncc_before_swing": _encode_jr_ncc_before_swing,
         "block_shift_set_choice": _encode_block_shift_set_choice,
         "all_or_none_block": _encode_all_or_none_block,
@@ -934,6 +936,61 @@ def _encode_max_consecutive(opb, xs, constraint, fellow_indices, **kw):
                 soft_violations.append((v, weight))
             else:
                 opb.at_most_k(in_set_vars, max_consec)
+
+
+def _encode_no_isolated_week(opb, xs, constraint, fellow_indices, **kw):
+    """Forbid an ISOLATED week on the target shift set: a fellow on the shift in
+    week w must also be on it in w-1 or w+1. Combined with an exactly-N total this
+    forces the weeks CONTIGUOUS (a block of >=2) ANYWHERE — unlike all_or_none_block
+    it does NOT pin blocks to fixed even-week boundaries.
+
+    Per week w, with `cur` = the fellow's OR-over-target-shifts indicator:
+        cur => (prev OR next)   ==   ~cur + prev + next >= 1
+    (boundary terms dropped at the horizon edges). Hard by default; soft adds a
+    per-week penalty indicator that, when 1, satisfies the clause (never UNSAT)."""
+    shift_idx = kw["shift_idx"]
+    num_weeks = kw["num_weeks"]
+    is_soft = constraint.strength == ConstraintStrength.SOFT
+    weight = kw["config"].weekly_soft_weight
+    soft_violations = kw["soft_violations"]
+
+    target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+    s_indices = [shift_idx[s] for s in target_shifts if s in shift_idx]
+    if not s_indices:
+        return
+
+    def _week_indicator(f, w):
+        """The fellow's OR-over-target-shifts var for week w, or 0 if none possible."""
+        week_vars = [xs[f][w][si] for si in s_indices if xs[f][w][si] != 0]
+        if not week_vars:
+            return 0
+        if len(week_vars) == 1:
+            return week_vars[0]
+        aux = opb.new_var()
+        for sv in week_vars:
+            opb.weighted_sum_at_least([(aux, 1), (-sv, 1)], 1)
+        opb.weighted_sum_at_least([(v, 1) for v in week_vars] + [(-aux, 1)], 1)
+        return aux
+
+    for f in fellow_indices:
+        for w in range(num_weeks):
+            cur = _week_indicator(f, w)
+            if cur == 0:
+                continue
+            terms = [(-cur, 1)]
+            if w - 1 >= 0:
+                prev = _week_indicator(f, w - 1)
+                if prev != 0:
+                    terms.append((prev, 1))
+            if w + 1 < num_weeks:
+                nxt = _week_indicator(f, w + 1)
+                if nxt != 0:
+                    terms.append((nxt, 1))
+            if is_soft:
+                v = opb.new_var()
+                terms.append((v, 1))  # v=1 satisfies the clause (pays penalty)
+                soft_violations.append((v, weight))
+            opb.weighted_sum_at_least(terms, 1)
 
 
 def _encode_jr_ncc_before_swing(opb, xs, constraint, fellow_indices, **kw):

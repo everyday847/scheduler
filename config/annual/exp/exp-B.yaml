@@ -973,13 +973,12 @@ rules:
   - Harneet Dhillon
   strength: hard
   active: true
-- name: SCVMC 2-Week Blocks
-  type: block_rotation
+- name: SCVMC contiguous (no isolated week)
+  type: no_isolated_week
   groups:
   - STROKE
   shifts:
   - SCVMC Rehab
-  block_size: 2
   strength: hard
   active: true
 weekend_rules:

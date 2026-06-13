@@ -9,9 +9,11 @@ Experiments (composable):
      night_gating rule (Sunday dow6, week_offset 1, target Vac) and hardens it via
      solver_options.night_hard_criteria. The broader 7-shift `sunday_following`
      rule (standing) stays soft.
-  B  SCVMC Rehab as a contiguous 2-week BLOCK. Adds a `block_rotation` rule
-     (block_size 2) for SCVMC Rehab over the STROKE group. The existing "exactly 2
-     SCVMC weeks" rules already fix the count; B forces those two weeks adjacent.
+  B  SCVMC Rehab as a contiguous 2-week BLOCK. Adds a `no_isolated_week` rule for
+     SCVMC Rehab over the STROKE group: a SCVMC week must be adjacent to another
+     SCVMC week. The existing "exactly 2 SCVMC weeks" rules fix the count; B forces
+     those two weeks ADJACENT, ANYWHERE (no fixed even-week alignment — the
+     block_rotation alignment proved very hard; consecutivity-only is SAT @600s).
   W  Weekend-OFF forbids (blocked_weekend, hard): Aditya wks {5,38,47},
      Helena wk 43, Harneet wk 16.
 
@@ -54,13 +56,13 @@ def _sunday_vac_night_rule() -> dict:
 
 
 def _scvmc_block_rule() -> dict:
-    """SCVMC Rehab as a contiguous 2-week block for the STROKE group."""
+    """SCVMC Rehab contiguous: no isolated SCVMC week (block >=2, no even-week
+    alignment). With the existing exactly-2 total this makes a 2-week block."""
     return {
-        "name": "SCVMC 2-Week Blocks",
-        "type": "block_rotation",
+        "name": "SCVMC contiguous (no isolated week)",
+        "type": "no_isolated_week",
         "groups": ["STROKE"],
         "shifts": ["SCVMC Rehab"],
-        "block_size": 2,
         "strength": "hard",
         "active": True,
     }

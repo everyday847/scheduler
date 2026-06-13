@@ -18,6 +18,7 @@ PALETTE_TYPES = frozenset({
     "coverage_target",
     "max_consecutive",
     "block_rotation",
+    "no_isolated_week",
     "rotation_continuity",
     "prerequisite",
     "windowed_balance",
@@ -154,6 +155,25 @@ def _convert_block_rotation(
             "name": name,
             "block_size": rule["block_size"],
         },
+    )]
+
+
+def _convert_no_isolated_week(
+    rule: dict[str, Any], lifecycle: ConstraintLifecycle
+) -> list[SemanticConstraint]:
+    """No isolated week on the shift set -> contiguous (block >=2) ANYWHERE, with
+    no fixed even-week alignment (unlike block_rotation). Pair with an exactly-N
+    total to make an N-week contiguous block."""
+    name = rule["name"]
+    strength = _parse_strength(rule["strength"])
+
+    return [SemanticConstraint(
+        kind="no_isolated_week",
+        lifecycle=lifecycle,
+        strength=strength,
+        fellows=FellowSelector.by_groups(*rule["groups"]),
+        shifts=ShiftSet(name, tuple(rule["shifts"])),
+        params={"name": name},
     )]
 
 
@@ -421,6 +441,7 @@ _CONVERTERS: dict[str, Any] = {
     "coverage_target": _convert_coverage_target,
     "max_consecutive": _convert_max_consecutive,
     "block_rotation": _convert_block_rotation,
+    "no_isolated_week": _convert_no_isolated_week,
     "rotation_continuity": _convert_rotation_continuity,
     "prerequisite": _convert_prerequisite,
     "windowed_balance": _convert_windowed_balance,
