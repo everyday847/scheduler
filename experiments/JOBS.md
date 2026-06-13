@@ -22,7 +22,22 @@ Read results: `grep RESULT results_slurm/probe_<jobid>.out`
 - 16192802 wb7relax6 = DEFINITIVE v6 heavy opt -> output_wb7_relax_v6.*
 - 16161220 wb7relax3 = STALE pre-alignment model (kept as data point)
 
-## Heavy opts (TBD after probes — branch logic)
+## Probe verdicts (2026-06-13)
+- S SAT (80s), W SAT (121s), SW SAT (136s).
+- B-family with block_rotation (even-week aligned): all 4 ran >80min, no verdict
+  (cancelled 16196635/637/639/640). Even-week alignment is the culprit.
+- Bcons (consecutivity-only, no alignment): SAT @600s (job 16197798).
+  => switched B encoding to a new config-driven `no_isolated_week` rule kind
+  (commit f9db028). B/SB/BW/SBW configs regenerated to use it.
+
+## Heavy opts SUBMITTED (2026-06-13; 12.5h wall, 12h solve, --relax-locks)
+- 16198033 SB  -> output_wb7_exp_SB.*
+- 16198034 BW  -> output_wb7_exp_BW.*
+- 16198035 SBW -> output_wb7_exp_SBW.*
+Progress: tail -8 results_slurm/sched_<jobid>.out  (look for "[ ...s] total=" lines;
+see optimize disk-write contract — schedule written when a preview slice RETURNS).
+
+## (superseded) Heavy opts plan
 Per user: if both S and B SAT together -> 1 heavy opt on SB; if SAT individually
 but UNSAT together -> 2 heavy opts (S, B). Then W on top of whatever is feasible
 (SW/BW/SBW) -> additional heavy opts where SAT.
