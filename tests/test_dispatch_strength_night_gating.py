@@ -73,7 +73,7 @@ from _dispatch_helpers import (
 from parafrost_scheduler.schedule_types import day_of_week
 from scheduler.semantic_constraints import (
     SemanticConstraint, ConstraintLifecycle, ConstraintStrength)
-from scheduler.night_policy_types import NightPolicyWeights
+from scheduler.night_policy_types import NightPolicyWeights, ALL_POLICY_CRITERIA
 
 
 # "MICU" must be a real shift so the weekday-shift target var exists; add it to the
@@ -183,3 +183,88 @@ def test_soft_when_not_in_hard_criteria_is_sat_and_penalizes():
     assert has_soft_weight(vm, _SENTINEL_WEIGHT), (
         "configured-soft night_gating did NOT register its penalty — the dispatch "
         "dropped the soft constraint (SAT alone would mask this no-op).")
+
+
+# ---------------------------------------------------------------------------
+# sunday_following_vac — the split-out Vac-only criterion (additive change).
+#
+# A new night-policy criterion name was registered so the Sunday-night-before-Vac
+# transition can be hardened INDEPENDENTLY of the broader 7-shift sunday_following
+# rule (which stays soft). Because night_gating strength + weight are keyed by
+# criterion NAME, the name must (a) be in ALL_POLICY_CRITERIA so the config
+# validator accepts it in night_hard_criteria, and (b) be a NightPolicyWeights
+# attribute so for_criterion(name) resolves on the soft path. These tests pin both
+# halves through the REAL dispatch, mirroring the clinic tests above but with a
+# Sunday (dow 6, week_offset 1) Vac term.
+# ---------------------------------------------------------------------------
+
+# Sunday (dow 6) of week 0 gates the FOLLOWING week (week_offset 1). With start_dow=0
+# week 0's Sunday is absolute day 6. The fellow must hold Vac in week 1 (the gated
+# week) AND work that Sunday night.
+_SUN_DAY = 6
+assert day_of_week(_SUN_DAY, 0) == 6, "week-0 Sunday must be absolute day 6"
+
+
+def test_sunday_following_vac_is_a_registered_policy_criterion():
+    """The additive criterion is accepted by the config validator (in
+    ALL_POLICY_CRITERIA) and resolvable as a soft weight (a NightPolicyWeights
+    attribute) — the two registries night_gating strength/weight are keyed on."""
+    assert "sunday_following_vac" in ALL_POLICY_CRITERIA
+    assert NightPolicyWeights().for_criterion("sunday_following_vac") == 1
+
+
+def _sunday_before_vac() -> SemanticConstraint:
+    """night_gating, criterion sunday_following_vac: a Sunday (dow 6) night is a
+    violation when the fellow is on Vac the FOLLOWING week (week_offset 1)."""
+    return SemanticConstraint(
+        kind="night_gating",
+        lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.SOFT,
+        params={
+            "criterion": "sunday_following_vac",
+            "terms": [{
+                "dows": [6],            # Sunday
+                "week_offset": 1,       # gates the FOLLOWING week's service
+                "target_key": "vac_only",
+                "is_weekend_role": False,
+            }],
+            "resolved_targets": {"vac_only": ["Vac"]},
+            "exemption": None,
+        },
+    )
+
+
+def _pin_sun_vac_violation(opb, vm) -> None:
+    """F0 works the week-0 Sunday night AND is on Vac in week 1 (the gated week)."""
+    pin_night(opb, vm, "F0", _SUN_DAY)
+    pin_shift(opb, vm, "F0", 1, "Vac")
+
+
+def test_sunday_following_vac_hard_is_unsat():
+    """Hardened via night_hard_criteria, the split Vac-only rule forbids
+    (Sunday night AND next-week Vac). The pinned violation is UNSAT."""
+    assert_baseline_sat(
+        _pin_sun_vac_violation,
+        night_hard_criteria=frozenset({"sunday_following_vac"}))
+
+    cfg = make_dispatch_config(
+        constraints=[_sunday_before_vac()],
+        night_hard_criteria=frozenset({"sunday_following_vac"}))
+    opb, vm = build(cfg)
+    _pin_sun_vac_violation(opb, vm)
+    assert not solve_sat(opb), (
+        "hardened sunday_following_vac did NOT forbid the Sunday-night-before-Vac "
+        "violation — the new criterion is not routing through night_hard_criteria.")
+
+
+def test_sunday_following_vac_soft_is_sat_and_penalizes():
+    """Not in night_hard_criteria: the split rule stays soft and penalizes at its
+    configured weight (sentinel 777)."""
+    cfg = make_dispatch_config(
+        constraints=[_sunday_before_vac()],
+        night_hard_criteria=frozenset(),
+        night_weights=NightPolicyWeights(sunday_following_vac=_SENTINEL_WEIGHT))
+    opb, vm = build(cfg)
+    _pin_sun_vac_violation(opb, vm)
+    assert solve_sat(opb)
+    assert has_soft_weight(vm, _SENTINEL_WEIGHT)

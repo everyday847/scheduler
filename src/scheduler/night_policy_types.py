@@ -84,6 +84,11 @@ CRITERION_CLINIC = "clinic"
 CRITERION_STROKE = "stroke"
 CRITERION_FRIDAY_WEEKEND_NCC1 = "friday_weekend_ncc1"
 CRITERION_SUNDAY_FOLLOWING = "sunday_following"
+# A SPLIT-OUT variant of sunday_following targeting ONLY the Sunday-night-before-Vac
+# transition, so it can be hardened (via night_hard_criteria) independently of the
+# broader 7-shift sunday_following rule, which stays soft. night_gating strength and
+# weight are keyed by criterion NAME, so a distinct rule needs a distinct name here.
+CRITERION_SUNDAY_FOLLOWING_VAC = "sunday_following_vac"
 ALL_POLICY_CRITERIA = frozenset(
     {
         CRITERION_ANAESTHESIA,
@@ -91,6 +96,7 @@ ALL_POLICY_CRITERIA = frozenset(
         CRITERION_STROKE,
         CRITERION_FRIDAY_WEEKEND_NCC1,
         CRITERION_SUNDAY_FOLLOWING,
+        CRITERION_SUNDAY_FOLLOWING_VAC,
     }
 )
 
@@ -105,6 +111,9 @@ class NightPolicyWeights:
     # (40) so a soft Friday rule keeps the same cost as the NCC2/Stroke Friday cases.
     friday_weekend_ncc1: int = 40
     sunday_following: int = 1
+    # Soft weight for the Vac-only split rule; only applies when it is NOT in
+    # night_hard_criteria. Mirrors sunday_following's weight.
+    sunday_following_vac: int = 1
 
     @classmethod
     def from_config(cls, penalty_weights: dict[str, int]) -> NightPolicyWeights:
@@ -114,6 +123,7 @@ class NightPolicyWeights:
             stroke=penalty_weights.get("stroke", 5),
             friday_weekend_ncc1=penalty_weights.get("friday_weekend_ncc1", 40),
             sunday_following=penalty_weights.get("sunday_following", 1),
+            sunday_following_vac=penalty_weights.get("sunday_following_vac", 1),
         )
 
     def for_criterion(self, criterion: str) -> int:
