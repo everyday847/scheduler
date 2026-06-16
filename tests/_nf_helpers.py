@@ -5,17 +5,13 @@ ON (call_tier_day_granular=True) and uses a short horizon so solves are fast.
 """
 from __future__ import annotations
 
-import dataclasses
 from datetime import date
-from pathlib import Path
 
-from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
 from parafrost_scheduler.schedule_types import ScheduleSolverConfig
-from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from scheduler.night_call_types import NightSolverConfig
 from scheduler.weekend_call_types import WeekendSolverConfig
 
-ROUNDINGSAT = Path(__file__).resolve().parent.parent / "vendor/roundingsat/build/roundingsat"
+from _dispatch_helpers import build, runner_or_skip  # noqa: F401 — re-exported for callers
 
 
 def make_nf_config(
@@ -46,19 +42,7 @@ def make_nf_config(
         weekend_config=weekend_config,
         start_dow=start_dow,
         num_days=num_days,
-        call_rules=[],
         call_tier_day_granular=True,
     )
     kwargs.update(overrides)
     return ScheduleSolverConfig(**kwargs)
-
-
-def build(config, *, objective=False):
-    return build_full_schedule_opb(config, objective=objective)
-
-
-def runner_or_skip():
-    import pytest
-    if not ROUNDINGSAT.exists():
-        pytest.skip("RoundingSat binary not built")
-    return RoundingSatRunner(ROUNDINGSAT)
