@@ -9,7 +9,7 @@ from scheduler.solver_bridge import build_solver_config_from_request
 
 
 def _minimal_request(**solver_options):
-    """A tiny no-workbook request: 2 fellows, 3 shifts, no rules."""
+    """A tiny no-workbook request: 2 fellows, 3 shifts, no standing rules."""
     return {
         "fellow_groups": {"NCC_JR": ["A", "B"]},
         "shifts": ["NCC1", "NCC2", "Elec"],

@@ -201,8 +201,8 @@ class ScheduleSolverConfig:
     # night-block) for ALL fellows. Default ON: an ABPN week should be free of
     # weekday (next-morning-is-a-workday) night call. Set False to allow it.
     abpn_night_block: bool = True
-    # --- NF model (no-workbook, day-granular call tier) ---
-    # When True, build_full_schedule_opb emits a day-granular call layer
+    # NF model (no-workbook, day-granular call tier): when True,
+    # build_full_schedule_opb emits a day-granular call layer
     # call[d][f][role] for roles NCC1/NCC2/NF and SKIPS the legacy per-night xn
     # layer. Default False => the wb7 path is byte-identical. Set only by the new
     # ncc-nf-model config's solver_options block (config is the only activation
