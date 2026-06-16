@@ -84,5 +84,5 @@ def test_one_call_role_per_fellow_per_day():
     a = res.assignment
     for d in range(14):
         for f in range(vm.num_fellows):
-            held = [r for r in ("NCC1", "NCC2", "NF") if a.get(vm.call[d][f][r], False)]
+            held = [r for r in CALL_ROLES if a.get(vm.call[d][f][r], False)]
             assert len(held) <= 1

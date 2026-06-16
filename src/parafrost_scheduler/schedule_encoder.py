@@ -138,7 +138,7 @@ _date_to_day_index = date_to_day_index
 # NF model: day-granular call-tier helpers
 # ---------------------------------------------------------------------------
 
-def _encode_call_tier_coverage(opb, call, config, fellow_names, num_days, start_dow):
+def _encode_call_tier_coverage(opb, call, fellow_names, num_days, start_dow):
     """HARD coverage for the day-granular call tier (NF model).
 
     Weekdays: exactly one fellow each on NCC1, NCC2, NF.
@@ -357,7 +357,7 @@ def build_full_schedule_opb(
             for f in range(num_fellows):
                 call[d].append({role: opb.new_var() for role in CALL_ROLES})
         _encode_call_tier_coverage(
-            opb, call, config, fellow_names, num_days, start_dow)
+            opb, call, fellow_names, num_days, start_dow)
 
     # -------------------------------------------------------------------
     # 7. Night constraints

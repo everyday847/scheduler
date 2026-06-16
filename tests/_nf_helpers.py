@@ -43,7 +43,10 @@ def make_nf_config(
     """
     if fellow_groups is None:
         fellow_groups = _DEFAULT_FELLOW_GROUPS
-    all_fellows: tuple[str, ...] = fellows if fellows is not None else _DEFAULT_FELLOWS
+    all_fellows: tuple[str, ...] = (
+        fellows if fellows is not None
+        else tuple(f for g in fellow_groups.values() for f in g)
+    )
     night_config = NightSolverConfig(
         total_nights={}, friday_nights={},
         total_night_multisets=(), friday_night_multisets=(),
