@@ -86,3 +86,35 @@ def test_one_call_role_per_fellow_per_day():
         for f in range(vm.num_fellows):
             held = [r for r in CALL_ROLES if a.get(vm.call[d][f][r], False)]
             assert len(held) <= 1
+
+
+def _shift_idx(vm, name):
+    return vm.shifts.index(name)
+
+
+def test_micu_week_blocks_call_for_that_fellow():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    f, w, micu = 0, 0, _shift_idx(vm, "MICU")
+    # Verify the weekly var is allocated (no forbidden entry for this fellow/week/shift)
+    assert vm.xs[f][w][micu] != 0, "xs[0][0][MICU] must be a real var for this test to be meaningful"
+    opb.add_unit(vm.xs[f][w][micu])     # pin fellow 0 to MICU in week 0
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable              # other fellows still cover call
+    a = res.assignment
+    for d in range(7):                  # week 0 days
+        for r in ("NCC1", "NCC2", "NF"):
+            assert not a.get(vm.call[d][f][r], False)
+
+
+def test_non_blocking_week_allows_call():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    f, w, elec = 0, 0, _shift_idx(vm, "Elec")
+    # Verify vars are allocated
+    assert vm.xs[f][w][elec] != 0, "xs[0][0][Elec] must be a real var"
+    assert vm.call[0][f]["NF"] != 0, "call[0][0][NF] must be a real var"
+    opb.add_unit(vm.xs[f][w][elec])     # Elec does NOT block call
+    opb.add_unit(vm.call[0][f]["NF"])   # and fellow 0 can take NF day 0
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable
