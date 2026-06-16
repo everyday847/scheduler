@@ -62,6 +62,10 @@ DUAL_STROKE_NO_HELENA_LATE = 80      # extra if dual & not Helena, late
 _ROLE_NCC1 = 0
 _ROLE_NCC2 = 1
 _ROLE_STROKE = 2
+# Day-granular call roles for the NF model (config.call_tier_day_granular). NF
+# replaces Swing AND the legacy per-night layer; these are the per-day call roles.
+CALL_ROLES = ("NCC1", "NCC2", "NF")
+
 _WEEKEND_ROLE_NAMES = ("Weekend NCC1", "Weekend NCC2", "Weekend Stroke")
 # Short role tokens ("NCC1"/"NCC2"/"Stroke") map to wr role indices 0/1/2
 # DERIVED from the canonical tuple above (strip the "Weekend " prefix) rather
@@ -293,5 +297,8 @@ class ScheduleVarMap:
     xn: list[list[int]]
 
     soft_violations: list[tuple[int, int]]
+    # Day-granular call layer (NF model only): call[d][f] is a dict
+    # role-name -> var id for each CALL_ROLE. Empty list when the flag is off.
+    call: list[list[dict[str, int]]] = field(default_factory=list)
     soft_weekly_count: int = 0
     bk: list[list[dict[int, int]]] = field(default_factory=list)

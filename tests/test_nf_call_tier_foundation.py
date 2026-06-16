@@ -29,3 +29,23 @@ def test_flag_threads_from_solver_options():
     cfg = build_solver_config_from_request(
         _minimal_request(call_tier_day_granular=True))
     assert cfg.call_tier_day_granular is True
+
+
+from _nf_helpers import make_nf_config, build
+from parafrost_scheduler.schedule_types import CALL_ROLES
+
+
+def test_call_vars_exist_per_day_fellow_role_when_flag_on():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    assert len(vm.call) == 14                       # one per day
+    assert len(vm.call[0]) == vm.num_fellows        # one per fellow
+    assert set(vm.call[0][0].keys()) == set(CALL_ROLES)
+    sample = vm.call[0][0]["NCC1"]
+    assert isinstance(sample, int) and sample > 0
+
+
+def test_call_vars_absent_when_flag_off():
+    cfg = make_nf_config(num_days=14, call_tier_day_granular=False)
+    opb, vm = build(cfg)
+    assert vm.call == []   # no day-granular call layer on the wb7-style path

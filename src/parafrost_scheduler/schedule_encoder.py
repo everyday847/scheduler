@@ -86,6 +86,7 @@ _NIGHT_LITERAL_PIN = NightLiteralPin()
 def _strength_for(criterion: str, hard_criteria: frozenset[str]) -> "_Strength":
     return _HARD if criterion in hard_criteria else _SOFT
 from parafrost_scheduler.schedule_types import (
+    CALL_ROLES,
     NHS_NIGHT_PENALTY_WEIGHT,
     STROKE_WK2627_WEEKS,
     DUAL_STROKE_EARLY_END,
@@ -319,6 +320,17 @@ def build_full_schedule_opb(
                 xn[d].append(opb.new_var())
 
     # -------------------------------------------------------------------
+    # 6b. Day-granular call vars: call[d][f][role]  (NF model only)
+    # -------------------------------------------------------------------
+    call: list[list[dict[str, int]]] = []
+    if config.call_tier_day_granular:
+        opb.add_comment("NF model: day-granular call variables (NCC1/NCC2/NF)")
+        for d in range(num_days):
+            call.append([])
+            for f in range(num_fellows):
+                call[d].append({role: opb.new_var() for role in CALL_ROLES})
+
+    # -------------------------------------------------------------------
     # 7. Night constraints
     # -------------------------------------------------------------------
     _encode_night_constraints(
@@ -364,6 +376,7 @@ def build_full_schedule_opb(
         xs=xs,
         wr=wr,
         xn=xn,
+        call=call,
         soft_violations=soft_violations,
         soft_weekly_count=weekly_soft_count,
         bk=bk,
