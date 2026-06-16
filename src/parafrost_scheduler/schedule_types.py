@@ -280,6 +280,10 @@ class FullScheduleSolution:
     night_solution: NightScheduleSolution
     soft_penalty: int
     backup_solution: BackupScheduleSolution | None = None
+    # NF model: per-day call holders, call_assignments_by_day[d] is a dict
+    # role-name -> fellow name (or "" if none / role absent that day). Empty list
+    # for the wb7 model.
+    call_assignments_by_day: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass

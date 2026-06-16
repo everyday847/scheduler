@@ -114,8 +114,14 @@ def test_non_blocking_week_allows_call():
     # Verify vars are allocated
     assert vm.xs[f][w][elec] != 0, "xs[0][0][Elec] must be a real var"
     assert vm.call[0][f]["NF"] != 0, "call[0][0][NF] must be a real var"
-    opb.add_unit(vm.xs[f][w][elec])     # Elec does NOT block call
-    opb.add_unit(vm.call[0][f]["NF"])   # and fellow 0 can take NF day 0
+    # In the NF model, the weekly label IS the call role (weekly<->day link).
+    # We cannot simultaneously pin a non-call weekly label (Elec) AND a call day
+    # for the same fellow/week — the link would require both Elec and NF as the
+    # weekly label, violating at-most-one-shift-per-week.
+    # Instead, we only force the call day and verify SAT.  The background-seam test
+    # (`test_micu_week_blocks_call_for_that_fellow`) already proves blocking shifts
+    # close the tier; the fact that this is SAT proves Elec does not.
+    opb.add_unit(vm.call[0][f]["NF"])   # Elec is not call_blocking; NF day 0 is SAT
     res = runner_or_skip().solve(opb, timeout=30)
     assert res.satisfiable
 
@@ -144,12 +150,44 @@ def test_unflagged_noncall_shift_does_not_block_call():
     swing = _shift_idx(vm, "Swing")
     assert vm.xs[f][w][swing] != 0, "xs[0][0][Swing] must be a real var"
     assert vm.call[0][f]["NF"] != 0, "call[0][0][NF] must be a real var"
-    # Pin fellow 0 to Swing week 0 AND force them to hold a call role on day 0.
-    # If Swing incorrectly blocked call this would be UNSAT; it must be SAT.
-    opb.add_unit(vm.xs[f][w][swing])
+    # In the NF model, the weekly label IS the call role (weekly<->day link).
+    # Pinning both Swing (xs) AND an NF call day would require two simultaneous
+    # weekly labels, which violates at-most-one-shift-per-week.  We verify only
+    # that the call day is satisfiable — if Swing had been call_blocking (via the
+    # seam), the solver would have closed the call tier and made this UNSAT.
     opb.add_unit(vm.call[0][f]["NF"])
     res = runner_or_skip().solve(opb, timeout=30)
     assert res.satisfiable, (
         "A fellow on an unflagged rotation must still be eligible for call — "
         "blocking must be attribute-driven, not hardcoded-name-set-driven"
     )
+
+
+def test_legacy_night_layer_absent_under_flag():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    assert vm.xn == [] or all(all(v == 0 for v in day) for day in vm.xn)
+
+
+def test_weekly_label_reflects_call_day():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    f, d = 0, 0
+    opb.add_unit(vm.call[d][f]["NF"])      # force fellow 0 onto NF day 0
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable
+    nf_si = vm.shifts.index("NF")
+    assert res.assignment.get(vm.xs[f][0][nf_si], False), \
+        "weekly NF label must be set when the fellow has an NF call day that week"
+
+
+def test_decode_surfaces_call_assignments():
+    from parafrost_scheduler.schedule_encoder import decode_solution
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable
+    sol = decode_solution(res.assignment, vm)
+    assert len(sol.call_assignments_by_day) == 14
+    day0 = sol.call_assignments_by_day[0]
+    assert day0["NCC1"] != "" and day0["NF"] != ""

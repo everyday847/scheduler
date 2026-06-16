@@ -185,6 +185,36 @@ def _encode_call_background_seam(opb, call, xs, config, fellow_names, shift_idx,
                     opb.weighted_sum_at_least([(-call[d][f][r], 1), (-bg, 1)], 1)
 
 
+def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
+                             num_days, start_dow, num_weeks):
+    """Link the weekly roster label to the day-granular call tier so the weekly
+    calendar stays readable (apples-to-apples with Swing-style schedules):
+        xs[f][w][role] == 1  iff  the fellow has a day of that call role in week w.
+    NOTE (Phase 1 limitation): combined with at-most-one-shift-per-week, a fellow's
+    call days within a week share ONE role; multi-role-within-week tours are a later
+    continuity concern.
+    """
+    opb.add_comment("NF model: weekly label <=> day-granular call (per role)")
+    num_fellows = len(fellow_names)
+    days_in_week: dict[int, list[int]] = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+    for role in CALL_ROLES:
+        si = shift_idx.get(role)
+        if si is None:
+            continue
+        for f in range(num_fellows):
+            for w, days in days_in_week.items():
+                wk_var = xs[f][w][si]
+                if wk_var == 0:
+                    continue
+                day_vars = [call[d][f][role] for d in days]
+                for cv in day_vars:                       # each call day => weekly label
+                    opb.weighted_sum_at_least([(-cv, 1), (wk_var, 1)], 1)
+                # weekly label => some call day
+                opb.weighted_sum_at_least([(-wk_var, 1)] + [(cv, 1) for cv in day_vars], 1)
+
+
 # ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
@@ -359,16 +389,25 @@ def build_full_schedule_opb(
     # -------------------------------------------------------------------
     # 6. Night variables: xn[d][f]
     # -------------------------------------------------------------------
-    opb.add_comment("Night assignment variables")
-    _diag_disable_nights = os.environ.get("SCHED_DIAG_DISABLE_NIGHTS") == "1"
     xn: list[list[int]] = []
-    for d in range(num_days):
-        xn.append([])
-        for f in range(num_fellows):
-            if _diag_disable_nights or fellow_names[f] in config.night_config.ccm_fellows:
-                xn[d].append(0)
-            else:
-                xn[d].append(opb.new_var())
+    if not config.call_tier_day_granular:
+        opb.add_comment("Night assignment variables")
+        _diag_disable_nights = os.environ.get("SCHED_DIAG_DISABLE_NIGHTS") == "1"
+        for d in range(num_days):
+            xn.append([])
+            for f in range(num_fellows):
+                if _diag_disable_nights or fellow_names[f] in config.night_config.ccm_fellows:
+                    xn[d].append(0)
+                else:
+                    xn[d].append(opb.new_var())
+        _encode_night_constraints(
+            opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
+        )
+        # Night-layer registry walk (Option A): typed config.constraints routed to
+        # the night layer. EMPTY in this foundation → encodes nothing.
+        _encode_night_layer_rules(
+            opb, xn, xs, wr, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
+        )
 
     # -------------------------------------------------------------------
     # 6b. Day-granular call vars: call[d][f][role]  (NF model only)
@@ -384,18 +423,8 @@ def build_full_schedule_opb(
             opb, call, fellow_names, num_days, start_dow)
         _encode_call_background_seam(
             opb, call, xs, config, fellow_names, shift_idx, num_days, start_dow)
-
-    # -------------------------------------------------------------------
-    # 7. Night constraints
-    # -------------------------------------------------------------------
-    _encode_night_constraints(
-        opb, xn, xs, wr, config, fellow_names, shift_idx, soft_violations,
-    )
-    # Night-layer registry walk (Option A): typed config.constraints routed to
-    # the night layer. EMPTY in this foundation → encodes nothing.
-    _encode_night_layer_rules(
-        opb, xn, xs, wr, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
-    )
+        _encode_call_weekly_link(
+            opb, call, xs, shift_idx, fellow_names, num_days, start_dow, num_weeks)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer
@@ -3783,6 +3812,9 @@ def decode_solution(
             if d < 0 or d >= num_days:
                 week_nights[role] = ""
                 continue
+            if not var_map.xn:
+                week_nights[role] = ""
+                continue
             for f in range(num_fellows):
                 var = var_map.xn[d][f]
                 if var != 0 and assignment.get(var, False):
@@ -3805,6 +3837,19 @@ def decode_solution(
                         break
         backup_by_week.append(week_backup)
 
+    # Day-granular call tier (NF model). Empty when var_map.call is [].
+    call_by_day: list[dict[str, str]] = []
+    for d in range(len(var_map.call)):
+        day_holders: dict[str, str] = {}
+        for role in CALL_ROLES:
+            day_holders[role] = ""
+            for f in range(num_fellows):
+                var = var_map.call[d][f].get(role, 0)
+                if var != 0 and assignment.get(var, False):
+                    day_holders[role] = fellow_names[f]
+                    break
+        call_by_day.append(day_holders)
+
     # Compute soft penalty
     penalty = sum(
         weight for var, weight in var_map.soft_violations
@@ -3817,6 +3862,7 @@ def decode_solution(
         night_solution=NightScheduleSolution(assignments_by_week=night_by_week),
         soft_penalty=penalty,
         backup_solution=BackupScheduleSolution(assignments_by_week=backup_by_week),
+        call_assignments_by_day=call_by_day,
     )
 
 
