@@ -149,3 +149,26 @@ def test_decode_surfaces_call_assignments():
     assert len(sol.call_assignments_by_day) == 14
     day0 = sol.call_assignments_by_day[0]
     assert day0["NCC1"] != "" and day0["NF"] != ""
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Config-file integration — assemble via real YAML configs
+# ---------------------------------------------------------------------------
+
+from pathlib import Path
+from parafrost_scheduler.experiment import assemble_config
+
+_REPO = Path(__file__).resolve().parent.parent
+
+
+def test_nf_model_configs_assemble_with_flag_on():
+    cfg, _ = assemble_config(
+        None,
+        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        standing_path=_REPO / "config/standing/ncc-nf-model.yaml",
+        verbose=False)
+    assert cfg.call_tier_day_granular is True
+    assert "Swing" not in cfg.shifts
+    assert {"NCC1", "NCC2", "NF"} <= set(cfg.shifts)
+    all_fellows = [f for g in cfg.fellow_groups.values() for f in g]
+    assert len(all_fellows) == 6   # 3 JR + 2 SR + 1 CCM

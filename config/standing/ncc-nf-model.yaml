@@ -1,0 +1,13 @@
+# Standing config — NF MODEL (no-workbook, day-granular call tier).
+# Distinct from stanford-fellowship-v3.yaml: Swing is replaced by NF, and the
+# day-granular call tier is activated. Phase 1: no structural weekly rules yet
+# (coverage + weekly<->day link are encoder-driven, gated by call_tier_day_granular).
+#
+# shift_palette is intentionally empty: no night/weekend blocking flags are
+# needed in Phase 1 because the legacy night layer is skipped entirely when
+# call_tier_day_granular is True, and weekend encoding uses the same empty-palette
+# safe defaults.
+shift_palette: {}
+rules: []
+night_rules: []
+weekend_rules: []

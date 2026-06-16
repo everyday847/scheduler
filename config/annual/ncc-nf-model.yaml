@@ -1,0 +1,21 @@
+# Annual config — NF MODEL. No workbook; fellows listed explicitly.
+# CCM pool parameterized: add "CCM Generic 2" to CCM if 1-CCM is too tight (spec
+# supply/demand). Phase 1 ships with 1 CCM.
+#
+# night_call / weekend_call are omitted: the builders iterate over an absent key
+# as an empty list, producing NightSolverConfig / WeekendSolverConfig with all
+# totals None (no per-fellow quotas yet — Phase 1 is a feasibility skeleton).
+solver_options:
+  call_tier_day_granular: true
+
+fellow_groups:
+  NCC_JR: [JR1, JR2, JR3]
+  NCC_SR: [SR1, SR2]
+  CCM: [CCM Generic 1]
+
+shifts: [NCC1, NCC2, NF, MICU, NS, SICU, Elec, Vac]
+
+horizon_start: '2026-07-01'
+num_weeks: 53
+
+rules: []
