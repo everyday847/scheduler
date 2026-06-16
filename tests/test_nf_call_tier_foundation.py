@@ -107,59 +107,95 @@ def test_micu_week_blocks_call_for_that_fellow():
             assert not a.get(vm.call[d][f][r], False)
 
 
-def test_non_blocking_week_allows_call():
-    cfg = make_nf_config(num_days=14)
+def test_seam_blocks_within_week_when_link_absent():
+    """The background->call seam directly prevents a call role when the fellow's
+    weekly background is call_blocking — even when the weekly<->day link cannot
+    enforce this because the call role is NOT among the weekly shifts.
+
+    Design note: when the call role IS in the shift list (the normal NF model
+    config), the link+at-most-one already subsumes the seam.  To isolate the seam
+    alone, we use a config where "NF" is absent from shifts, so the link never
+    fires for NF.  In that setting, xs[f][0][MICU]=1 + call[0][f][NF]=1 is UNSAT
+    only because the seam emits: call[d][f][r] + xs[f][w][MICU] <= 1.
+
+    Non-vacuity: if you disable _encode_call_background_seam in the encoder, this
+    test becomes SAT (proven experimentally)."""
+    f, w = 0, 0
+    # "NF" deliberately absent from shifts so the weekly<->day link is silent for NF.
+    cfg = make_nf_config(shifts=("NCC1", "NCC2", "MICU", "Elec", "Vac"), num_days=14)
     opb, vm = build(cfg)
-    f, w, elec = 0, 0, _shift_idx(vm, "Elec")
-    # Verify vars are allocated
-    assert vm.xs[f][w][elec] != 0, "xs[0][0][Elec] must be a real var"
+    micu = _shift_idx(vm, "MICU")
+    assert vm.xs[f][w][micu] != 0, "xs[0][0][MICU] must be a real var"
     assert vm.call[0][f]["NF"] != 0, "call[0][0][NF] must be a real var"
-    # In the NF model, the weekly label IS the call role (weekly<->day link).
-    # We cannot simultaneously pin a non-call weekly label (Elec) AND a call day
-    # for the same fellow/week — the link would require both Elec and NF as the
-    # weekly label, violating at-most-one-shift-per-week.
-    # Instead, we only force the call day and verify SAT.  The background-seam test
-    # (`test_micu_week_blocks_call_for_that_fellow`) already proves blocking shifts
-    # close the tier; the fact that this is SAT proves Elec does not.
-    opb.add_unit(vm.call[0][f]["NF"])   # Elec is not call_blocking; NF day 0 is SAT
+    assert "NF" not in vm.shifts, "NF must be absent from shifts for the link to be silent"
+    opb.add_unit(vm.xs[f][w][micu])      # pin MICU week 0
+    opb.add_unit(vm.call[0][f]["NF"])    # force NF call day 0 (same week, same fellow)
     res = runner_or_skip().solve(opb, timeout=30)
-    assert res.satisfiable
+    assert not res.satisfiable, (
+        "MICU (call_blocking) in week 0 must forbid an NF call day in week 0 "
+        "via the seam; this is UNSAT even without the weekly<->day link"
+    )
 
 
-def test_unflagged_noncall_shift_does_not_block_call():
-    """Regression: blocking must be driven by the call_blocking attribute, not by
-    absence from a hardcoded compatible-name set.  An unflagged non-call rotation
-    (here 'Swing') must NOT block call even though it is not in any 'compatible'
-    list — the old frozenset approach would have blocked it."""
+def test_seam_blocked_by_attribute_not_hardcoded_name():
+    """The seam must fire based on the call_blocking palette attribute, not a
+    hardcoded shift-name set.  When MICU is NOT marked call_blocking, pinning
+    xs[f][0][MICU]=1 must NOT prevent an NF call day in week 0 (the seam is silent;
+    only the link+at-most-one would block it, but NF is absent from shifts here).
+
+    CONTRAST with test_seam_blocks_within_week_when_link_absent: same scenario,
+    only the palette changes — MICU loses call_blocking.  The result flips from
+    UNSAT to SAT, proving the attribute, not the shift name, drives the seam."""
     from scheduler.shift_palette import ShiftPalette
 
-    # Add "Swing" to the shift list but do NOT mark it call_blocking.
-    palette = ShiftPalette.from_config({
-        "MICU": ["call_blocking"],
+    # MICU deliberately absent from call_blocking; all others retained.
+    palette_no_micu_block = ShiftPalette.from_config({
         "NS":   ["call_blocking"],
         "SICU": ["call_blocking"],
         "Vac":  ["call_blocking"],
-        # "Swing" deliberately absent — it is a real rotation but must not block call
+        # MICU omitted — it is a real rotation but must not block call under this palette
     })
+    f, w = 0, 0
+    # "NF" absent from shifts so the link is silent for NF (mirrors the blocking test).
     cfg = make_nf_config(
-        shifts=("NCC1", "NCC2", "NF", "MICU", "Elec", "Vac", "Swing"),
-        shift_palette=palette,
+        shifts=("NCC1", "NCC2", "MICU", "Elec", "Vac"),
+        num_days=14,
+        shift_palette=palette_no_micu_block,
     )
     opb, vm = build(cfg)
-    f, w = 0, 0
-    swing = _shift_idx(vm, "Swing")
-    assert vm.xs[f][w][swing] != 0, "xs[0][0][Swing] must be a real var"
+    micu = _shift_idx(vm, "MICU")
+    assert vm.xs[f][w][micu] != 0, "xs[0][0][MICU] must be a real var"
     assert vm.call[0][f]["NF"] != 0, "call[0][0][NF] must be a real var"
-    # In the NF model, the weekly label IS the call role (weekly<->day link).
-    # Pinning both Swing (xs) AND an NF call day would require two simultaneous
-    # weekly labels, which violates at-most-one-shift-per-week.  We verify only
-    # that the call day is satisfiable — if Swing had been call_blocking (via the
-    # seam), the solver would have closed the call tier and made this UNSAT.
-    opb.add_unit(vm.call[0][f]["NF"])
+    opb.add_unit(vm.xs[f][w][micu])      # pin MICU week 0
+    opb.add_unit(vm.call[0][f]["NF"])    # force NF call day 0
     res = runner_or_skip().solve(opb, timeout=30)
     assert res.satisfiable, (
-        "A fellow on an unflagged rotation must still be eligible for call — "
-        "blocking must be attribute-driven, not hardcoded-name-set-driven"
+        "MICU without call_blocking must NOT forbid an NF call day — "
+        "blocking is attribute-driven; removing the attribute must lift the forbid"
+    )
+
+
+def test_seam_scoped_to_its_own_week():
+    """The background->call seam is week-scoped: a call_blocking background in
+    week 0 must NOT block the same fellow's call in week 1.  This exercises the
+    w = day_to_week(d) scoping in _encode_call_background_seam.
+
+    Config: NF absent from shifts (so the link is silent for NF) to isolate the
+    seam.  In week 1 the fellow is free (no MICU pin), so the seam for week 0 MICU
+    must not emit any constraint on week-1 day variables."""
+    f = 0
+    # "NF" absent from shifts so the link is silent for NF.
+    cfg = make_nf_config(shifts=("NCC1", "NCC2", "MICU", "Elec", "Vac"), num_days=14)
+    opb, vm = build(cfg)
+    micu = _shift_idx(vm, "MICU")
+    assert vm.xs[f][0][micu] != 0, "xs[0][0][MICU] must be a real var"
+    assert vm.call[7][f]["NF"] != 0, "call[7][0][NF] must be a real var (day 7 = week 1)"
+    opb.add_unit(vm.xs[f][0][micu])       # pin MICU week 0 for fellow 0
+    opb.add_unit(vm.call[7][f]["NF"])     # force NF call on day 7 (week 1) for fellow 0
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable, (
+        "MICU (call_blocking) in week 0 must NOT block an NF call day in week 1 — "
+        "the seam must be scoped to the week of the blocking background"
     )
 
 
