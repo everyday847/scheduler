@@ -135,6 +135,33 @@ _num_weeks_for = num_weeks_for
 _date_to_day_index = date_to_day_index
 
 # ---------------------------------------------------------------------------
+# NF model: day-granular call-tier helpers
+# ---------------------------------------------------------------------------
+
+def _encode_call_tier_coverage(opb, call, config, fellow_names, num_days, start_dow):
+    """HARD coverage for the day-granular call tier (NF model).
+
+    Weekdays: exactly one fellow each on NCC1, NCC2, NF.
+    Weekends: exactly one each on NCC1, NF; NCC2 forbidden.
+    Per (day, fellow): at most one call role.
+    """
+    opb.add_comment("NF model: call-tier hard coverage (NCC1/NCC2/NF)")
+    num_fellows = len(fellow_names)
+    for d in range(num_days):
+        dow = _day_of_week(d, start_dow)
+        weekend = dow in (5, 6)
+        for role in CALL_ROLES:
+            holders = [call[d][f][role] for f in range(num_fellows)]
+            if role == "NCC2" and weekend:
+                for v in holders:           # NCC2 forbidden on weekends
+                    opb.add_unit(-v)
+            else:
+                opb.exactly_one(holders)
+        for f in range(num_fellows):
+            opb.at_most_k([call[d][f][r] for r in CALL_ROLES], 1)
+
+
+# ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
 
@@ -329,6 +356,8 @@ def build_full_schedule_opb(
             call.append([])
             for f in range(num_fellows):
                 call[d].append({role: opb.new_var() for role in CALL_ROLES})
+        _encode_call_tier_coverage(
+            opb, call, config, fellow_names, num_days, start_dow)
 
     # -------------------------------------------------------------------
     # 7. Night constraints

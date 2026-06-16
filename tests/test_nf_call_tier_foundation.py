@@ -49,3 +49,40 @@ def test_call_vars_absent_when_flag_off():
     cfg = make_nf_config(num_days=14, call_tier_day_granular=False)
     opb, vm = build(cfg)
     assert vm.call == []   # no day-granular call layer on the wb7-style path
+
+
+from _nf_helpers import runner_or_skip
+from parafrost_scheduler.schedule_types import day_of_week
+
+
+def _role_holders(assignment, vm, d, role):
+    return [f for f in range(vm.num_fellows)
+            if assignment.get(vm.call[d][f][role], False)]
+
+
+def test_coverage_is_satisfiable_and_exactly_one_each():
+    cfg = make_nf_config(num_days=14)   # 2 weeks, 6 fellows
+    opb, vm = build(cfg)
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable
+    a = res.assignment
+    for d in range(14):
+        dow = day_of_week(d, vm.start_dow)
+        assert len(_role_holders(a, vm, d, "NCC1")) == 1
+        assert len(_role_holders(a, vm, d, "NF")) == 1
+        if dow in (5, 6):   # weekend: no NCC2
+            assert len(_role_holders(a, vm, d, "NCC2")) == 0
+        else:               # weekday: exactly one NCC2
+            assert len(_role_holders(a, vm, d, "NCC2")) == 1
+
+
+def test_one_call_role_per_fellow_per_day():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable
+    a = res.assignment
+    for d in range(14):
+        for f in range(vm.num_fellows):
+            held = [r for r in ("NCC1", "NCC2", "NF") if a.get(vm.call[d][f][r], False)]
+            assert len(held) <= 1
