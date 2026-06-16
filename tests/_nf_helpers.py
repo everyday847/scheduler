@@ -21,7 +21,6 @@ _DEFAULT_FELLOW_GROUPS: dict[str, list[str]] = {
     "NCC_SR": ["S1", "S2"],
     "NCC_JR": ["J1", "J2", "J3"],
 }
-_DEFAULT_FELLOWS: tuple[str, ...] = ("C1", "S1", "S2", "J1", "J2", "J3")
 
 
 def make_nf_config(
