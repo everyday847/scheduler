@@ -31,7 +31,6 @@ ANAESTHESIA_GATING = "anaesthesia_gating"
 CLINIC_GATING = "clinic_gating"
 STROKE_GATING = "stroke_gating"
 STROKE_WK2627_ON = "stroke_wk2627_on"
-CALL_BLOCKING = "call_blocking"
 
 #: The fixed set of attribute flags a shift may carry directly via config.
 KNOWN_FLAGS: frozenset[str] = frozenset({
@@ -44,7 +43,6 @@ KNOWN_FLAGS: frozenset[str] = frozenset({
     CLINIC_GATING,
     STROKE_GATING,
     STROKE_WK2627_ON,
-    CALL_BLOCKING,
 })
 
 #: Derived projection: the night-block UNION (all-week shifts plus the

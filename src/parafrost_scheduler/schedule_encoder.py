@@ -162,28 +162,6 @@ def _encode_call_tier_coverage(opb, call, fellow_names, num_days, start_dow):
             opb.at_most_k([call[d][f][r] for r in CALL_ROLES], 1)
 
 
-def _encode_call_background_seam(opb, call, xs, config, fellow_names, shift_idx,
-                                 num_days, start_dow):
-    """A blocking weekly background rotation closes the call tier for that fellow
-    on that week's days (e.g. a MICU week blocks the call tier for all days that
-    week).  Which shifts block call is driven by the palette ``call_blocking``
-    attribute (ADR-0003), not a hardcoded name set."""
-    opb.add_comment("NF model: background-week gates call availability")
-    num_fellows = len(fellow_names)
-    blocking_indices = [shift_idx[s]
-                        for s in config.shift_palette.shifts_with_attribute("call_blocking")
-                        if s in shift_idx]
-    for d in range(num_days):
-        w = _day_to_week(d, start_dow)
-        for f in range(num_fellows):
-            for s in blocking_indices:
-                bg = xs[f][w][s]
-                # xs slot is 0 for a forbidden (fellow, week, shift) triple — no var to gate
-                if bg == 0:
-                    continue
-                for r in CALL_ROLES:
-                    opb.weighted_sum_at_least([(-call[d][f][r], 1), (-bg, 1)], 1)
-
 
 def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
                              num_days, start_dow, num_weeks):
@@ -421,8 +399,6 @@ def build_full_schedule_opb(
                 call[d].append({role: opb.new_var() for role in CALL_ROLES})
         _encode_call_tier_coverage(
             opb, call, fellow_names, num_days, start_dow)
-        _encode_call_background_seam(
-            opb, call, xs, config, fellow_names, shift_idx, num_days, start_dow)
         _encode_call_weekly_link(
             opb, call, xs, shift_idx, fellow_names, num_days, start_dow, num_weeks)
 

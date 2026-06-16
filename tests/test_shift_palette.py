@@ -125,7 +125,6 @@ class TestFailFast:
             "clinic_gating",
             "stroke_gating",
             "stroke_wk2627_on",
-            "call_blocking",
         })
 
 
