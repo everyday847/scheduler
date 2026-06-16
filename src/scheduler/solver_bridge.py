@@ -39,6 +39,7 @@ _SOLVER_OPTION_BOOL_KEYS = (
     "abpn_night_block",
     "weekend_night_saturday_hard",
     "weekend_night_sunday_hard",
+    "call_tier_day_granular",
 )
 
 
