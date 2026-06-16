@@ -118,3 +118,38 @@ def test_non_blocking_week_allows_call():
     opb.add_unit(vm.call[0][f]["NF"])   # and fellow 0 can take NF day 0
     res = runner_or_skip().solve(opb, timeout=30)
     assert res.satisfiable
+
+
+def test_unflagged_noncall_shift_does_not_block_call():
+    """Regression: blocking must be driven by the call_blocking attribute, not by
+    absence from a hardcoded compatible-name set.  An unflagged non-call rotation
+    (here 'Swing') must NOT block call even though it is not in any 'compatible'
+    list — the old frozenset approach would have blocked it."""
+    from scheduler.shift_palette import ShiftPalette
+
+    # Add "Swing" to the shift list but do NOT mark it call_blocking.
+    palette = ShiftPalette.from_config({
+        "MICU": ["call_blocking"],
+        "NS":   ["call_blocking"],
+        "SICU": ["call_blocking"],
+        "Vac":  ["call_blocking"],
+        # "Swing" deliberately absent — it is a real rotation but must not block call
+    })
+    cfg = make_nf_config(
+        shifts=("NCC1", "NCC2", "NF", "MICU", "Elec", "Vac", "Swing"),
+        shift_palette=palette,
+    )
+    opb, vm = build(cfg)
+    f, w = 0, 0
+    swing = _shift_idx(vm, "Swing")
+    assert vm.xs[f][w][swing] != 0, "xs[0][0][Swing] must be a real var"
+    assert vm.call[0][f]["NF"] != 0, "call[0][0][NF] must be a real var"
+    # Pin fellow 0 to Swing week 0 AND force them to hold a call role on day 0.
+    # If Swing incorrectly blocked call this would be UNSAT; it must be SAT.
+    opb.add_unit(vm.xs[f][w][swing])
+    opb.add_unit(vm.call[0][f]["NF"])
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert res.satisfiable, (
+        "A fellow on an unflagged rotation must still be eligible for call — "
+        "blocking must be attribute-driven, not hardcoded-name-set-driven"
+    )

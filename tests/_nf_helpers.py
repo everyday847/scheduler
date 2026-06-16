@@ -9,6 +9,7 @@ from datetime import date
 
 from parafrost_scheduler.schedule_types import ScheduleSolverConfig
 from scheduler.night_call_types import NightSolverConfig
+from scheduler.shift_palette import ShiftPalette
 from scheduler.weekend_call_types import WeekendSolverConfig
 
 from _dispatch_helpers import build, runner_or_skip  # noqa: F401 — re-exported for callers
@@ -21,6 +22,16 @@ _DEFAULT_FELLOW_GROUPS: dict[str, list[str]] = {
     "NCC_SR": ["S1", "S2"],
     "NCC_JR": ["J1", "J2", "J3"],
 }
+
+# Default palette: blocking background rotations carry call_blocking; light
+# rotations (NCC1, NCC2, NF, Elec) carry none.  Callers may override via
+# shift_palette= in **overrides.
+_DEFAULT_SHIFT_PALETTE = ShiftPalette.from_config({
+    "MICU": ["call_blocking"],
+    "NS":   ["call_blocking"],
+    "SICU": ["call_blocking"],
+    "Vac":  ["call_blocking"],
+})
 
 
 def make_nf_config(
@@ -65,6 +76,7 @@ def make_nf_config(
         start_dow=start_dow,
         num_days=num_days,
         call_tier_day_granular=True,
+        shift_palette=_DEFAULT_SHIFT_PALETTE,
     )
     kwargs.update(overrides)
     return ScheduleSolverConfig(**kwargs)

@@ -138,10 +138,6 @@ _date_to_day_index = date_to_day_index
 # NF model: day-granular call-tier helpers
 # ---------------------------------------------------------------------------
 
-# Weekly background states that DO NOT block the day-granular call tier (NF model).
-# Everything else in the palette (MICU, NS, Vac, SICU, ...) blocks call those days.
-_NF_CALL_COMPATIBLE_WEEKLY = frozenset({"NCC1", "NCC2", "NF", "Elec", ""})
-
 
 def _encode_call_tier_coverage(opb, call, fellow_names, num_days, start_dow):
     """HARD coverage for the day-granular call tier (NF model).
@@ -169,16 +165,20 @@ def _encode_call_tier_coverage(opb, call, fellow_names, num_days, start_dow):
 def _encode_call_background_seam(opb, call, xs, config, fellow_names, shift_idx,
                                  num_days, start_dow):
     """A blocking weekly background rotation closes the call tier for that fellow
-    on that week's days (e.g. a MICU week blocks the weekends)."""
+    on that week's days (e.g. a MICU week blocks the call tier for all days that
+    week).  Which shifts block call is driven by the palette ``call_blocking``
+    attribute (ADR-0003), not a hardcoded name set."""
     opb.add_comment("NF model: background-week gates call availability")
     num_fellows = len(fellow_names)
-    blocking_indices = [shift_idx[s] for s in config.shifts
-                        if s not in _NF_CALL_COMPATIBLE_WEEKLY and s in shift_idx]
+    blocking_indices = [shift_idx[s]
+                        for s in config.shift_palette.shifts_with_attribute("call_blocking")
+                        if s in shift_idx]
     for d in range(num_days):
         w = _day_to_week(d, start_dow)
         for f in range(num_fellows):
             for s in blocking_indices:
                 bg = xs[f][w][s]
+                # xs slot is 0 for a forbidden (fellow, week, shift) triple — no var to gate
                 if bg == 0:
                     continue
                 for r in CALL_ROLES:
