@@ -489,6 +489,38 @@ def _encode_nf_ccm_no_block_bridge(opb, call, config, fellow_names, num_days,
                 opb.at_most_k([call[b - 1][f]["NF"], call[b][f]["NF"]], 1)
 
 
+def _encode_nf_min_ncc_block_weeks(opb, xs, shift_idx, config, fellow_names, num_weeks):
+    """HARD: NCC call blocks are >= 2 consecutive weeks. Every NCC-labeled week must have
+    an NCC-labeled neighbor week — a lone NCC week flanked by non-NCC weeks is forbidden.
+    For an interior NCC week w:  NCC[w] => (NCC[w-1] OR NCC[w+1]), i.e.
+        (-NCC[w],1) + (NCC[w-1],1) + (NCC[w+1],1) >= 1.
+    Horizon-edge weeks (w=0 or w=num_weeks-1) are EXEMPT — we cannot require a neighbor
+    past the year boundary. A non-NCC neighbor does NOT rescue a lone NCC week (only an NCC
+    neighbor counts). No-op when nf_min_ncc_block_weeks is False or there is no 'NCC' shift.
+    CCM fellows run on 4-week NCC blocks so they never trigger this; it is applied to all
+    fellows harmlessly. The isolated-Elec-weekend case is labeled Elec (not NCC) by the
+    weekly link's weekend exemption, so it is never an NCC week here and needs no carve-out."""
+    if not config.nf_min_ncc_block_weeks:
+        return
+    si = shift_idx.get("NCC")
+    if si is None:
+        return
+    opb.add_comment("NF model: NCC call blocks >= 2 consecutive weeks (no lone NCC week)")
+    for f in range(len(fellow_names)):
+        for w in range(1, num_weeks - 1):          # interior weeks only (edges exempt)
+            wk = xs[f][w][si]
+            if wk == 0:
+                continue
+            prev_w = xs[f][w - 1][si]
+            next_w = xs[f][w + 1][si]
+            terms = [(-wk, 1)]
+            if prev_w != 0:
+                terms.append((prev_w, 1))
+            if next_w != 0:
+                terms.append((next_w, 1))
+            opb.weighted_sum_at_least(terms, 1)
+
+
 def _encode_nf_ncc1_continuity(opb, call, config, fellow_names, num_days, start_dow):
     """HARD: NCC1 is constant across consecutive days within a week, per fellow.
     mode "fullweek" => all 7 days; "weekday" => Mon-Fri only (weekend NCC1 free, which
@@ -1017,6 +1049,8 @@ def build_full_schedule_opb(
         _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config)
         _encode_nf_ccm_no_block_bridge(
             opb, call, config, fellow_names, num_days, start_dow, num_weeks)
+        _encode_nf_min_ncc_block_weeks(
+            opb, xs, shift_idx, config, fellow_names, num_weeks)
         _encode_nf_ncc1_continuity(
             opb, call, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)

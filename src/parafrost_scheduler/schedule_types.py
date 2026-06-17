@@ -256,6 +256,11 @@ class ScheduleSolverConfig:
     nf_max_consecutive_call_days: int = 0
     # When True, a CCM fellow's NF run may not bridge a 4-week NCC block boundary.
     nf_ccm_no_bridge_blocks: bool = False
+    # When True, NCC call blocks must be >= 2 consecutive weeks: every NCC-labeled week
+    # must have an NCC-labeled neighbor week (horizon-edge weeks exempt). A lone NCC week
+    # flanked by non-NCC weeks is forbidden. (CCM's 4wk blocks never trigger it.) The
+    # isolated-Elec-weekend case needs no exception: such a week is labeled Elec, not NCC.
+    nf_min_ncc_block_weeks: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))
