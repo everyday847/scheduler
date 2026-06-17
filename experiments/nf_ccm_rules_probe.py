@@ -52,6 +52,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rules", default="ABC")
     ap.add_argument("--elec-floor", type=int, default=6)
+    ap.add_argument("--ccm-max-blocks", type=int, default=0,
+                    help="HARD cap on active 4wk NCC blocks per CCM fellow (0=off). "
+                         "CCM has 13 blocks; 12 omits one each (~49 weeks).")
     ap.add_argument("--timeout", type=float, default=1800.0)
     args = ap.parse_args()
     want = set(args.rules.upper())
@@ -133,6 +136,27 @@ def main() -> int:
                     b = min(bd)
                     opb.at_most_k([nf[b - 1], nf[b]], 1)
 
+    # CCM block cap (mechanism 1): at most --ccm-max-blocks ACTIVE 4wk NCC blocks per
+    # CCM fellow. blk_active = OR(block's NCC weekly vars). Small cardinality (13 x 2).
+    if args.ccm_max_blocks > 0:
+        from parafrost_scheduler.schedule_encoder import _block_starts_grid
+        nccsi = vm.shifts.index("NCC")
+        for f, name in enumerate(vm.fellow_names):
+            if name not in ccm:
+                continue
+            blks = []
+            for bs, be in _block_starts_grid(vm.num_weeks, 4, 1):
+                bvars = [vm.xs[f][w][nccsi] for w in range(bs, be)
+                         if vm.xs[f][w][nccsi] != 0]
+                if not bvars:
+                    continue
+                blk = opb.new_var()
+                for bv in bvars:
+                    opb.weighted_sum_at_least([(-bv, 1), (blk, 1)], 1)   # week => blk
+                opb.weighted_sum_at_least([(-blk, 1)] + [(bv, 1) for bv in bvars], 1)  # blk => some week
+                blks.append(blk)
+            opb.weighted_sum_at_most([(b, 1) for b in blks], args.ccm_max_blocks)
+
     t = time.time()
     try:
         r = RUNNER.solve(opb, timeout=args.timeout)
@@ -140,7 +164,8 @@ def main() -> int:
         print(f"rules={''.join(sorted(want))} elec>={args.elec_floor}: TIMEOUT>{args.timeout}s")
         return 0
     dt = round(time.time() - t, 1)
-    print(f"rules={''.join(sorted(want))} elec>={args.elec_floor}: "
+    print(f"rules={''.join(sorted(want))} elec>={args.elec_floor} "
+          f"ccm_max_blocks={args.ccm_max_blocks or '-'}: "
           f"{'SAT' if r.satisfiable else 'UNSAT'} {dt}s")
     return 0
 
