@@ -151,7 +151,14 @@ git commit -m "feat(nf): nf_service config knobs (max-off, ncc1-continuity, pena
 
 ---
 
-### Task 2: `_encode_nf_max_consecutive_off` (hard density lever)
+### Task 2: `_encode_nf_max_consecutive_off` (hard density lever) — ✅ DONE, but SUPERSEDED by Task 8
+
+> **STATUS (2026-06-17):** Implemented and committed (`cd85ac7`), but its semantics were
+> superseded by the user's corrected intent. The user clarified the rule is about MAXIMUM rest
+> (≤2 off days/week), not capping consecutive-off-runs. **Task 8 (Rule A)** is the real rule.
+> Leave this code in place — it is gated off by default (`nf_max_consecutive_off=0`), so it is
+> harmless and stays unused. The production config (Task 6) does NOT set `nf_max_consecutive_off`.
+> Do not re-implement; do not wire it on.
 
 Forbid more than `config.nf_max_consecutive_off` consecutive fully-off days for JR/SR fellows. Local per-window clause (tractable). Reuses the existing `_build_off_indicator`.
 
@@ -819,8 +826,431 @@ git commit -m "feat(nf): wire chosen density/Elec/continuity operating point int
 
 ---
 
+## CCM / rest model (added 2026-06-17 after the workbook audit)
+
+The shipped CCM service was audited and found under-constrained: blocks ranged 14–27 service
+days, one CCM worked 21 consecutive days, and NF runs bridged 4-week block boundaries. (Rest
+rules themselves were fully compliant — these are MISSING constraints, not violations.) The user
+specified three corrected rules. Feasibility was proven on Slurm (`experiments/nf_ccm_rules_probe.py`,
+jobs 16479775-781): A=SAT 542s, AB=SAT 1025s, AC=SAT 1045s, **ABC=SAT 558s**. B-alone and C-alone
+time out, but all three together solve in ~9 min — Rule A's tight per-week off-cap prunes the
+search. We always ship all three together, so the solo timeouts are irrelevant.
+
+**Solve location:** these constraints push solve time to ~9 min; production solves run on Slurm
+(`experiments/nf_optimize.slurm`), NOT locally. Local feasibility checks of a single rule will
+time out — that is expected and not a failure.
+
+### Task 8: Rule A — per-week off-day cap (HARD; supersedes Task 2)
+
+A week has AT MOST 2 days off — EXCEPT the one forced case where the week contains a full NF run
+whose entire mandatory rest (1 day before + 2 after) falls in that same week (e.g. `Mon off /
+Tue–Fri NF / Sat–Sun off` = 3 off, all mandatory). You never get "NF rest PLUS up to 2
+discretionary". "off" via `_build_off_indicator` (Elec/Vac/MICU weeks are working, not off, so
+those weeks are unaffected). Applies to ALL call fellows.
+
+**Files:**
+- Modify: `src/parafrost_scheduler/schedule_types.py` (add `nf_week_off_cap: int = 0` field, default 0 = OFF)
+- Modify: `src/scheduler/solver_bridge.py` (register `nf_week_off_cap` int key — add to `known` set and the int-coercion loop from Task 1)
+- Modify: `src/parafrost_scheduler/schedule_encoder.py` (new fn `_encode_nf_week_off_cap`; call site in the gated block after `_encode_nf_rest`)
+- Test: `tests/test_nf_week_off_cap.py` (create)
+
+**Interfaces:**
+- Consumes: `config.nf_week_off_cap: int` (0=off; the cap, normally 2), `_build_off_indicator`, `_day_to_week`, `vm.call[d][f]["NF"]`.
+- Produces: `_encode_nf_week_off_cap(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow) -> None`.
+
+- [ ] **Step 1: Add the config knob**
+
+In `schedule_types.py`, after the Task-1 NF fields:
+```python
+    # Max OFF days per week (0 = off). At most this many off days/week, EXCEPT a week
+    # holding a full NF run's 3 mandatory rest days may have 3 (all forced). Normally 2.
+    nf_week_off_cap: int = 0
+```
+In `solver_bridge.py`, add `"nf_week_off_cap"` to the `known` set and to the int-coercion loop alongside the Task-1 int keys.
+
+- [ ] **Step 2: Write the failing test**
+
+```python
+# tests/test_nf_week_off_cap.py
+from pathlib import Path
+import pytest
+from parafrost_scheduler.experiment import assemble_config
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb, decode_solution, _day_to_week, CALL_ROLES)
+from parafrost_scheduler.schedule_types import day_of_week
+
+_REPO = Path(__file__).resolve().parent.parent
+_RS = _REPO / "vendor/roundingsat/build/roundingsat"
+
+
+def _runner_or_skip():
+    from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+    if not _RS.exists():
+        pytest.skip("RoundingSat not built")
+    return RoundingSatRunner(_RS)
+
+
+def _cfg(cap):
+    res = assemble_config(None,
+        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
+    cfg = res[0] if isinstance(res, tuple) else res
+    object.__setattr__(cfg, "nf_week_off_cap", cap)
+    return cfg
+
+
+def _off_days_per_week(sol, vm, name):
+    """Per week, count days the fellow holds NO call role AND is on no working bg
+    rotation (i.e. the week's weekly label is NCC or blank). Returns {week: off_count}."""
+    # A fellow is 'off' on day d iff no call role that day AND the week is not a working
+    # background week. We approximate working-bg by: weekly label not in {'', 'NCC'}.
+    labels = sol.weekly_assignments[name]
+    per = {}
+    days_in_week = {}
+    for d in range(vm.num_days):
+        days_in_week.setdefault(_day_to_week(d, vm.start_dow), []).append(d)
+    for w, days in days_in_week.items():
+        if labels[w] not in ("", "NCC"):
+            continue  # working bg week: its days are 'working', not off
+        off = 0
+        for d in days:
+            if not any(sol.call_assignments_by_day[d][r] == name for r in CALL_ROLES):
+                off += 1
+        per[w] = off
+    return per
+
+
+def test_week_off_cap_2_holds_except_forced_nf_rest_weeks(tmp_path):
+    cfg = _cfg(2)
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    r = _runner_or_skip().solve(opb, timeout=1200)
+    assert r.satisfiable
+    sol = decode_solution(r.assignment, vm)
+    # For every fellow and every NCC/blank week, off-days <= 3, and <= 2 unless the week
+    # contains a full in-week NF run (>=3 NF days that week, the forced-rest case).
+    for name in vm.fellow_names:
+        labels = sol.weekly_assignments[name]
+        per = _off_days_per_week(sol, vm, name)
+        days_in_week = {}
+        for d in range(vm.num_days):
+            days_in_week.setdefault(_day_to_week(d, vm.start_dow), []).append(d)
+        for w, off in per.items():
+            assert off <= 3, (name, w, off)
+            if off == 3:
+                nf_days = sum(1 for d in days_in_week[w]
+                              if sol.call_assignments_by_day[d]["NF"] == name)
+                assert nf_days >= 3, (name, w, "3 off but no in-week NF run")
+```
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_week_off_cap.py -v`
+Expected: FAIL — without the encoder, weeks with >2 (and ==3-without-NF) off days appear.
+
+- [ ] **Step 4: Implement the encoder**
+
+In `schedule_encoder.py`, near `_encode_nf_rest`. Port the verified probe logic from
+`experiments/nf_ccm_rules_probe.py` (Rule A block), adapted to consume `config.nf_week_off_cap`:
+
+```python
+def _encode_nf_week_off_cap(opb, call, xs, shift_idx, config,
+                            fellow_names, num_days, start_dow):
+    """HARD: at most config.nf_week_off_cap (normally 2) off days per week, EXCEPT a week
+    holding a full NF run's 3 mandatory rest days may have cap+1 (all forced). No-op at 0.
+    A 'mandatory rest day' = an off day that is the 1 day before a run start, or one of the
+    2 days after a run end. off via _build_off_indicator (Elec/Vac/MICU weeks unaffected)."""
+    cap = config.nf_week_off_cap
+    if cap <= 0:
+        return
+    opb.add_comment(f"NF model: <= {cap} off days/week (exempt full in-week NF rest)")
+    days_in_week = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+
+    def and_upper(lits):
+        v = opb.new_var()
+        for lit in lits:
+            opb.weighted_sum_at_least([(-v, 1), (lit, 1)], 1)   # v => lit
+        return v
+
+    for f in range(len(fellow_names)):
+        nf = [call[d][f]["NF"] for d in range(num_days)]
+        off = [_build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow)
+               for d in range(num_days)]
+        rest = [None] * num_days
+        for d in range(num_days):
+            terms = []
+            if d + 1 < num_days:
+                terms.append(and_upper([off[d], nf[d + 1]]))            # 1 before a start
+            if d - 1 >= 0:
+                terms.append(and_upper([off[d], nf[d - 1]]))            # 1st after an end
+            if d - 2 >= 0:
+                nnf = opb.new_var()
+                opb.weighted_sum_at_least([(-nnf, 1), (-nf[d - 1], 1)], 1)  # nnf => ~nf[d-1]
+                terms.append(and_upper([off[d], nnf, nf[d - 2]]))       # 2nd after an end
+            rv = opb.new_var()
+            if terms:
+                opb.weighted_sum_at_least([(t, 1) for t in terms] + [(-rv, 1)], 0)  # rv <= sum(terms)
+            else:
+                opb.add_unit(-rv)
+            rest[d] = rv
+        for w, days in days_in_week.items():
+            offs = [off[d] for d in days]
+            rests = [rest[d] for d in days]
+            extra = opb.new_var()
+            # extra can be 1 only with >= cap+1 mandatory rest days that week
+            opb.weighted_sum_at_least([(r, 1) for r in rests] + [(-extra, cap + 1)], 0)
+            # sum(off) <= cap + extra
+            opb.weighted_sum_at_most([(o, 1) for o in offs] + [(extra, -1)], cap)
+```
+
+Call site (gated block, after `_encode_nf_rest`):
+```python
+        _encode_nf_week_off_cap(
+            opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+```
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_week_off_cap.py -v`
+Expected: PASS (solve ~5–10 min; raise the pytest/solve timeout if needed).
+
+- [ ] **Step 6: wb7 byte-equivalence**
+
+Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/ -k "wb7 or byte or equiv" -q`
+Expected: PASS (no-op at default cap 0).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/parafrost_scheduler/schedule_types.py src/scheduler/solver_bridge.py src/parafrost_scheduler/schedule_encoder.py tests/test_nf_week_off_cap.py
+git commit -m "feat(nf): Rule A — per-week off-day cap (<=2, exempt full in-week NF rest)"
+```
+
+### Task 9: Rule B — max consecutive call days (HARD)
+
+No fellow holds a CALL role (NCC1/NCC2/NF) on more than `config.nf_max_consecutive_call_days`
+consecutive days (normally 14 — two full weeks). A background-rotation or off day breaks the
+streak. NOT "not-off" (that wrongly counts MICU/Elec weeks and is instant-UNSAT). All call fellows.
+
+**Files:**
+- Modify: `src/parafrost_scheduler/schedule_types.py` (add `nf_max_consecutive_call_days: int = 0`)
+- Modify: `src/scheduler/solver_bridge.py` (register the int key)
+- Modify: `src/parafrost_scheduler/schedule_encoder.py` (new fn `_encode_nf_max_consecutive_call_days`; call site in gated block)
+- Test: `tests/test_nf_max_call_days.py` (create)
+
+**Interfaces:**
+- Consumes: `config.nf_max_consecutive_call_days: int`, `vm.call[d][f][role]`.
+- Produces: `_encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config) -> None`.
+
+- [ ] **Step 1: Config knob** — add `nf_max_consecutive_call_days: int = 0` (schedule_types.py) and register it in solver_bridge.py (known set + int loop).
+
+- [ ] **Step 2: Write the failing test**
+
+```python
+# tests/test_nf_max_call_days.py
+from pathlib import Path
+import pytest
+from parafrost_scheduler.experiment import assemble_config
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb, decode_solution, CALL_ROLES)
+
+_REPO = Path(__file__).resolve().parent.parent
+_RS = _REPO / "vendor/roundingsat/build/roundingsat"
+
+
+def _runner_or_skip():
+    from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+    if not _RS.exists():
+        pytest.skip("RoundingSat not built")
+    return RoundingSatRunner(_RS)
+
+
+def _cfg(cap):
+    res = assemble_config(None,
+        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
+    cfg = res[0] if isinstance(res, tuple) else res
+    object.__setattr__(cfg, "nf_max_consecutive_call_days", cap)
+    return cfg
+
+
+def test_no_fellow_exceeds_14_consecutive_call_days():
+    cfg = _cfg(14)
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    r = _runner_or_skip().solve(opb, timeout=1200)
+    assert r.satisfiable
+    sol = decode_solution(r.assignment, vm)
+    for name in vm.fellow_names:
+        on = [1 if any(sol.call_assignments_by_day[d][role] == name for role in CALL_ROLES)
+              else 0 for d in range(vm.num_days)]
+        run = 0
+        for v in on:
+            run = run + 1 if v else 0
+            assert run <= 14, (name, "consecutive call days exceeded 14")
+```
+
+- [ ] **Step 3: Run to verify it fails** — `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_max_call_days.py -v`; without the constraint some fellow exceeds 14 (the audit found 21).
+
+- [ ] **Step 4: Implement the encoder**
+
+```python
+def _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config):
+    """HARD: no fellow holds a call role on more than config.nf_max_consecutive_call_days
+    consecutive days. call-day = OR(NCC1,NCC2,NF) that day; a background/off day breaks the
+    streak. Per-window clause: >=1 non-call day in every (cap+1)-day window. No-op at 0."""
+    cap = config.nf_max_consecutive_call_days
+    if cap <= 0:
+        return
+    opb.add_comment(f"NF model: <= {cap} consecutive call days")
+    win = cap + 1
+    for f in range(len(fellow_names)):
+        cday = []
+        for d in range(num_days):
+            roles = [call[d][f][r] for r in CALL_ROLES]
+            c = opb.new_var()
+            for rv in roles:
+                opb.weighted_sum_at_least([(-rv, 1), (c, 1)], 1)               # role => c
+            opb.weighted_sum_at_least([(-c, 1)] + [(rv, 1) for rv in roles], 1)  # c => some role
+            cday.append(c)
+        for d in range(num_days - win + 1):
+            opb.weighted_sum_at_least([(-cday[d + o], 1) for o in range(win)], 1)
+```
+Call site (gated block, after Task 8's call):
+```python
+        _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config)
+```
+
+- [ ] **Step 5: Run to verify passes** — same command; expect PASS (solve may be minutes).
+- [ ] **Step 6: wb7 byte-equivalence** — `-k "wb7 or byte or equiv"`; PASS (no-op at 0).
+- [ ] **Step 7: Commit**
+```bash
+git add src/parafrost_scheduler/schedule_types.py src/scheduler/solver_bridge.py src/parafrost_scheduler/schedule_encoder.py tests/test_nf_max_call_days.py
+git commit -m "feat(nf): Rule B — max consecutive call days (default 14)"
+```
+
+### Task 10: Rule C — CCM NF runs may not bridge a block boundary (HARD)
+
+A CCM fellow's NF run must lie entirely within one 4-week NCC block (offset-1 grid). At each
+block-start day `b` (first day of weeks 5, 9, 13, …), forbid `nf[b-1] AND nf[b]` for CCM fellows.
+
+**Files:**
+- Modify: `src/parafrost_scheduler/schedule_types.py` (add `nf_ccm_no_bridge_blocks: bool = False`)
+- Modify: `src/scheduler/solver_bridge.py` (add to `_SOLVER_OPTION_BOOL_KEYS`)
+- Modify: `src/parafrost_scheduler/schedule_encoder.py` (new fn `_encode_nf_ccm_no_block_bridge`; call site in gated block)
+- Test: `tests/test_nf_ccm_no_bridge.py` (create)
+
+**Interfaces:**
+- Consumes: `config.nf_ccm_no_bridge_blocks: bool`, `config.fellow_groups["CCM"]`, `_day_to_week`, `vm.call[d][f]["NF"]`. Block grid = `_block_starts_grid(num_weeks, 4, 1)` (the boundaries are its block-start weeks except week 0).
+- Produces: `_encode_nf_ccm_no_block_bridge(opb, call, config, fellow_names, num_days, start_dow, num_weeks) -> None`.
+
+- [ ] **Step 1: Config knob** — add `nf_ccm_no_bridge_blocks: bool = False` (schedule_types.py) and add `"nf_ccm_no_bridge_blocks"` to `_SOLVER_OPTION_BOOL_KEYS` in solver_bridge.py.
+
+- [ ] **Step 2: Write the failing test**
+
+```python
+# tests/test_nf_ccm_no_bridge.py
+from pathlib import Path
+import pytest
+from parafrost_scheduler.experiment import assemble_config
+from parafrost_scheduler.schedule_encoder import (
+    build_full_schedule_opb, decode_solution, _day_to_week, _block_starts_grid)
+
+_REPO = Path(__file__).resolve().parent.parent
+_RS = _REPO / "vendor/roundingsat/build/roundingsat"
+
+
+def _runner_or_skip():
+    from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+    if not _RS.exists():
+        pytest.skip("RoundingSat not built")
+    return RoundingSatRunner(_RS)
+
+
+def _cfg(flag):
+    res = assemble_config(None,
+        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
+    cfg = res[0] if isinstance(res, tuple) else res
+    object.__setattr__(cfg, "nf_ccm_no_bridge_blocks", flag)
+    return cfg
+
+
+def test_no_ccm_nf_run_bridges_a_block_boundary():
+    cfg = _cfg(True)
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    r = _runner_or_skip().solve(opb, timeout=1200)
+    assert r.satisfiable
+    sol = decode_solution(r.assignment, vm)
+    # boundary day = first day of each block start-week (except week 0)
+    starts = [bs for bs, _ in _block_starts_grid(vm.num_weeks, 4, 1)][1:]
+    bday = []
+    for wk in starts:
+        ds = [d for d in range(vm.num_days) if _day_to_week(d, vm.start_dow) == wk]
+        if ds:
+            bday.append(min(ds))
+    for name in cfg.fellow_groups["CCM"]:
+        for b in bday:
+            if b - 1 >= 0:
+                prev = sol.call_assignments_by_day[b - 1]["NF"] == name
+                cur = sol.call_assignments_by_day[b]["NF"] == name
+                assert not (prev and cur), (name, b, "NF run bridges block boundary")
+```
+
+- [ ] **Step 3: Run to verify it fails** — without the constraint the audit found bridging runs (e.g. CCM days 90–91, 202–203). Expect FAIL.
+
+- [ ] **Step 4: Implement the encoder**
+
+```python
+def _encode_nf_ccm_no_block_bridge(opb, call, config, fellow_names, num_days,
+                                   start_dow, num_weeks):
+    """HARD: a CCM fellow's NF run may not bridge a 4-week NCC block boundary. At each
+    block-start day b (first day of the block-start weeks from _block_starts_grid, except
+    week 0), forbid nf[b-1] AND nf[b]. No-op when nf_ccm_no_bridge_blocks is False."""
+    if not config.nf_ccm_no_bridge_blocks:
+        return
+    opb.add_comment("NF model: CCM NF runs do not bridge a 4-week block boundary")
+    ccm = set(config.fellow_groups.get("CCM", []))
+    starts = [bs for bs, _ in _block_starts_grid(num_weeks, 4, 1)][1:]
+    days_in_week = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+    for f, name in enumerate(fellow_names):
+        if name not in ccm:
+            continue
+        for wk in starts:
+            ds = days_in_week.get(wk, [])
+            if not ds:
+                continue
+            b = min(ds)
+            if b - 1 >= 0:
+                opb.at_most_k([call[b - 1][f]["NF"], call[b][f]["NF"]], 1)
+```
+Call site (gated block, after Task 9's call):
+```python
+        _encode_nf_ccm_no_block_bridge(
+            opb, call, config, fellow_names, num_days, start_dow, num_weeks)
+```
+
+- [ ] **Step 5: Run to verify passes** — same command; expect PASS.
+- [ ] **Step 6: wb7 byte-equivalence** — `-k "wb7 or byte or equiv"`; PASS (no-op when flag False).
+- [ ] **Step 7: Commit**
+```bash
+git add src/parafrost_scheduler/schedule_types.py src/scheduler/solver_bridge.py src/parafrost_scheduler/schedule_encoder.py tests/test_nf_ccm_no_bridge.py
+git commit -m "feat(nf): Rule C — CCM NF runs do not bridge 4-week block boundaries"
+```
+
+> **Task 6 addendum:** when wiring the production config, set in `solver_options`:
+> `nf_week_off_cap: 2`, `nf_max_consecutive_call_days: 14`, `nf_ccm_no_bridge_blocks: true`
+> (and do NOT set `nf_max_consecutive_off`). The full ABC model solves in ~9 min on Slurm
+> (proven SAT), so the integration test (Task 6 Step 5) and production render (Step 7) must
+> run via `optimize()` on Slurm, not a local `solve()`.
+
+---
+
 ## Self-Review notes
 
-- **Spec coverage:** §1 un-forbid Elec → Task 6 rules + Task 6 Step 2 check. §2 MICU blocks → already shipped. §3 max-off → Task 2. §4 NCC1 continuity → Task 3. §4.5 asymmetric rest → already shipped. §5 concentration objective → Task 5. §6 CCM → Task 7 (deferred). §7 workbook → already shipped. Day-band config-driving → Task 4.
-- **Tractability:** Task 6 Step 5 explicitly handles the hard-Elec-floor timeout risk (use sweep-chosen low floor; escalate to optimize/Slurm if needed).
-- **Gating:** Tasks 2,3,5 all no-op at their default knob values; Task 2/5 include wb7 byte-equivalence steps.
+- **Spec coverage:** §1 un-forbid Elec → Task 6 rules + Task 6 Step 2 check. §2 MICU blocks → already shipped. §3 density → originally Task 2 (max-off), SUPERSEDED by Task 8 (Rule A per-week off-cap, the user's corrected intent). §4 NCC1 continuity → Task 3 (production uses `weekday` mode). §4.5 asymmetric rest → already shipped. §5 concentration objective → Task 5. §6 CCM → Task 7 (coverage relax, deferred to inspection) + the CCM/rest model Tasks 8–10. §7 workbook → already shipped. Day-band config-driving → Task 4.
+- **CCM/rest model (Tasks 8–10):** Rule A (per-week off-cap, supersedes Task 2), Rule B (max-14-consecutive-call-days), Rule C (no CCM NF bridging block boundary). All proven feasible together on Slurm (ABC SAT 558s); each is gated and no-ops at its default. Production config (Task 6) sets `nf_week_off_cap: 2`, `nf_max_consecutive_call_days: 14`, `nf_ccm_no_bridge_blocks: true`.
+- **Tractability:** the full model solves in ~9 min — production solves run on Slurm via `optimize()`, not local `solve()`. Single-rule local checks time out (expected). Task 6 Step 5/7 must use Slurm.
+- **Gating:** Tasks 2,3,5,8,9,10 all no-op at their default knob values; encoder tasks include wb7 byte-equivalence steps.
