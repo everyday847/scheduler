@@ -100,9 +100,9 @@ def test_pinned_run_then_immediate_call_is_unsat():
 
 
 def test_pinned_call_then_immediate_run_is_unsat():
-    """BEFORE-run rest direction: a call role on the day just before an NF run
-    starts -> UNSAT. The after-run test uses a horizon-head run (day 0) which skips
-    the before-clauses, so this mid-horizon run guards the symmetric other half."""
+    """BEFORE-run rest direction: a call role on the day JUST before an NF run
+    starts (d-1) -> UNSAT. Rest is ASYMMETRIC (1 day before, 2 after); the d-1
+    before-day must still be off, so this stays UNSAT."""
     cfg = make_nf_config(num_days=28)
     opb, vm = build(cfg)
     f = 1
@@ -112,3 +112,22 @@ def test_pinned_call_then_immediate_run_is_unsat():
     opb.add_unit(vm.call[9][f]["NCC1"])     # call on day 9 = run-start's d-1 -> before-rest violated
     res = runner_or_skip().solve(opb, timeout=120)
     assert not res.satisfiable
+
+
+def test_before_rest_is_only_one_day():
+    """ASYMMETRY GUARD (user 2026-06-17): only ONE off day is required BEFORE an NF
+    run, not two. A call role on day d-2 before a run start must be ALLOWED. Pinning
+    NCC1 on day 8 (= d-2 for a run starting day 10), with day 9 (d-1) left off, must
+    stay SAT. (Mutation check: reverting _encode_nf_rest's before-side to k in (1,2)
+    would force day 8 off and could flip this — guarding the loosening.)"""
+    cfg = make_nf_config(num_days=28)
+    opb, vm = build(cfg)
+    f = 1
+    for d in range(10, 15):                 # NF run days 10..14 (length 5, valid)
+        opb.add_unit(vm.call[d][f]["NF"])
+    opb.add_unit(-vm.call[9][f]["NF"])      # run STARTS at day 10
+    opb.add_unit(-vm.call[9][f]["NCC1"])    # d-1 (day 9) kept off (still required)
+    opb.add_unit(-vm.call[9][f]["NCC2"])
+    opb.add_unit(vm.call[8][f]["NCC1"])     # d-2 (day 8) on call -> allowed under 1-day before-rest
+    res = runner_or_skip().solve(opb, timeout=120)
+    assert res.satisfiable

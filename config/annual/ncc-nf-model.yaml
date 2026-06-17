@@ -22,11 +22,13 @@ rules:
   # --- NCC_JR background rotations ---
   - {type: shift_total, name: "JR MICU total", groups: [NCC_JR], shifts: [MICU], relation: exactly, count: 16, strength: hard}
   - {type: shift_total, name: "JR MICU orientation", groups: [NCC_JR], shifts: [MICU], relation: exactly, count: 4, window: [0, 4], strength: hard}
+  - {type: block_rotation, name: "JR MICU 4wk blocks", groups: [NCC_JR], shifts: [MICU], block_size: 4, strength: hard}
   - {type: block_rotation, name: "JR Anaesthesia 4wk block", groups: [NCC_JR], shifts: [Anaesthesia], block_size: 4, strength: hard}
   - {type: shift_total, name: "JR Anaesthesia total", groups: [NCC_JR], shifts: [Anaesthesia], relation: exactly, count: 4, strength: hard}
   - {type: shift_total, name: "JR SICU total", groups: [NCC_JR], shifts: [SICU], relation: exactly, count: 4, strength: hard}
   # --- NCC_SR background rotations ---
   - {type: shift_total, name: "SR MICU total", groups: [NCC_SR], shifts: [MICU], relation: exactly, count: 8, strength: hard}
+  - {type: block_rotation, name: "SR MICU 4wk blocks", groups: [NCC_SR], shifts: [MICU], block_size: 4, strength: hard}
   - {type: block_rotation, name: "SR NS 2wk block", groups: [NCC_SR], shifts: [NS], block_size: 2, strength: hard}
   - {type: shift_total, name: "SR NS total", groups: [NCC_SR], shifts: [NS], relation: exactly, count: 6, strength: hard}
   - {type: shift_total, name: "SR Stroke total", groups: [NCC_SR], shifts: [Stroke], relation: exactly, count: 2, strength: hard}

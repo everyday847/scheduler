@@ -60,8 +60,9 @@ All measured with `experiments/nf_density_diag.py`, `nf_optimize.py`, and target
 
 ## Non-goals
 
-- Re-deriving the day-vs-week model, NF run/rest mechanics, or background quotas — those
-  are settled (see `nf-night-float-model-design.md`, `nf-background-rotations-...-design.md`).
+- Re-deriving the day-vs-week model, NF run mechanics, or background quotas — those are
+  settled (see `nf-night-float-model-design.md`, `nf-background-rotations-...-design.md`).
+  (NF *rest* IS revised here — see §4.5.)
 - wb7 production path changes — every change here is config-only or gated behind
   `config.call_tier_day_granular`; wb7 stays byte-equivalent.
 
@@ -76,9 +77,13 @@ Add Elec budget rules so `derive_forbidden_shifts` stops zeroing it:
 - {type: shift_total, name: "SR Elec floor", groups: [NCC_SR], shifts: [Elec], relation: at_least, count: 6, strength: hard}
 ```
 
-Hard floor = 6 is validated feasible (organic optimization reached 6–11). Pair with a
-SOFT target (below) pulling higher. (If a hard 6 ever proves too tight under future quota
-changes, fall back to 5; ≥2 always works.)
+**Tractability caveat (measured 2026-06-17):** a hard Elec floor is a tight cardinality
+bound and stacks badly with the MICU 4-week block (§2). Locally: MICU-block + hard Elec≥2
+SAT 1s, ≥3 SAT 21s, ≥4 timeout >120s. The earlier "Elec≥6 reached organically in 5 min"
+run was BEFORE MICU blocks were added. So the hard floor level is a tractability decision,
+resolved empirically on Slurm (§Tractability). Plan: keep the hard floor LOW (≥2–3, enough
+to un-forbid + guarantee a minimum) and drive the real elective volume with the SOFT target
+(below) under a long optimize. The Slurm sweep tests floors {2,4,6} to find the ceiling.
 
 ### 2. MICU 4-week blocks (hard)
 
@@ -101,18 +106,32 @@ genuine elective/MICU/Vac weeks untouched (they count as working, not off). New 
 function `_encode_nf_max_consecutive_off`, gated under `call_tier_day_granular`, applied to
 NCC_JR/NCC_SR fellows. **Hard.**
 
-### 4. NCC1 full-week blocks (hard) — the continuity fix
+### 4. NCC1 contiguous blocks (hard) — the continuity fix; TWO candidate modes
 
-For each fellow and week, NCC1 is constant across the days of that week:
-`NCC1[d][f] == NCC1[d+1][f]` for consecutive days in the same week. With the hard coverage
-(exactly 1 NCC1 holder/day), NCC1 becomes a clean one-fellow-per-week block. NCC2 stays
-day-granular and absorbs the NF-boundary fragmentation. New encoder function
-`_encode_nf_ncc1_full_week`, gated under `call_tier_day_granular`. **Hard.** Applies to all
-call-eligible fellows incl. CCM. Validated SAT in 4.7s.
+NCC1 is forced constant across consecutive days within a week per fellow:
+`NCC1[d][f] == NCC1[d+1][f]`. With hard coverage (exactly 1 NCC1 holder/day), NCC1 becomes a
+clean block and NCC2 (day-granular) absorbs the NF-boundary fragmentation. Two modes to
+evaluate (Slurm sweep compares them):
 
-This directly delivers the user's "NCC1 straight through, then SR2 NCC2 straight through"
-continuity. A soft NCC2 same-role continuity nudge is a possible later refinement, NOT in
-this spec (NCC1-full-week removes most scatter on its own).
+- **Full-week:** constant across all 7 days. NCC1 = one fellow for the whole week. Validated
+  SAT in 4.7s standalone.
+- **Weekday-only (`--ncc1-weekday`):** constant across the 5 weekdays (Mon–Fri); weekend NCC1
+  is free. This lets a fellow finish a weekday NCC1 block, take the weekend off, then start an
+  NF run Monday — the NCC1→weekend-off→NF transition the user wants. Preferred candidate.
+
+New encoder function `_encode_nf_ncc1_continuity(mode)`, gated under `call_tier_day_granular`,
+applied to all call-eligible fellows incl. CCM. **Hard.** This delivers the user's "NCC1
+straight through, then SR2 NCC2 straight through" continuity. A soft NCC2 same-role nudge is a
+possible later refinement, not in this spec.
+
+### 4.5. Asymmetric NF rest — 1 day before, 2 days after (hard)
+
+Revised from the prior symmetric ≥2-off rule (user, 2026-06-17): a full day off is needed
+*before* starting nights, but only one; the post-NF recovery still needs two. `_encode_nf_rest`
+before-side changed from `k in (1,2)` to `k in (1,)`; after-side unchanged at `k in (1,2)`.
+This loosens the model (helps the packing / tractability) and enables NCC1→weekend-off→NF
+transitions. Tests updated: stale "symmetric" wording fixed, new `test_before_rest_is_only_
+one_day` mutation guard (a d-2 call before a run start must stay SAT). Done this session.
 
 ### 5. Concentration objective (soft) under optimize()
 
@@ -159,7 +178,13 @@ All in `src/parafrost_scheduler/workbook.py` (`_build_call_detail_sheet`,
 ## Tractability & testing
 
 - Feasibility probes: `objective=False` + `runner.solve()`. Quality runs: `optimize()`
-  with `--time-limit`. Full model with all hard levers (items 1–4) validated SAT.
+  with `--time-limit`.
+- **Run on Slurm, many jobs in parallel.** This node is compute-limited; RoundingSat is
+  single-threaded. Submit with `sbatch -A prescient1 -p defq -n 1`. `experiments/
+  nf_sweep_slurm.sh` fans the (Elec floor × NCC1 mode × CCM weight) matrix across `defq`
+  at once (18 jobs, 1h each); `experiments/nf_optimize.slurm` wraps a single run. The
+  hard-Elec ceiling and best NCC1 mode are resolved empirically from the sweep, not pinned
+  in advance — outputs in `results_slurm/sweep_<tag>_<jobid>.out` + `out_<tag>.xlsx`.
 - Every new hard constraint gets a red→green guard test (neuter it → its test fails),
   per the project's VACUOUS-test history (`feedback_test_strength_dispatch_gap`).
 - wb7 byte-equivalence preserved (all changes gated under `call_tier_day_granular` or
@@ -168,9 +193,9 @@ All in `src/parafrost_scheduler/workbook.py` (`_build_call_detail_sheet`,
 ## Encoder config-driving (cleanup)
 
 The day-band lo/hi (currently hardcoded 75/85 JR, 125/135 SR in
-`_encode_nf_service_day_band`) and the new max-off window / NCC1-full-week toggles should
-be config-driven (a `nf_service` block in the annual config), not hardcoded — folding in
-the long-standing TODO at `schedule_encoder.py:_encode_nf_service_day_band`.
+`_encode_nf_service_day_band`) and the new max-off window / NCC1-continuity-mode toggles
+should be config-driven (a `nf_service` block in the annual config), not hardcoded — folding
+in the long-standing TODO at `schedule_encoder.py:_encode_nf_service_day_band`.
 
 ## Validated numbers (5-minute optimize, all levers except NCC1-full-week)
 

@@ -53,6 +53,7 @@ SERVICE_COLORS: dict[str, str] = {
     "Resifellow MSICU": "B4C6E7",
     "SICU": "FFE699",
     "Elective/SICU": "FFE699",
+    "NCC": "C6E0B4",
     "NCC1": "C6E0B4",
     "NCC2": "C6E0B4",
     "Swing": "A9D08E",
@@ -61,6 +62,7 @@ SERVICE_COLORS: dict[str, str] = {
     "Telestroke": "DCF4D6",
     "Anesthesia": "F8CBAD",
     "Anaesthesia": "F8CBAD",
+    "Elec": "E7E6E6",
     "Clinic/Elective": "C4D677",
     "NIR": "DDB644",
     "Vacation": "D9E2F3",
@@ -124,6 +126,25 @@ def _service_color(service: str) -> str | None:
     if "Elective" in service or "elective" in service:
         return _ELECTIVE_GRAY
     return None
+
+
+# Call-grid per-fellow fills: three greens for NCC fellows (JR/SR), three blues for
+# CCM fellows, assigned by position within each group so same-group fellows are
+# easily told apart. Returned as hex (no leading '#').
+_CALL_GREENS = ("A9D08E", "C6E0B4", "70AD47")   # mid, light, dark green
+_CALL_BLUES = ("9DC3E6", "B4C6E7", "5B9BD5")    # mid, light, dark blue
+
+
+def _call_fellow_fill_map(fellow_groups: dict[str, list[str]]) -> dict[str, str]:
+    """Map each fellow name to a hex fill: NCC_JR/NCC_SR get greens, CCM gets blues,
+    cycling the 3-shade palettes by index within the group."""
+    out: dict[str, str] = {}
+    ncc = fellow_groups.get("NCC_JR", []) + fellow_groups.get("NCC_SR", [])
+    for i, name in enumerate(ncc):
+        out[name] = _CALL_GREENS[i % 3]
+    for i, name in enumerate(fellow_groups.get("CCM", [])):
+        out[name] = _CALL_BLUES[i % 3]
+    return out
 
 
 def _fellow_category_color(fellow_name: str) -> str | None:
@@ -555,16 +576,72 @@ def _build_nf_weekly_sheet(ws, weekly_assignments, fellow_order, num_weeks):
                 cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
 
-def _build_call_detail_sheet(ws, call_assignments_by_day, horizon_start, start_dow):
-    """Tab 2: rows=days; columns = Date, DOW, NCC1, NCC2, NF holders that day."""
+def _build_call_detail_sheet(ws, call_assignments_by_day, horizon_start, start_dow,
+                             fellow_fill=None):
+    """Tab 2: a week-by-week call grid. Each week is a 3-row block (one row each for
+    NCC1, NCC2, NF); the 7 columns are the days of that week (Mon..Sun). Each cell
+    holds the fellow on that call role that day, colored by that fellow's category
+    (three greens for NCC fellows, three blues for CCM) via *fellow_fill*. Each
+    week's 3-row block is wrapped in a thick (medium) border for visibility.
+
+    A leading "Week" column labels each block with its week index and start date;
+    a "Role" column labels the 3 rows. Days before the horizon start (the partial
+    first week) or past the horizon end are left blank.
+    """
     from datetime import timedelta
     dow_names = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    ws.append(["Date", "DOW", "NCC1", "NCC2", "NF"])
-    for d, holders in enumerate(call_assignments_by_day):
-        date = horizon_start + timedelta(days=d)
-        dow = dow_names[(start_dow + d) % 7]
-        ws.append([date.isoformat(), dow,
-                   holders.get("NCC1", ""), holders.get("NCC2", ""), holders.get("NF", "")])
+    roles = ("NCC1", "NCC2", "NF")
+    fellow_fill = fellow_fill or {}
+    last_col = 2 + 7  # Week, Role, + 7 day columns
+
+    # Header row: Week | Role | Mon..Sun
+    ws.cell(row=1, column=1, value="Week")
+    ws.cell(row=1, column=2, value="Role")
+    for c, dn in enumerate(dow_names):
+        ws.cell(row=1, column=3 + c, value=dn)
+
+    num_days = len(call_assignments_by_day)
+    if num_days == 0:
+        return
+    # Week index of each absolute day d is (start_dow + d) // 7; the first week may
+    # be partial (starts mid-week). Group days by week index.
+    last_week = (start_dow + num_days - 1) // 7
+    for w in range(last_week + 1):
+        block_top = 2 + w * 3
+        block_bot = block_top + 2
+        # Week label cell (merged across the 3 role rows for readability).
+        # Date of the Monday (dow 0) of this week, derived from horizon_start.
+        # horizon_start corresponds to absolute day 0 whose dow == start_dow.
+        monday_offset = w * 7 - start_dow
+        monday_date = horizon_start + timedelta(days=monday_offset)
+        ws.cell(row=block_top, column=1,
+                value=f"wk{w} ({monday_date.isoformat()})")
+        ws.merge_cells(start_row=block_top, start_column=1,
+                       end_row=block_bot, end_column=1)
+        for ri, role in enumerate(roles):
+            r = block_top + ri
+            ws.cell(row=r, column=2, value=role)
+            for dow in range(7):
+                d = w * 7 - start_dow + dow
+                if d < 0 or d >= num_days:
+                    continue
+                who = call_assignments_by_day[d].get(role, "")
+                cell = ws.cell(row=r, column=3 + dow, value=who)
+                color = fellow_fill.get(who)
+                if color:
+                    cell.fill = PatternFill(start_color=color, end_color=color,
+                                            fill_type="solid")
+        # Thick border around the whole 3x(label+role+7) week block.
+        for r in range(block_top, block_bot + 1):
+            for c in range(1, last_col + 1):
+                cell = ws.cell(row=r, column=c)
+                cur = cell.border
+                cell.border = Border(
+                    left=_THICK if c == 1 else cur.left,
+                    right=_THICK if c == last_col else cur.right,
+                    top=_THICK if r == block_top else cur.top,
+                    bottom=_THICK if r == block_bot else cur.bottom,
+                )
 
 
 def write_nf_workbook(sol, config, output_path) -> None:
@@ -577,8 +654,10 @@ def write_nf_workbook(sol, config, output_path) -> None:
     ws1.title = "Fellow Schedule"
     _build_nf_weekly_sheet(ws1, sol.weekly_assignments, fellow_order, num_weeks)
     ws2 = wb.create_sheet(title="Call Detail")
+    fellow_fill = _call_fellow_fill_map(config.fellow_groups)
     _build_call_detail_sheet(ws2, sol.call_assignments_by_day,
-                             config.night_config.horizon_start_date, config.start_dow)
+                             config.night_config.horizon_start_date, config.start_dow,
+                             fellow_fill=fellow_fill)
     wb.save(output_path)
 
 

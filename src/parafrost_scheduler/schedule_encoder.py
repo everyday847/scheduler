@@ -307,10 +307,14 @@ def _build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow):
 
 
 def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow):
-    """HARD: symmetric >=2 fully-off rest around every NF run.
+    """HARD: ASYMMETRIC fully-off rest around every NF run — 1 day before, 2 days after.
 
-    After a run ends at day d (nf[d]=1, nf[d+1]=0): days d+1 and d+2 must be OFF.
-    Before a run starts at day d (nf[d]=1, nf[d-1]=0): days d-1 and d-2 must be OFF.
+    After a run ends at day d (nf[d]=1, nf[d+1]=0): days d+1 and d+2 must be OFF (>=2).
+    Before a run starts at day d (nf[d]=1, nf[d-1]=0): day d-1 must be OFF (>=1).
+
+    Rationale (user, 2026-06-17): you need a full day off BEFORE starting nights, but only
+    one — whereas the post-NF recovery needs two. Loosening the 'before' side from 2 to 1
+    also enables NCC1→(weekend off)→NF transitions and relaxes the packing.
 
     "OFF" is encoded via _build_off_indicator (see docstring).
 
@@ -318,11 +322,11 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
       nf[d] ∧ ~nf[d+1] => off[d+k]
       →  (-nf[d],1) + (nf[d+1],1) + (off[d+k],1) >= 1
 
-    Clause shape (hard, for 'before' rest at day d, offset k in {1,2}):
+    Clause shape (hard, for 'before' rest at day d, offset k in {1}):
       nf[d] ∧ ~nf[d-1] => off[d-k]
       →  (-nf[d],1) + (nf[d-1],1) + (off[d-k],1) >= 1
     """
-    opb.add_comment("NF model: symmetric >=2 fully-off rest around each NF run")
+    opb.add_comment("NF model: asymmetric rest — 1 off before, 2 off after each NF run")
     num_fellows = len(fellow_names)
 
     # Build off indicators for all (d, f) up front (small model, O(D*F) vars)
@@ -335,7 +339,7 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
     for f in range(num_fellows):
         nf = [call[d][f]["NF"] for d in range(num_days)]
         for d in range(num_days):
-            # --- After rest: run ends at d (nf[d]=1 and nf[d+1]=0) ---
+            # --- After rest: run ends at d (nf[d]=1 and nf[d+1]=0) → 2 days off ---
             # "after" only applies if d+1 is in horizon (otherwise at horizon edge, skip)
             if d + 1 < num_days:
                 for k in (1, 2):
@@ -347,9 +351,9 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
                         [(-nf[d], 1), (nf[d + 1], 1), (off[dk][f], 1)], 1
                     )
 
-            # --- Before rest: run starts at d (nf[d]=1 and nf[d-1]=0) ---
+            # --- Before rest: run starts at d (nf[d]=1 and nf[d-1]=0) → 1 day off ---
             if d >= 1:
-                for k in (1, 2):
+                for k in (1,):
                     dk = d - k
                     if dk < 0:
                         continue
