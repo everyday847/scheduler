@@ -107,8 +107,10 @@ def main() -> int:
                 offs = [off[d] for d in days]
                 rests = [rest[d] for d in days]
                 extra = opb.new_var()                       # may relax cap to 3, only if forced
-                # 3*extra <= sum(rests)  → extra can be 1 only with >=3 mandatory rest days
-                opb.weighted_sum_at_least([(r, 1) for r in rests] + [(-extra, 3)], 0)
+                # 3*extra <= sum(rests)  → extra can be 1 only with >=3 mandatory rest days.
+                # MUST be (extra, -3) [neg weight on POSITIVE literal]; (-extra, 3) emits
+                # +3*~extra = +3*(1-extra) which is VACUOUS (extra unconstrained). [bug fixed]
+                opb.weighted_sum_at_least([(r, 1) for r in rests] + [(extra, -3)], 0)
                 # sum(off) <= 2 + extra
                 opb.weighted_sum_at_most([(o, 1) for o in offs] + [(extra, -1)], 2)
 

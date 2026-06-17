@@ -947,6 +947,10 @@ def test_week_off_cap_2_holds_except_forced_nf_rest_weeks(tmp_path):
 Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_week_off_cap.py -v`
 Expected: FAIL — without the encoder, weeks with >2 (and ==3-without-NF) off days appear.
 
+NOTE: this test SOLVES (5–20 min) and the solve must run on Slurm or with a generous local
+timeout. To avoid burning a long solve on a vacuous constraint, ALSO do the build-only vacuity
+check in Step 4a below before trusting any solve.
+
 - [ ] **Step 4: Implement the encoder**
 
 In `schedule_encoder.py`, near `_encode_nf_rest`. Port the verified probe logic from
@@ -998,8 +1002,12 @@ def _encode_nf_week_off_cap(opb, call, xs, shift_idx, config,
             offs = [off[d] for d in days]
             rests = [rest[d] for d in days]
             extra = opb.new_var()
-            # extra can be 1 only with >= cap+1 mandatory rest days that week
-            opb.weighted_sum_at_least([(r, 1) for r in rests] + [(-extra, cap + 1)], 0)
+            # extra can be 1 only with >= cap+1 mandatory rest days that week.
+            # MUST be (extra, -(cap+1)) — neg weight on the POSITIVE literal — giving
+            # sum(rests) - (cap+1)*extra >= 0. Do NOT write (-extra, cap+1): that emits
+            # +(cap+1)*~extra = +(cap+1)*(1-extra), which is VACUOUS (extra unconstrained,
+            # solver sets it 1 and the cap never binds). This exact bug shipped in the probe.
+            opb.weighted_sum_at_least([(r, 1) for r in rests] + [(extra, -(cap + 1))], 0)
             # sum(off) <= cap + extra
             opb.weighted_sum_at_most([(o, 1) for o in offs] + [(extra, -1)], cap)
 ```
@@ -1010,10 +1018,24 @@ Call site (gated block, after `_encode_nf_rest`):
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 4a: Build-only vacuity check (NO solve — seconds)**
 
-Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_week_off_cap.py -v`
-Expected: PASS (solve ~5–10 min; raise the pytest/solve timeout if needed).
+Before any solve, confirm the `extra` relaxation actually binds. Build the OPB with
+`nf_week_off_cap=2` and print the two constraints emitted for one fellow+week:
+```python
+# the lower-bound constraint MUST read "... -3 x<extra> >= 0" (negative coeff on the
+# POSITIVE extra literal). If it instead reads "+3 ~x<extra> >= 0", the cap is VACUOUS
+# (the bug). The upper-bound must read "... -1 x<extra> <= 2".
+```
+Inspect `opb._constraints` for the week's two lines (see `experiments/nf_ccm_rules_probe.py`
+and the recovered check in this task's history). Only proceed to the solve once the signs
+are correct. This catches the vacuous-constraint class without a 10-minute solve.
+
+- [ ] **Step 5: Run test to verify it passes (ON SLURM)**
+
+The solve takes ~5–20 min; run it on Slurm, not locally. Submit:
+`sbatch -A prescient1 -p defq -n1 --time=01:00:00 --wrap "cd $(pwd) && PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_week_off_cap.py -v"`
+then read the job's output file. Expected: PASS.
 
 - [ ] **Step 6: wb7 byte-equivalence**
 
