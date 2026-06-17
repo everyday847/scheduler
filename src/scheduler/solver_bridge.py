@@ -55,6 +55,8 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
 
     known = set(_SOLVER_OPTION_BOOL_KEYS) | {
         "night_hard_criteria", "dual_stroke_helena", "stroke_wk2627_toggle",
+        "nf_max_consecutive_off", "nf_ncc1_continuity", "nf_ncc_week_penalty",
+        "nf_ccm_block_penalty", "nf_service_day_band",
     }
     unknown = set(opts) - known
     if unknown:
@@ -82,6 +84,18 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(
                 f"stroke_wk2627_toggle must be 'off'|'hard'|'soft', got {val!r}.")
         kwargs["stroke_wk2627_toggle"] = val
+    for int_key in ("nf_max_consecutive_off", "nf_ncc_week_penalty",
+                    "nf_ccm_block_penalty"):
+        if int_key in opts:
+            kwargs[int_key] = int(opts[int_key])
+    if "nf_ncc1_continuity" in opts:
+        val = opts["nf_ncc1_continuity"]
+        if val not in ("off", "weekday", "fullweek"):
+            raise ValueError(
+                f"nf_ncc1_continuity must be 'off'|'weekday'|'fullweek', got {val!r}.")
+        kwargs["nf_ncc1_continuity"] = val
+    if "nf_service_day_band" in opts:
+        kwargs["nf_service_day_band"] = opts["nf_service_day_band"]
     return kwargs
 
 

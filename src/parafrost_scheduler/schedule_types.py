@@ -235,6 +235,19 @@ class ScheduleSolverConfig:
     # (The former stroke_weekend_misalign_penalty is folded into the
     # weekend_role_mismatch criterion's per-role weight — Weekend Stroke = 60 in
     # config/standing — so a Stroke mismatch is one criterion at its full cost.)
+    # --- NF model density / continuity / concentration knobs (all default OFF so
+    # the wb7 path and existing NF behavior are unchanged). Set via solver_options. ---
+    # Forbid more than N consecutive fully-off days (0 = off). Forces dense NCC blocks.
+    nf_max_consecutive_off: int = 0
+    # NCC1 contiguity: "off" | "weekday" (constant Mon-Fri) | "fullweek" (all 7 days).
+    nf_ncc1_continuity: str = "off"
+    # Soft weight per JR/SR NCC-labeled week (0 = off) — concentrates call, frees Elec.
+    nf_ncc_week_penalty: int = 0
+    # Soft weight per ACTIVE CCM 4-week NCC block (0 = off) — concentrates CCM service.
+    nf_ccm_block_penalty: int = 0
+    # Per-group NCC service-DAY band override {"NCC_JR":[lo,hi],"NCC_SR":[lo,hi]}.
+    # None => the historical hardcoded 75/85 (JR), 125/135 (SR).
+    nf_service_day_band: dict | None = None
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))
