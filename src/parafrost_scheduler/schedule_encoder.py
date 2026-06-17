@@ -442,6 +442,28 @@ def _encode_nf_max_consecutive_off(opb, call, xs, shift_idx, config,
             opb.weighted_sum_at_least([(-off[d + o], 1) for o in range(win)], 1)
 
 
+def _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config):
+    """HARD: no fellow holds a call role on more than config.nf_max_consecutive_call_days
+    consecutive days. call-day = OR(NCC1,NCC2,NF) that day; a background/off day breaks the
+    streak. Per-window clause: >=1 non-call day in every (cap+1)-day window. No-op at 0."""
+    cap = config.nf_max_consecutive_call_days
+    if cap <= 0:
+        return
+    opb.add_comment(f"NF model: <= {cap} consecutive call days")
+    win = cap + 1
+    for f in range(len(fellow_names)):
+        cday = []
+        for d in range(num_days):
+            roles = [call[d][f][r] for r in CALL_ROLES]
+            c = opb.new_var()
+            for rv in roles:
+                opb.weighted_sum_at_least([(-rv, 1), (c, 1)], 1)               # role => c
+            opb.weighted_sum_at_least([(-c, 1)] + [(rv, 1) for rv in roles], 1)  # c => some role
+            cday.append(c)
+        for d in range(num_days - win + 1):
+            opb.weighted_sum_at_least([(-cday[d + o], 1) for o in range(win)], 1)
+
+
 def _encode_nf_ncc1_continuity(opb, call, config, fellow_names, num_days, start_dow):
     """HARD: NCC1 is constant across consecutive days within a week, per fellow.
     mode "fullweek" => all 7 days; "weekday" => Mon-Fri only (weekend NCC1 free, which
@@ -967,6 +989,7 @@ def build_full_schedule_opb(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_max_consecutive_off(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config)
         _encode_nf_ncc1_continuity(
             opb, call, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)

@@ -57,6 +57,7 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
         "night_hard_criteria", "dual_stroke_helena", "stroke_wk2627_toggle",
         "nf_max_consecutive_off", "nf_ncc1_continuity", "nf_ncc_week_penalty",
         "nf_ccm_block_penalty", "nf_service_day_band", "nf_week_off_cap",
+        "nf_max_consecutive_call_days",
     }
     unknown = set(opts) - known
     if unknown:
@@ -85,7 +86,8 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
                 f"stroke_wk2627_toggle must be 'off'|'hard'|'soft', got {val!r}.")
         kwargs["stroke_wk2627_toggle"] = val
     for int_key in ("nf_max_consecutive_off", "nf_ncc_week_penalty",
-                    "nf_ccm_block_penalty", "nf_week_off_cap"):
+                    "nf_ccm_block_penalty", "nf_week_off_cap",
+                    "nf_max_consecutive_call_days"):
         if int_key in opts:
             kwargs[int_key] = int(opts[int_key])
     if "nf_ncc1_continuity" in opts:
