@@ -645,6 +645,56 @@ def _encode_ccm_block_nf_count(
                     soft_violations.append((slack_hi, _CCM_NF_BLOCK_WEIGHT))
 
 
+def _encode_nf_concentration_objective(
+    opb: "OpbBuilder",
+    xs: list[list[list[int]]],
+    shift_idx: dict[str, int],
+    config: "ScheduleSolverConfig",
+    fellow_names: list[str],
+    num_weeks: int,
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """SOFT concentration terms (NF model). Two independent knobs (0 = off):
+      nf_ncc_week_penalty: per JR/SR NCC-labeled week -> minimize NCC weeks, which frees
+        weeks to label Elec (the soft pressure toward dense, fewer call weeks).
+      nf_ccm_block_penalty: per ACTIVE CCM 4-week NCC block (blk_active = OR of the block's
+        NCC week vars) -> minimize the number of CCM blocks used, concentrating CCM service.
+    Appended to soft_violations so build's set_objective(soft_violations) minimizes them."""
+    ncc_si = shift_idx.get("NCC")
+    if ncc_si is None:
+        return
+    jr = set(config.fellow_groups.get("NCC_JR", []))
+    sr = set(config.fellow_groups.get("NCC_SR", []))
+    ccm = set(config.fellow_groups.get("CCM", []))
+
+    w_ncc = config.nf_ncc_week_penalty
+    if w_ncc > 0:
+        opb.add_comment("NF model: soft penalty per JR/SR NCC week (concentrate -> Elec)")
+        for f, name in enumerate(fellow_names):
+            if name not in jr and name not in sr:
+                continue
+            for w in range(num_weeks):
+                wk = xs[f][w][ncc_si]
+                if wk != 0:
+                    soft_violations.append((wk, w_ncc))
+
+    w_ccm = config.nf_ccm_block_penalty
+    if w_ccm > 0:
+        opb.add_comment("NF model: soft penalty per active CCM 4-wk NCC block")
+        for f, name in enumerate(fellow_names):
+            if name not in ccm:
+                continue
+            for bs, be in _block_starts_grid(num_weeks, 4, 1):
+                bvars = [xs[f][w][ncc_si] for w in range(bs, be) if xs[f][w][ncc_si] != 0]
+                if not bvars:
+                    continue
+                blk = opb.new_var()
+                for bv in bvars:                                   # bv => blk
+                    opb.weighted_sum_at_least([(-bv, 1), (blk, 1)], 1)
+                opb.weighted_sum_at_least([(-blk, 1)] + [(bv, 1) for bv in bvars], 1)  # blk => some bv
+                soft_violations.append((blk, w_ccm))
+
+
 # ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
@@ -866,6 +916,8 @@ def build_full_schedule_opb(
         _encode_ccm_block_nf_count(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow,
             soft_violations)
+        _encode_nf_concentration_objective(
+            opb, xs, shift_idx, config, fellow_names, num_weeks, soft_violations)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer
