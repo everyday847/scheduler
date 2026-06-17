@@ -534,6 +534,55 @@ def write_schedule_workbook(
 
 
 # ---------------------------------------------------------------------------
+# NF-model workbook (separate from wb7 write_schedule_workbook)
+# ---------------------------------------------------------------------------
+
+def _build_nf_weekly_sheet(ws, weekly_assignments, fellow_order, num_weeks):
+    """Tab 1: rows=weeks, columns=fellows; each cell = the fellow's weekly label
+    (NCC/MICU/Elec/Vac/Anaesthesia/...), colored by _service_color. One cell per
+    fellow per week (no weekend/night sub-columns — the NF model's legacy layers
+    are empty)."""
+    ws.cell(row=1, column=1, value="Week")
+    for fi, fellow in enumerate(fellow_order):
+        ws.cell(row=1, column=2 + fi, value=fellow)
+    for w in range(num_weeks):
+        ws.cell(row=2 + w, column=1, value=w)
+        for fi, fellow in enumerate(fellow_order):
+            val = weekly_assignments[fellow][w]
+            cell = ws.cell(row=2 + w, column=2 + fi, value=val)
+            color = _service_color(val)
+            if color:
+                cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+
+def _build_call_detail_sheet(ws, call_assignments_by_day, horizon_start, start_dow):
+    """Tab 2: rows=days; columns = Date, DOW, NCC1, NCC2, NF holders that day."""
+    from datetime import timedelta
+    dow_names = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    ws.append(["Date", "DOW", "NCC1", "NCC2", "NF"])
+    for d, holders in enumerate(call_assignments_by_day):
+        date = horizon_start + timedelta(days=d)
+        dow = dow_names[(start_dow + d) % 7]
+        ws.append([date.isoformat(), dow,
+                   holders.get("NCC1", ""), holders.get("NCC2", ""), holders.get("NF", "")])
+
+
+def write_nf_workbook(sol, config, output_path) -> None:
+    """Write the NF-model workbook: weekly per-fellow tab + day-granular Call Detail
+    (+ Backup if present). Distinct from write_schedule_workbook (wb7)."""
+    wb = openpyxl.Workbook()
+    fellow_order = list(sol.weekly_assignments.keys())
+    num_weeks = len(next(iter(sol.weekly_assignments.values())))
+    ws1 = wb.active
+    ws1.title = "Fellow Schedule"
+    _build_nf_weekly_sheet(ws1, sol.weekly_assignments, fellow_order, num_weeks)
+    ws2 = wb.create_sheet(title="Call Detail")
+    _build_call_detail_sheet(ws2, sol.call_assignments_by_day,
+                             config.night_config.horizon_start_date, config.start_dow)
+    wb.save(output_path)
+
+
+# ---------------------------------------------------------------------------
 # Helper: reconstruct solution objects from saved CSV files
 # ---------------------------------------------------------------------------
 
