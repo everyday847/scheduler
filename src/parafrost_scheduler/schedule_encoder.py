@@ -193,6 +193,37 @@ def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
                 opb.weighted_sum_at_least([(-wk_var, 1)] + [(cv, 1) for cv in day_vars], 1)
 
 
+def _encode_call_weekend_backup_exclusion(
+    opb, call, bk, fellow_names, num_days, start_dow
+):
+    """A Weekend Backup fellow cannot also hold a weekend call role on that
+    weekend's days (replaces the legacy wr-based exclusion, which is gated off for
+    the NF model).
+
+    Although this exclusion is also enforced transitively (backup shift-gating forces
+    Elec; call weekly-link forces the call shift; at-most-one-shift-per-week prevents
+    both), making it explicit here is belt-and-suspenders: it is self-documenting,
+    robust against future changes to eligible backup shifts, and prevents any future
+    config from accidentally opening a gap.
+    """
+    opb.add_comment("NF model: Weekend Backup excludes weekend call roles")
+    num_fellows = len(fellow_names)
+    for d in range(num_days):
+        if _day_of_week(d, start_dow) not in (5, 6):
+            continue
+        w = _day_to_week(d, start_dow)
+        if w >= len(bk):
+            continue
+        we = bk[w][_BACKUP_WEEKEND]
+        for f in range(num_fellows):
+            wb_var = we.get(f, 0)
+            if wb_var == 0:
+                continue
+            for role in CALL_ROLES:
+                cv = call[d][f][role]
+                opb.at_most_k([wb_var, cv], 1)
+
+
 # ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
@@ -402,6 +433,8 @@ def build_full_schedule_opb(
             opb, call, fellow_names, num_days, start_dow)
         _encode_call_weekly_link(
             opb, call, xs, shift_idx, fellow_names, num_days, start_dow, num_weeks)
+        _encode_call_weekend_backup_exclusion(
+            opb, call, bk, fellow_names, num_days, start_dow)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer
@@ -1739,8 +1772,13 @@ def _encode_backup_constraints(
 
     - Shift gating (hard): a backup var implies the fellow is on an eligible
       weekday shift that week (NCC->Elec; STROKE->Clinic/Elective|Telestroke/Clinic).
-    - Weekend Backup excludes weekend-call-role holders (hard).
+    - Weekend Backup excludes weekend-call-role holders (hard, via wr layer).
+      Under call_tier_day_granular the wr layer is empty; the equivalent exclusion
+      against the day-granular call tier is added in
+      _encode_call_weekend_backup_exclusion (called from the call-tier block).
     - Coverage (hard): exactly one weekday Backup and one Weekend Backup per week.
+      Under call_tier_day_granular (NF model) coverage is SOFT instead: the lean
+      5-fellow call roster may not spare a fellow for Elec every week.
     - Max 2 consecutive backup weeks per fellow (hard), over the combined
       (weekday OR weekend) backup indicator.
     """

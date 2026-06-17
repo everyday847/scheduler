@@ -198,3 +198,38 @@ def test_legacy_weekend_layer_absent_under_flag():
     cfg = make_nf_config(num_days=14)
     opb, vm = build(cfg)
     assert vm.wr == [] or all(all(len(rm) == 0 for rm in week) for week in vm.wr)
+
+
+# ---------------------------------------------------------------------------
+# Task 8b: Weekend Backup excludes weekend call roles (re-link after wr gated off)
+# ---------------------------------------------------------------------------
+
+from parafrost_scheduler.schedule_types import _BACKUP_WEEKEND
+
+
+def test_weekend_backup_excludes_weekend_call_role():
+    """A Weekend Backup fellow must not also hold a weekend call role (NCC1/NF)
+    on that weekend. Regression: when the legacy wr layer is gated off for the NF
+    model, this exclusion must be re-enforced against the day-granular call tier.
+
+    Index verification (empirically confirmed):
+      - start_dow=0 (Monday), so week w Saturday = w*7+5.
+      - f=1 (S1, NCC_SR) is in the weekend backup group (f=0/C1 is not).
+      - _BACKUP_WEEKEND kind index = 1.
+      - Week 1 Saturday = day 12; vm.bk[1][1].get(1) and vm.call[12][1]["NF"]
+        are both real positive vars.
+    """
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    f = 1                   # S1 (NCC_SR) — in weekend backup group
+    w = 1                   # week 1 (week 0 is backup-forbidden)
+    sat = w * 7 + 5         # day 12, Saturday of week 1 (start_dow=0)
+    wb = vm.bk[w][_BACKUP_WEEKEND].get(f, 0)
+    nf = vm.call[sat][f]["NF"]
+    assert wb != 0 and nf != 0, (
+        f"need both vars allocated for a meaningful test: wb={wb}, nf={nf}"
+    )
+    opb.add_unit(wb)
+    opb.add_unit(nf)
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert not res.satisfiable
