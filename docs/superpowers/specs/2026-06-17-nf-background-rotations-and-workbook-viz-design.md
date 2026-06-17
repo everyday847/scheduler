@@ -50,34 +50,101 @@ Expand the NF model's weekly `shifts` from `[NCC, MICU, NS, SICU, Elec, Vac]` to
 `Anaesthesia, Stroke, Telestroke/Clinic`. All are plain weekly shifts routing through
 the existing `xs` layer (not call-tier). `NCC` remains the generic call-week label.
 
-### NCC_JR quotas (per fellow unless noted)
+### The packing problem this design solves (why not weekly Elec pins)
+
+A first attempt pinned Elec as a weekly `shift_total` (hard floor + soft target). It
+exposed a representation bug + a tractability wall, both confirmed empirically:
+- **Tractability:** any HARD constraint on the JR weekly NCC/Elec split (Elec `at_least`
+  ≥6, Elec `exactly` ≥12, or an NCC-week `at_most` cap — even a loose one) makes the JR
+  group's solve time out (>min, was <1s). The 3 identical JR fellows + heavy block-aligned
+  fixed load (16 MICU + 4-wk Anaesthesia block + 4 SICU + 3 Vac + the wk0-3 orientation)
+  make JR week-placement an intractable aligned-packing. SR (looser load) takes hard
+  pins fine. A bare soft Elec target is feasible but hollow — the optimizer parked one JR
+  on 24 NCC weeks (only ~4.3 call-days/week — wasteful) instead of electives.
+- **Representation bug:** the weekly↔day link labels a week `NCC` if it has ANY call day.
+  So a single weekend call day during an otherwise-elective week relabels the whole week
+  NCC, forbidding the elective-weekend packing the prior system relied on (~2–3 of every
+  NCC week's days are idle). This over-counts NCC weeks and is what the cap fights.
+
+The fix: a targeted representation exemption + day-granular quotas (below), instead of
+brittle weekly Elec pins.
+
+### Weekend-NCC1-on-Elective exemption (the one representation change)
+
+A **weekend NCC1** day during an **Elective** week does NOT relabel that week as NCC —
+it stays Elective. This is the ONLY decoupling of the weekly↔day link:
+- Scope: **weekend NCC1 only.** Weekend NCC2 does not exist (Phase-1 decision). Weekend
+  **NF** during Elec still relabels to NCC (NF is a real service, not a stackable add-on).
+  Weekday call always relabels to NCC.
+- Weekend call during MICU/Anaesthesia/SICU/NS remains **forbidden** (those weeks block
+  weekend roles). SR-only reluctant fallback (avoid initially): weekend during
+  Telestroke/Clinic.
+- Encoding: the weekly↔day link special-cases "if fellow f's only call day(s) in week w
+  are weekend NCC1 and f's week-w background is Elec, do not force the NCC weekly label."
+
+### NCC_JR background quotas (per fellow unless noted)
 | Rotation | Rule | Strength |
 |----------|------|----------|
 | MICU total | `shift_total exactly 16` | hard (relax to 14 only if UNSAT) |
 | MICU orientation | `shift_total exactly 4, window:[0,4]` (each JR on MICU weeks 0–3) | hard |
 | Anaesthesia | `block_rotation block_size 4` + `shift_total exactly 4` | hard |
 | SICU | `shift_total exactly 4` | hard |
-| Vacation | `shift_total exactly 3` | hard |
-| Elective | `shift_total at_least 8` (hard floor) + soft target 12 | mixed |
-| Remainder | NCC (call) | — |
+| Vacation | 3 weeks via distinct **pinned** `specific_assignment` (see Symmetry below) | hard |
 
-Elective is encoded as a HARD `at_least 8` floor plus a SOFT `exactly 12` target
-(penalized shortfall above the floor) — so the first draft always clears 8 and is
-nudged toward 12. (SR analogue: hard floor 8, soft target 9.)
-
-Consequence (intended): all 3 JRs on MICU in weeks 0–3 ⇒ **no JR call weeks 0–3**;
-early-year call is covered by the 2 SRs + CCM.
-
-### NCC_SR quotas (per fellow)
+### NCC_SR background quotas (per fellow)
 | Rotation | Rule | Strength |
 |----------|------|----------|
 | MICU | `shift_total exactly 8` | hard |
 | NS | `block_rotation block_size 2` + `shift_total exactly 6` | hard |
 | Stroke | `shift_total exactly 2` | hard |
 | Telestroke/Clinic | `shift_total exactly 2` | hard |
-| Vacation | `shift_total exactly 3` | hard |
-| Elective | `shift_total at_least 8` (hard floor) + soft target 9 | mixed |
-| Remainder | NCC (call) | — |
+| Vacation | 3 weeks via distinct **pinned** `specific_assignment` (see Symmetry below) | hard |
+
+Consequence (intended): all 3 JRs on MICU in weeks 0–3 ⇒ **no JR weekday call weeks 0–3**;
+early-year call is covered by the 2 SRs + CCM.
+
+### Fellow symmetry — the real tractability fix (pinned vacation weeks)
+
+The intractability above is **fellow symmetry**: the 3 identical NCC_JR fellows are
+interchangeable, so the solver thrashes through equivalent permutations. Verified: the
+full day-band model TIMES OUT with symmetric JRs but solves in **1.0s** once the 3 JRs
+are distinguished. The chosen distinguisher (simulating the real per-fellow vacation
+requests these fellows will have): **pin each fellow's 3 Vacation weeks to distinct
+specific weeks** via `specific_assignment` (this also satisfies the Vac=3 quota, so the
+`shift_total Vac exactly 3` rule becomes redundant and is dropped):
+- JR1: weeks 8, 28, 32 · JR2: weeks 11, 25, 41 · JR3: weeks 14, 20, 27
+- SR fellows get distinct Vac pins too (robustness/realism), e.g. SR1: 10, 30, 44 ·
+  SR2: 17, 35, 48 (any distinct in-horizon weeks; tune later to real requests).
+
+These pins replace the per-group `shift_total Vac exactly 3` rule. Without them the model
+is intractable; with them, full quotas (no sacrifice) solve in ~1s.
+
+### NCC service quotas — two coordinated bounds (replaces weekly Elec pins)
+
+Instead of pinning Elec weeks, bound NCC service directly:
+- **Hard upper bound on NCC-LABELED weeks per group** (`shift_total at_most` on `NCC`),
+  with the weekend-elective caveat above (an Elec week carrying only weekend NCC1 is NOT
+  an NCC week, so does not count against the cap). This keeps the weekly calendar clean
+  and forces electives to materialize as their own weeks.
+- **Hard ±5-day band on NCC SERVICE-DAYS per fellow** (day-granular): a service-day = any
+  day holding NCC1/NCC2/NF (weekend-elective NCC1 days DO count — they are work). Center
+  **~80 days (JR) / ~130 days (SR)**. These are lower than the prior system's 104/162
+  because NF-as-a-real-service + no weekday-stacking legitimately reduce achievable
+  service days. The day-band is the primary workload control; the week-cap is the
+  calendar-cleanliness control.
+
+Day-band centers (80/130) and the week-cap values are **starting points** — tune
+empirically once the model solves fast (see Testing). Elec is the residual (≈53 − fixed
+rotations − NCC weeks), so capping NCC weeks raises electives without a brittle Elec pin.
+This may require slightly more CCM Generic 2 call support to close the day math.
+
+### Hard/soft summary
+Hard: MICU totals + orientation window, Anaesthesia block, SICU, NS block, Stroke,
+Telestroke, Vacation, the NCC-week cap, the per-fellow NCC service-day band. Soft: CCM
+per-block NF-day count. Probe full-year SAT after each addition; relax a pre-authorized
+lever (JR MICU 16→14; widen the day-band; loosen the NCC-week cap; add CCM support) only
+with sign-off, never silently. The day-band/week-cap is what makes the JR packing
+tractable AND enforceable (unlike the abandoned weekly Elec pin).
 
 ### CCM coverage model
 Each of the two CCM representations is a *concatenation of real fellows*, each doing
