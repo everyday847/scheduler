@@ -130,80 +130,100 @@ def test_ncc_service_day_band():
 # ---------------------------------------------------------------------------
 
 from _nf_helpers import make_nf_config, build, runner_or_skip
-from parafrost_scheduler.schedule_types import day_of_week, day_to_week
-from scheduler.semantic_constraints import (
-    ConstraintStrength, FellowSelector, SemanticConstraint, ShiftSet,
-    WeekSpan as _WeekSpan
-)
-try:
-    from scheduler.semantic_constraints import WeekSpan
-except ImportError:
-    WeekSpan = _WeekSpan
-
-
-def _make_pin_constraint(fellow_idx, week, shift_name, shifts_list, strength="hard"):
-    """Build a full_assignment-style pin: force xs[fellow_idx][week][shift_idx]=1."""
-    from scheduler.semantic_constraints import ConstraintLifecycle
-    si = shifts_list.index(shift_name)
-    return SemanticConstraint(
-        kind="full_assignment",
-        lifecycle=ConstraintLifecycle.ANNUAL_RULE,
-        strength=ConstraintStrength.HARD if strength == "hard" else ConstraintStrength.SOFT,
-        fellows=FellowSelector.by_names(f"_f{fellow_idx}"),
-        weeks=WeekSpan(week, week + 1),
-        shifts=ShiftSet(shift_name, (shift_name,)),
-        params={"name": f"pin_{shift_name}_w{week}"},
-    )
+from parafrost_scheduler.schedule_types import day_of_week as _day_of_week
 
 
 def test_weekend_ncc1_elec_week_does_not_force_ncc_label():
-    """Item #4 encoder test: weekend NCC1 during an Elec week should NOT force
-    the weekly NCC label (week stays Elec). A weekday NCC1 DOES force NCC label.
+    """Item #4 encoder test (non-vacuous): weekend NCC1 during an Elec week must
+    NOT force the weekly NCC label — the week stays Elec.
 
-    Uses a 2-week (14-day) fixture with 6 fellows (as make_nf_config default).
-    We test the constraint structure by checking that a configuration where
-    fellow 0 has Elec in week 0 but holds a weekend NCC1 is SAT (the model
-    can satisfy it without flipping the NCC label).
+    Setup (start_dow=0, 14 days):
+      week 0 = days 0-6 (Mon-Sun); Sat = day 5 (dow 5).
+    We pick fellow 0 (C1, CCM — unrestricted in week 0), pin:
+      - xs[0][0][elec_si] = 1  (fellow spends week 0 on Elec)
+      - call[5][0]["NCC1"] = 1 (fellow holds NCC1 on Sat of week 0)
+    Assert: SAT  AND  xs[0][0][ncc_si] == False (week label stays Elec, not NCC).
+
+    Non-vacuity: if the exemption were removed (cv => NCC instead of cv => NCC v Elec),
+    the NCC1 call day would force the NCC label, which conflicts with the pinned Elec
+    under at-most-one-shift => UNSAT.  So removing the exemption makes this test fail
+    (SAT flips to UNSAT).  The exemption is the only reason both pins coexist SAT.
     """
-    # Horizon: 2026-07-01 is a Wednesday → start_dow=2 (Mon=0)
-    # With start_dow=2: days 0-4 are Wed-Sun of week 0; days 5..6 are Sat,Sun of week 0
-    # Actually use start_dow=0 (Monday start) for simplicity:
-    # week 0: days 0-6; Sat=day 5, Sun=day 6
-    # We verify via model structure: if Elec var exists and is set for a fellow
-    # in a week, and that fellow holds NCC1 on weekend day of that week, the
-    # model is SAT (the exemption clause allows Elec to satisfy the forward impl).
-    # Without the exemption, the NCC label would be forced and at-most-one would
-    # conflict with Elec.
-
-    # Build a config with NCC, Elec in shifts (needed for the exemption path)
     cfg = make_nf_config(num_days=14, start_dow=0,
                          shifts=("NCC", "MICU", "Elec", "Vac"))
     opb, vm = build(cfg)
+
+    shift_idx = {s: i for i, s in enumerate(vm.shifts)}
+    ncc_si = shift_idx["NCC"]
+    elec_si = shift_idx["Elec"]
+
+    # Week 0, fellow 0 (C1 — CCM, unrestricted in week 0).
+    f, w = 0, 0
+    # day 5 is Saturday of week 0: day_of_week(5, start_dow=0) = 5 (Sat) ✓
+    sat_day = 5
+    assert _day_of_week(sat_day, 0) in (5, 6), "sanity: day 5 must be a weekend day"
+
+    elec_var = vm.xs[f][w][elec_si]
+    ncc_var  = vm.xs[f][w][ncc_si]
+    call_var = vm.call[sat_day][f]["NCC1"]
+    assert elec_var != 0, "Elec weekly var must exist for fellow 0, week 0"
+    assert ncc_var  != 0, "NCC weekly var must exist for fellow 0, week 0"
+    assert call_var != 0, "NCC1 call var must exist for fellow 0, day 5"
+
+    # Pin fellow 0 to Elec in week 0 AND to NCC1 on the Saturday of week 0.
+    opb.add_unit(elec_var)
+    opb.add_unit(call_var)
+
     runner = runner_or_skip()
     res = runner.solve(opb, timeout=30)
-    # Basic sanity: the fixture is SAT
-    assert res.satisfiable, "NF 2-week fixture must be SAT"
+
+    assert res.satisfiable, (
+        "model UNSAT after pinning Elec week + weekend NCC1 — "
+        "exemption clause (cv => NCC v Elec) may be missing or broken"
+    )
+    a = res.assignment
+    assert not a.get(ncc_var, False), (
+        "fellow 0 pinned to Elec in week 0 but NCC label is TRUE — "
+        "weekend NCC1 exemption failed to keep the week as Elec"
+    )
 
 
 def test_weekday_ncc1_forces_ncc_label():
-    """Regression: a weekday NCC1 call day still forces the weekly NCC label.
-    If a fellow has NCC1 on day 0 (Mon), week 0 must be labelled NCC.
+    """Regression (non-vacuous): a weekday NCC1 call day must force the weekly NCC label.
+
+    Setup (start_dow=0, 14 days):
+      day 0 = Monday of week 0 (dow 0, weekday).
+    We pick fellow 0 and pin call[0][0]["NCC1"] = 1.
+    Assert: SAT  AND  xs[0][0][ncc_si] == True (weekday call forces the NCC label).
+
+    This pin is unconditional — no if-guard escape — so the assertion always fires.
+    The strict path (cv => NCC) covers weekday call days regardless of the exemption,
+    so this test passes with or without the weekend exemption in place.
     """
     cfg = make_nf_config(num_days=14, start_dow=0,
                          shifts=("NCC", "MICU", "Elec", "Vac"))
     opb, vm = build(cfg)
+
+    shift_idx = {s: i for i, s in enumerate(vm.shifts)}
+    ncc_si = shift_idx["NCC"]
+
+    # day 0 = Monday (dow 0, weekday) of week 0.
+    f, w, mon_day = 0, 0, 0
+    assert _day_of_week(mon_day, 0) not in (5, 6), "sanity: day 0 must be a weekday"
+
+    call_var = vm.call[mon_day][f]["NCC1"]
+    ncc_var  = vm.xs[f][w][ncc_si]
+    assert call_var != 0, "NCC1 call var must exist for fellow 0, day 0"
+    assert ncc_var  != 0, "NCC weekly var must exist for fellow 0, week 0"
+
+    opb.add_unit(call_var)
+
     runner = runner_or_skip()
     res = runner.solve(opb, timeout=30)
-    assert res.satisfiable
+
+    assert res.satisfiable, "model UNSAT after pinning a weekday NCC1 — unexpected"
     a = res.assignment
-    # Find a fellow with NCC1 on day 0 (weekday)
-    shift_idx = {s: i for i, s in enumerate(vm.shifts)}
-    ncc_si = shift_idx.get("NCC")
-    for fi in range(vm.num_fellows):
-        if a.get(vm.call[0][fi]["NCC1"], False):
-            # This fellow holds NCC1 on weekday day 0; their week 0 must be NCC
-            wk_var = vm.xs[fi][0][ncc_si] if ncc_si is not None else 0
-            if wk_var != 0:
-                assert a.get(wk_var, False), \
-                    f"fellow {fi} has NCC1 on weekday day 0 but NCC label not set"
-            break
+    assert a.get(ncc_var, False), (
+        "fellow 0 has NCC1 on weekday day 0 but NCC weekly label is not set — "
+        "strict forward implication (cv => NCC) is broken for weekday call days"
+    )
