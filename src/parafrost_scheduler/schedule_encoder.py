@@ -387,6 +387,32 @@ def _encode_nf_max_consecutive_off(opb, call, xs, shift_idx, config,
             opb.weighted_sum_at_least([(-off[d + o], 1) for o in range(win)], 1)
 
 
+def _encode_nf_ncc1_continuity(opb, call, config, fellow_names, num_days, start_dow):
+    """HARD: NCC1 is constant across consecutive days within a week, per fellow.
+    mode "fullweek" => all 7 days; "weekday" => Mon-Fri only (weekend NCC1 free, which
+    permits a weekday NCC1 block, weekend off, then a Monday NF run). With the hard
+    coverage (exactly 1 NCC1 holder/day) this makes NCC1 a clean weekly block; NCC2
+    stays day-granular and absorbs NF-boundary fragmentation. No-op when mode=="off"."""
+    mode = config.nf_ncc1_continuity
+    if mode not in ("weekday", "fullweek"):
+        return
+    opb.add_comment(f"NF model: NCC1 continuity ({mode})")
+    days_in_week: dict[int, list[int]] = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+    for f in range(len(fellow_names)):
+        for w, days in days_in_week.items():
+            days = sorted(days)
+            if mode == "weekday":
+                days = [d for d in days if _day_of_week(d, start_dow) < 5]
+            for a, b in zip(days, days[1:]):
+                if b - a != 1:          # only chain truly consecutive calendar days
+                    continue
+                va, vb = call[a][f]["NCC1"], call[b][f]["NCC1"]
+                opb.weighted_sum_at_least([(-va, 1), (vb, 1)], 1)  # va => vb
+                opb.weighted_sum_at_least([(-vb, 1), (va, 1)], 1)  # vb => va
+
+
 def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
     """HARD per-fellow NCC service-day band (NF model).
 
@@ -837,6 +863,8 @@ def build_full_schedule_opb(
         _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_max_consecutive_off(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_ncc1_continuity(
+            opb, call, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)
         _encode_ccm_block_nf_count(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow,
