@@ -245,6 +245,95 @@ def _encode_nf_run_length(opb, call, fellow_names, num_days):
             opb.at_most_k([nf[d + o] for o in range(7)], 6)
 
 
+def _build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow):
+    """Build and return a boolean variable that is TRUE iff fellow f is fully off on day d.
+
+    "Fully off" means: holds no call role (NCC1/NCC2/NF) on day d AND is not on any
+    working background rotation for the week containing d. The only NON-working weekly
+    label is 'NCC' (the generic call-week marker); every other shift in config.shifts
+    is considered working (including Elec and Vac). A blank (forbidden) weekly var
+    (xs==0) is not a working shift and does not disqualify off.
+
+    Encoding (AND-of-negations pinned exactly):
+      Let L = {call[d][f][role] for role in CALL_ROLES}
+            ∪ {xs[f][week(d)][bg] for bg in working-background-indices, xs != 0}
+      off = 1  iff  all L_i = 0
+      Constraints:
+        for each L_i: off => ~L_i   →  (-off,1) + (-L_i,1) >= 1
+        (all ~L_i) => off           →  (off,1) + sum(L_i,1) >= 1
+    """
+    w = _day_to_week(d, start_dow)
+    # Collect all "occupying" literals for this (fellow, day)
+    L: list[int] = [call[d][f][role] for role in CALL_ROLES]
+    # Add working-background weekly vars (non-NCC shifts only)
+    working_bg = [shift_idx[s] for s in config.shifts if s != "NCC" and s in shift_idx]
+    for si in working_bg:
+        v = xs[f][w][si]
+        if v != 0:
+            L.append(v)
+
+    off = opb.new_var()
+    # off => ~L_i for each L_i
+    for li in L:
+        opb.weighted_sum_at_least([(-off, 1), (-li, 1)], 1)
+    # all ~L_i => off  (equivalently: off OR some L_i must be true)
+    opb.weighted_sum_at_least([(off, 1)] + [(li, 1) for li in L], 1)
+    return off
+
+
+def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow):
+    """HARD: symmetric >=2 fully-off rest around every NF run.
+
+    After a run ends at day d (nf[d]=1, nf[d+1]=0): days d+1 and d+2 must be OFF.
+    Before a run starts at day d (nf[d]=1, nf[d-1]=0): days d-1 and d-2 must be OFF.
+
+    "OFF" is encoded via _build_off_indicator (see docstring).
+
+    Clause shape (hard, for 'after' rest at day d, offset k in {1,2}):
+      nf[d] ∧ ~nf[d+1] => off[d+k]
+      →  (-nf[d],1) + (nf[d+1],1) + (off[d+k],1) >= 1
+
+    Clause shape (hard, for 'before' rest at day d, offset k in {1,2}):
+      nf[d] ∧ ~nf[d-1] => off[d-k]
+      →  (-nf[d],1) + (nf[d-1],1) + (off[d-k],1) >= 1
+    """
+    opb.add_comment("NF model: symmetric >=2 fully-off rest around each NF run")
+    num_fellows = len(fellow_names)
+
+    # Build off indicators for all (d, f) up front (small model, O(D*F) vars)
+    off: list[list[int]] = []
+    for d in range(num_days):
+        off.append([])
+        for f in range(num_fellows):
+            off[d].append(_build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow))
+
+    for f in range(num_fellows):
+        nf = [call[d][f]["NF"] for d in range(num_days)]
+        for d in range(num_days):
+            # --- After rest: run ends at d (nf[d]=1 and nf[d+1]=0) ---
+            # "after" only applies if d+1 is in horizon (otherwise at horizon edge, skip)
+            if d + 1 < num_days:
+                for k in (1, 2):
+                    dk = d + k
+                    if dk >= num_days:
+                        continue
+                    # (-nf[d],1) + (nf[d+1],1) + (off[dk][f],1) >= 1
+                    opb.weighted_sum_at_least(
+                        [(-nf[d], 1), (nf[d + 1], 1), (off[dk][f], 1)], 1
+                    )
+
+            # --- Before rest: run starts at d (nf[d]=1 and nf[d-1]=0) ---
+            if d >= 1:
+                for k in (1, 2):
+                    dk = d - k
+                    if dk < 0:
+                        continue
+                    # (-nf[d],1) + (nf[d-1],1) + (off[dk][f],1) >= 1
+                    opb.weighted_sum_at_least(
+                        [(-nf[d], 1), (nf[d - 1], 1), (off[dk][f], 1)], 1
+                    )
+
+
 # ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
@@ -457,6 +546,7 @@ def build_full_schedule_opb(
         _encode_call_weekend_backup_exclusion(
             opb, call, bk, fellow_names, num_days, start_dow)
         _encode_nf_run_length(opb, call, fellow_names, num_days)
+        _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer

@@ -56,3 +56,44 @@ def test_pinned_three_day_run_is_unsat():
     opb.add_unit(-vm.call[10][f]["NF"])
     res = runner_or_skip().solve(opb, timeout=60)
     assert not res.satisfiable
+
+
+# ---------------------------------------------------------------------------
+# Phase-2 Task 2: symmetric >=2 fully-off rest around every NF run
+# ---------------------------------------------------------------------------
+
+def _holds_any_call(assignment, vm, d, f):
+    return any(assignment.get(vm.call[d][f][r], False) for r in ("NCC1", "NCC2", "NF"))
+
+
+def test_rest_after_run_two_days_no_call():
+    cfg = make_nf_config(num_days=28)
+    opb, vm = build(cfg)
+    res = runner_or_skip().solve(opb, timeout=120)
+    assert res.satisfiable
+    a = res.assignment
+    for fellow, start, length in _nf_runs(a, vm):
+        end = start + length - 1
+        if start + length < vm.num_days - 2:    # skip truncated tail run
+            for k in (1, 2):
+                d = end + k
+                if d < vm.num_days:
+                    assert not _holds_any_call(a, vm, d, fellow), (fellow, end, d)
+
+
+def test_pinned_run_then_immediate_call_is_unsat():
+    """NF run ends at day 3; same fellow on NCC1 at day 4 -> UNSAT (rest).
+
+    (Days 7-11 for fellow 1 are infeasible due to coverage constraints unrelated
+    to rest; days 0-3 are the shortest provably-feasible run for fellow 1/S1,
+    and day 4 is the first rest day that must be off.)
+    """
+    cfg = make_nf_config(num_days=28)
+    opb, vm = build(cfg)
+    f = 1                                   # S1 (NCC_SR)
+    for d in range(0, 4):                   # NF run days 0..3 (length 4, valid)
+        opb.add_unit(vm.call[d][f]["NF"])
+    opb.add_unit(-vm.call[4][f]["NF"])
+    opb.add_unit(vm.call[4][f]["NCC1"])    # call immediately after run end -> rest violated
+    res = runner_or_skip().solve(opb, timeout=120)
+    assert not res.satisfiable
