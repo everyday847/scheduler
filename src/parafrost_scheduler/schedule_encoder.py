@@ -363,6 +363,30 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
                     )
 
 
+def _encode_nf_max_consecutive_off(opb, call, xs, shift_idx, config,
+                                   fellow_names, num_days, start_dow):
+    """HARD: no JR/SR fellow is fully OFF for more than config.nf_max_consecutive_off
+    consecutive days. "off" via _build_off_indicator (no call role that day AND not on
+    a working background rotation that week; Elec/Vac/MICU count as WORKING). A local
+    per-window clause: in each window of (max_off+1) days, >=1 day is NOT off. This
+    forces dense NCC blocks without punishing genuine elective/vacation weeks. No-op
+    when nf_max_consecutive_off == 0."""
+    k = config.nf_max_consecutive_off
+    if k <= 0:
+        return
+    opb.add_comment(f"NF model: no more than {k} consecutive off days (JR/SR)")
+    jr = set(config.fellow_groups.get("NCC_JR", []))
+    sr = set(config.fellow_groups.get("NCC_SR", []))
+    win = k + 1
+    for f, name in enumerate(fellow_names):
+        if name not in jr and name not in sr:
+            continue
+        off = [_build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow)
+               for d in range(num_days)]
+        for d in range(num_days - win + 1):
+            opb.weighted_sum_at_least([(-off[d + o], 1) for o in range(win)], 1)
+
+
 def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
     """HARD per-fellow NCC service-day band (NF model).
 
@@ -811,6 +835,8 @@ def build_full_schedule_opb(
             opb, call, bk, fellow_names, num_days, start_dow)
         _encode_nf_run_length(opb, call, fellow_names, num_days)
         _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_max_consecutive_off(
+            opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)
         _encode_ccm_block_nf_count(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow,
