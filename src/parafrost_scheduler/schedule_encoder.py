@@ -417,27 +417,24 @@ def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
     """HARD per-fellow NCC service-day band (NF model).
 
     A "service day" = any day the fellow holds NCC1, NCC2, or NF.
-    JR fellows: [75, 85] days; SR fellows: [125, 135] days.
-    Bands are config-driven via config.fellow_groups membership.
-
-    TODO: expose lo/hi as a nf_service_day_bands mapping in the annual config.
+    JR fellows: [75, 85] days; SR fellows: [125, 135] days (historical defaults).
+    Bands are config-driven via config.fellow_groups membership and overridden by
+    config.nf_service_day_band when present.
     """
-    # Determine which fellows are JR vs SR
     jr_names = set(config.fellow_groups.get("NCC_JR", []))
     sr_names = set(config.fellow_groups.get("NCC_SR", []))
+    band = config.nf_service_day_band or {"NCC_JR": [75, 85], "NCC_SR": [125, 135]}
+    jr_lo, jr_hi = band.get("NCC_JR", [75, 85])
+    sr_lo, sr_hi = band.get("NCC_SR", [125, 135])
 
     opb.add_comment("NF model: per-fellow NCC service-day band")
     for f, name in enumerate(fellow_names):
         if name in jr_names:
-            lo, hi = 75, 85
+            lo, hi = jr_lo, jr_hi
         elif name in sr_names:
-            lo, hi = 125, 135
+            lo, hi = sr_lo, sr_hi
         else:
-            # CCM or unknown: no band constraint
             continue
-        # Skip if horizon is shorter than the lower bound (unit-test / short fixtures).
-        # A truncated horizon can never satisfy the lower band and the constraint
-        # would trivially render the instance UNSAT.
         if num_days < lo:
             continue
         daily = [call[d][f][role] for d in range(num_days) for role in CALL_ROLES]
