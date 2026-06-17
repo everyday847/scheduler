@@ -1,6 +1,7 @@
 from scheduler.solver_bridge import _solver_options_kwargs
-from parafrost_scheduler.experiment import assemble_config
-from pathlib import Path
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+from scheduler.night_call_types import NightSolverConfig
+from scheduler.weekend_call_types import WeekendSolverConfig
 import pytest
 
 
@@ -25,16 +26,18 @@ def test_nf_ncc1_continuity_bad_value_raises():
 
 
 def test_nf_service_defaults_off():
-    """Verify NF service fields exist on ScheduleSolverConfig with correct defaults."""
-    repo = Path(__file__).resolve().parent.parent
-    annual = repo / "config/annual/ncc-nf-model.yaml"
-    standing = repo / "config/standing/ncc-nf-model.yaml"
+    """Verify NF service fields exist on ScheduleSolverConfig with correct defaults.
 
-    if not annual.exists() or not standing.exists():
-        pytest.skip("NF model config files not found")
-
-    c = assemble_config(None, annual_path=annual, standing_path=standing, verbose=False)
-    c = c[0] if isinstance(c, tuple) else c
+    Constructs a minimal config directly — no config files, no skip-guard —
+    so this test is never vacuous.
+    """
+    c = ScheduleSolverConfig(
+        fellow_groups={},
+        shifts=[],
+        constraints=[],
+        night_config=NightSolverConfig(),
+        weekend_config=WeekendSolverConfig(),
+    )
 
     assert c.nf_max_consecutive_off == 0
     assert c.nf_ncc1_continuity == "off"
