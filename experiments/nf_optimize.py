@@ -58,12 +58,19 @@ def main() -> int:
     ap.add_argument("--time-limit", type=float, default=300.0)
     ap.add_argument("--ncc-weight", type=int, default=10)
     ap.add_argument("--ccm-weight", type=int, default=10)
-    ap.add_argument("--max-off", type=int, default=2)
+    ap.add_argument("--max-off", type=int, default=0,
+                    help="LEGACY max-consecutive-off lever (0=off; superseded by --rule-a)")
     ap.add_argument("--elec-floor", type=int, default=2)
     ap.add_argument("--ncc1-fullweek", action="store_true",
                     help="HARD: NCC1 constant across all 7 days/week per fellow (clean weekly block)")
     ap.add_argument("--ncc1-weekday", action="store_true",
                     help="HARD: NCC1 constant across the 5 weekdays only; weekend NCC1 free")
+    ap.add_argument("--rule-a", type=int, default=0, metavar="CAP",
+                    help="Rule A: <=CAP off days/week, exempt a full in-week NF rest (0=off; use 2)")
+    ap.add_argument("--rule-b", type=int, default=0, metavar="MAXCALL",
+                    help="Rule B: max MAXCALL consecutive call days (0=off; use 14)")
+    ap.add_argument("--rule-c", action="store_true",
+                    help="Rule C: CCM NF runs may not bridge a 4-week block boundary")
     ap.add_argument("--prefix", default=None)
     args = ap.parse_args()
 
@@ -103,14 +110,82 @@ def main() -> int:
                     opb.weighted_sum_at_least([(-va, 1), (vb, 1)], 1)
                     opb.weighted_sum_at_least([(-vb, 1), (va, 1)], 1)
 
+    # --- CCM/rest model rules A/B/C (corrected encodings; default off) ---
+    diw_all = collections.defaultdict(list)
+    for d in range(vm.num_days):
+        diw_all[_day_to_week(d, sd)].append(d)
+
+    def _and_upper(lits):
+        v = opb.new_var()
+        for lit in lits:
+            opb.weighted_sum_at_least([(-v, 1), (lit, 1)], 1)
+        return v
+
+    if args.rule_a or args.rule_b:
+        for f, name in enumerate(vm.fellow_names):
+            nf = [vm.call[d][f]["NF"] for d in range(vm.num_days)]
+            off = [_build_off_indicator(opb, vm.call, vm.xs, si, cfg, f, d, sd)
+                   for d in range(vm.num_days)]
+            if args.rule_a:
+                cap = args.rule_a
+                rest = [None] * vm.num_days
+                for d in range(vm.num_days):
+                    terms = []
+                    if d + 1 < vm.num_days:
+                        terms.append(_and_upper([off[d], nf[d + 1]]))
+                    if d - 1 >= 0:
+                        terms.append(_and_upper([off[d], nf[d - 1]]))
+                    if d - 2 >= 0:
+                        nnf = opb.new_var()
+                        opb.weighted_sum_at_least([(-nnf, 1), (-nf[d - 1], 1)], 1)
+                        terms.append(_and_upper([off[d], nnf, nf[d - 2]]))
+                    rv = opb.new_var()
+                    if terms:
+                        opb.weighted_sum_at_least([(t, 1) for t in terms] + [(-rv, 1)], 0)
+                    else:
+                        opb.add_unit(-rv)
+                    rest[d] = rv
+                for w, days in diw_all.items():
+                    offs = [off[d] for d in days]
+                    rests = [rest[d] for d in days]
+                    extra = opb.new_var()
+                    # (extra, -(cap+1)): sum(rests) - (cap+1)*extra >= 0  [NOT (-extra,..), vacuous]
+                    opb.weighted_sum_at_least([(r, 1) for r in rests] + [(extra, -(cap + 1))], 0)
+                    opb.weighted_sum_at_most([(o, 1) for o in offs] + [(extra, -1)], cap)
+            if args.rule_b:
+                cday = []
+                for d in range(vm.num_days):
+                    roles = [vm.call[d][f][r] for r in CALL_ROLES]
+                    c = opb.new_var()
+                    for rv in roles:
+                        opb.weighted_sum_at_least([(-rv, 1), (c, 1)], 1)
+                    opb.weighted_sum_at_least([(-c, 1)] + [(rv, 1) for rv in roles], 1)
+                    cday.append(c)
+                bwin = args.rule_b + 1
+                for d in range(vm.num_days - bwin + 1):
+                    opb.weighted_sum_at_least([(-cday[d + o], 1) for o in range(bwin)], 1)
+
+    if args.rule_c:
+        from parafrost_scheduler.schedule_encoder import _block_starts_grid
+        starts = [bs for bs, _ in _block_starts_grid(vm.num_weeks, 4, 1)][1:]
+        for f, name in enumerate(vm.fellow_names):
+            if name not in ccm:
+                continue
+            for wk in starts:
+                ds = diw_all.get(wk, [])
+                if ds and min(ds) - 1 >= 0:
+                    b = min(ds)
+                    opb.at_most_k([vm.call[b - 1][f]["NF"], vm.call[b][f]["NF"]], 1)
+
     win = args.max_off + 1
     for f, name in enumerate(vm.fellow_names):
         if name in jr or name in sr:
-            # HARD: no more than max_off consecutive off days
-            offv = [_build_off_indicator(opb, vm.call, vm.xs, si, cfg, f, d, sd)
-                    for d in range(vm.num_days)]
-            for d in range(vm.num_days - win + 1):
-                opb.weighted_sum_at_least([(-offv[d + o], 1) for o in range(win)], 1)
+            # HARD: no more than max_off consecutive off days (LEGACY lever; default off)
+            if args.max_off:
+                offv = [_build_off_indicator(opb, vm.call, vm.xs, si, cfg, f, d, sd)
+                        for d in range(vm.num_days)]
+                for d in range(vm.num_days - win + 1):
+                    opb.weighted_sum_at_least([(-offv[d + o], 1) for o in range(win)], 1)
             # SOFT: penalize each NCC week (concentrate → Elec)
             for w in range(vm.num_weeks):
                 wk = vm.xs[f][w][nccsi]
