@@ -1423,7 +1423,22 @@ def _encode_all_or_none_block(opb, xs, constraint, fellow_indices, **kw):
     soft_violations = kw["soft_violations"]
 
     block_size = constraint.params.get("block_size", 4)
+    block_offset = constraint.params.get("block_offset", 0)
     target_shifts = list(constraint.shifts.shifts) if constraint.shifts else []
+
+    def _block_starts():
+        """Yield (start, end) blocks. With block_offset=k, the FIRST block is
+        block_size+k weeks long, then block_size-week blocks tile after it.
+        offset 0 == the original range(0, num_weeks, block_size) grid."""
+        if num_weeks <= 0:
+            return
+        first_len = block_size + block_offset
+        first_end = min(first_len, num_weeks)
+        yield 0, first_end
+        s = first_end
+        while s < num_weeks:
+            yield s, min(s + block_size, num_weeks)
+            s += block_size
 
     for shift_name in target_shifts:
         si = shift_idx.get(shift_name)
@@ -1431,8 +1446,7 @@ def _encode_all_or_none_block(opb, xs, constraint, fellow_indices, **kw):
             continue
 
         for f in fellow_indices:
-            for block_start in range(0, num_weeks, block_size):
-                block_end = min(block_start + block_size, num_weeks)
+            for block_start, block_end in _block_starts():
                 block_len = block_end - block_start
                 block_vars = [xs[f][w][si] for w in range(block_start, block_end) if xs[f][w][si] != 0]
 

@@ -154,6 +154,7 @@ def _convert_block_rotation(
         params={
             "name": name,
             "block_size": rule["block_size"],
+            **({"block_offset": rule["block_offset"]} if "block_offset" in rule else {}),
         },
     )]
 

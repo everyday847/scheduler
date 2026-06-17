@@ -227,3 +227,38 @@ def test_weekday_ncc1_forces_ncc_label():
         "fellow 0 has NCC1 on weekday day 0 but NCC weekly label is not set — "
         "strict forward implication (cv => NCC) is broken for weekday call days"
     )
+
+
+# ---------------------------------------------------------------------------
+# A2: block_offset — long first block
+# ---------------------------------------------------------------------------
+from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+from _nf_helpers import make_nf_config, build, runner_or_skip
+from scheduler.semantic_constraints import (
+    SemanticConstraint, ConstraintLifecycle, ConstraintStrength, FellowSelector, ShiftSet)
+
+
+def _block_rule(block_size, offset, strength=ConstraintStrength.HARD):
+    params = {"name": "blk", "block_size": block_size}
+    if offset:
+        params["block_offset"] = offset
+    return SemanticConstraint(
+        kind="all_or_none_block", lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=strength, fellows=FellowSelector.by_groups("NCC_JR"),
+        shifts=ShiftSet("blk", ("MICU",)), params=params)
+
+
+def test_block_offset_long_first_block_grid():
+    """With block_size=4, offset=1: a fellow on MICU in week 0 must be on it weeks
+    0..4 (5-week first block), and a fellow on MICU in week 5 must be on weeks 5..8.
+    Pinning MICU in weeks 0 and 5 then forbidding week 4 (inside block 0) is UNSAT."""
+    # 9-week horizon (num_days=63), block grid: [0..4],[5..8]
+    cfg = make_nf_config(num_days=63, shifts=("MICU", "NCC", "Elec", "Vac"),
+                         constraints=[_block_rule(4, 1)])
+    opb, vm = build(cfg)
+    f = 3  # a JR
+    micu = vm.shifts.index("MICU")
+    opb.add_unit(vm.xs[f][0][micu])     # MICU week 0 -> block 0 = weeks 0..4 all MICU
+    opb.add_unit(-vm.xs[f][4][micu])    # but forbid week 4 -> contradicts the 5-wk block
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert not res.satisfiable
