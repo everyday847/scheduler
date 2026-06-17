@@ -51,12 +51,17 @@ def derive_forbidden_shifts(
     # (the solver bridge maps it to kind shift_total for the encoder). Fold its
     # shifts into the owning group's budget — additively, only for already-seeded
     # ("owned") groups, exactly as the legacy call_rules path did below.
+    # Also fold `specific_assignment` rules so that pinned shifts are not
+    # simultaneously forbidden by the derived zero_shifts constraint.
     for rule in rules:
-        if rule.get("type") not in ("shift_total", "per_fellow_shift_total"):
+        if rule.get("type") not in ("shift_total", "per_fellow_shift_total", "specific_assignment"):
             continue
         if not rule.get("active", True):
             continue
         shifts = rule.get("shifts", [])
+        # specific_assignment uses a scalar "shift" field, not a list
+        if rule.get("type") == "specific_assignment" and rule.get("shift"):
+            shifts = [rule["shift"]]
         single_fellows = list(rule.get("fellows", []))
         if rule.get("fellow"):
             single_fellows.append(rule["fellow"])

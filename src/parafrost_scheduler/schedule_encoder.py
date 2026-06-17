@@ -169,10 +169,20 @@ def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
         xs[f][w]['NCC'] == 1  iff  the fellow has ANY call day (NCC1/NCC2/NF) in
         week w. Per-role split lives only in the day layer. A blank day inside an
         NCC week is a legitimate non-working day (Phase-2 rest depends on it).
-        Non-NF configs (no 'NCC' shift) are untouched."""
+        Non-NF configs (no 'NCC' shift) are untouched.
+
+    Item #4 — weekend NCC1 exemption: a weekend (Sat/Sun) NCC1 call day during
+    a week the fellow spends on Elec does NOT force the weekly NCC label.
+    The forward implication is relaxed from cv => NCC  to  cv => (NCC v Elec):
+        weighted_sum_at_least([(-cv,1),(NCC_var,1),(Elec_var,1)], 1)
+    This only applies when role=="NCC1", dow in (5,6), and Elec_var != 0.
+    Weekday call days and weekend NF days keep strict cv => NCC.
+    The back implication (NCC => some call day) is unchanged.
+    """
     si = shift_idx.get("NCC")
     if si is None:
         return
+    elec_si = shift_idx.get("Elec")
     opb.add_comment("NF model: weekly NCC label <=> any day-granular call that week")
     num_fellows = len(fellow_names)
     days_in_week: dict[int, list[int]] = {}
@@ -187,8 +197,23 @@ def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
                         opb.add_unit(-call[d][f][role])
                 continue
             day_call_vars = [call[d][f][role] for d in days for role in CALL_ROLES]
-            for cv in day_call_vars:
-                opb.weighted_sum_at_least([(-cv, 1), (wk, 1)], 1)
+            # Forward: cv => NCC (with weekend NCC1 exemption when Elec var exists)
+            for d in days:
+                dow = _day_of_week(d, start_dow)
+                weekend = dow in (5, 6)
+                for role in CALL_ROLES:
+                    cv = call[d][f][role]
+                    if weekend and role == "NCC1" and elec_si is not None:
+                        elec_var = xs[f][w][elec_si]
+                        if elec_var != 0:
+                            # cv => (NCC v Elec): (-cv,1) + (NCC,1) + (Elec,1) >= 1
+                            opb.weighted_sum_at_least(
+                                [(-cv, 1), (wk, 1), (elec_var, 1)], 1
+                            )
+                            continue
+                    # Strict: cv => NCC
+                    opb.weighted_sum_at_least([(-cv, 1), (wk, 1)], 1)
+            # Back: NCC => some call day in this week
             opb.weighted_sum_at_least([(-wk, 1)] + [(cv, 1) for cv in day_call_vars], 1)
 
 
@@ -332,6 +357,38 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
                     opb.weighted_sum_at_least(
                         [(-nf[d], 1), (nf[d - 1], 1), (off[dk][f], 1)], 1
                     )
+
+
+def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
+    """HARD per-fellow NCC service-day band (NF model).
+
+    A "service day" = any day the fellow holds NCC1, NCC2, or NF.
+    JR fellows: [75, 85] days; SR fellows: [125, 135] days.
+    Bands are config-driven via config.fellow_groups membership.
+
+    TODO: expose lo/hi as a nf_service_day_bands mapping in the annual config.
+    """
+    # Determine which fellows are JR vs SR
+    jr_names = set(config.fellow_groups.get("NCC_JR", []))
+    sr_names = set(config.fellow_groups.get("NCC_SR", []))
+
+    opb.add_comment("NF model: per-fellow NCC service-day band")
+    for f, name in enumerate(fellow_names):
+        if name in jr_names:
+            lo, hi = 75, 85
+        elif name in sr_names:
+            lo, hi = 125, 135
+        else:
+            # CCM or unknown: no band constraint
+            continue
+        # Skip if horizon is shorter than the lower bound (unit-test / short fixtures).
+        # A truncated horizon can never satisfy the lower band and the constraint
+        # would trivially render the instance UNSAT.
+        if num_days < lo:
+            continue
+        daily = [call[d][f][role] for d in range(num_days) for role in CALL_ROLES]
+        opb.weighted_sum_at_least([(v, 1) for v in daily], lo)
+        opb.weighted_sum_at_most([(v, 1) for v in daily], hi)
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +604,7 @@ def build_full_schedule_opb(
             opb, call, bk, fellow_names, num_days, start_dow)
         _encode_nf_run_length(opb, call, fellow_names, num_days)
         _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer
