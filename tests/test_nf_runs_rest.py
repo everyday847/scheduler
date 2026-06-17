@@ -97,3 +97,18 @@ def test_pinned_run_then_immediate_call_is_unsat():
     opb.add_unit(vm.call[4][f]["NCC1"])    # call immediately after run end -> rest violated
     res = runner_or_skip().solve(opb, timeout=120)
     assert not res.satisfiable
+
+
+def test_pinned_call_then_immediate_run_is_unsat():
+    """BEFORE-run rest direction: a call role on the day just before an NF run
+    starts -> UNSAT. The after-run test uses a horizon-head run (day 0) which skips
+    the before-clauses, so this mid-horizon run guards the symmetric other half."""
+    cfg = make_nf_config(num_days=28)
+    opb, vm = build(cfg)
+    f = 1
+    for d in range(10, 15):                 # NF run days 10..14 (length 5, valid)
+        opb.add_unit(vm.call[d][f]["NF"])
+    opb.add_unit(-vm.call[9][f]["NF"])      # run STARTS at day 10 (not NF at 9)
+    opb.add_unit(vm.call[9][f]["NCC1"])     # call on day 9 = run-start's d-1 -> before-rest violated
+    res = runner_or_skip().solve(opb, timeout=120)
+    assert not res.satisfiable
