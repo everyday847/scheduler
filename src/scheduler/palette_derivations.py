@@ -82,7 +82,9 @@ def derive_forbidden_shifts(
     for group, budgeted_shifts in sorted(mentioned.items()):
         if group not in fellow_groups:
             continue
-        forbidden = sorted(all_shifts_set - budgeted_shifts)
+        # Never forbid the "NCC" shift — it's the home base / default rotation.
+        # All other unmentioned shifts become forbidden.
+        forbidden = sorted((all_shifts_set - budgeted_shifts) - {"NCC"})
         if not forbidden:
             continue
         constraints.append(SemanticConstraint(

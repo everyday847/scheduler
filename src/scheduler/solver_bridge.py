@@ -118,11 +118,16 @@ def build_solver_config_from_request(
         standing_config = yaml.safe_load(standing_path.read_text())
 
     # Detect palette v2 format: rules have "type" key instead of "kind"
+    # Check both standing rules and annual rules (top-level "rules" key)
     standing_rules_list = standing_config.get("rules", [])
+    annual_rules_list = raw_request.get("rules", [])
     is_palette_format = (
-        standing_rules_list
-        and isinstance(standing_rules_list[0], dict)
-        and "type" in standing_rules_list[0]
+        (standing_rules_list
+         and isinstance(standing_rules_list[0], dict)
+         and "type" in standing_rules_list[0])
+        or (annual_rules_list
+            and isinstance(annual_rules_list[0], dict)
+            and "type" in annual_rules_list[0])
     )
 
     if is_palette_format:

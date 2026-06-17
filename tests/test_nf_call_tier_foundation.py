@@ -196,7 +196,7 @@ def test_nf_model_configs_assemble_with_flag_on():
     assert not {"NCC1", "NCC2", "NF"} & set(cfg.shifts), \
         "per-role names must not appear as weekly shifts (day-layer only)"
     all_fellows = [f for g in cfg.fellow_groups.values() for f in g]
-    assert len(all_fellows) == 6   # 3 JR + 2 SR + 1 CCM
+    assert len(all_fellows) == 7   # 3 JR + 2 SR + 2 CCM
 
 
 # ---------------------------------------------------------------------------
