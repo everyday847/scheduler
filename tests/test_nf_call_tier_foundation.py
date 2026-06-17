@@ -172,3 +172,29 @@ def test_nf_model_configs_assemble_with_flag_on():
     assert {"NCC1", "NCC2", "NF"} <= set(cfg.shifts)
     all_fellows = [f for g in cfg.fellow_groups.values() for f in g]
     assert len(all_fellows) == 6   # 3 JR + 2 SR + 1 CCM
+
+
+# ---------------------------------------------------------------------------
+# Task 8: Integration gate — full-year NF model must solve (not UNSAT)
+# ---------------------------------------------------------------------------
+
+from _dispatch_helpers import solve_sat
+
+
+def test_full_year_nf_model_is_satisfiable():
+    """Integration gate: the real full-year ncc-nf-model config must SOLVE.
+    Regression for the instant-UNSAT from the legacy weekend layer (wb7 fellows)
+    + hard backup coverage forcing a weekly Elec fellow the lean roster can't spare."""
+    res = assemble_config(None,
+        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
+    cfg = res[0] if isinstance(res, tuple) else res
+    from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    assert solve_sat(opb, timeout=120), "full-year NF model must be feasible"
+
+
+def test_legacy_weekend_layer_absent_under_flag():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    assert vm.wr == [] or all(all(len(rm) == 0 for rm in week) for week in vm.wr)

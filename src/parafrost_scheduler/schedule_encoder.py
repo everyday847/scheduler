@@ -324,36 +324,37 @@ def build_full_schedule_opb(
     # -------------------------------------------------------------------
     # 4. Weekend variables: wr[w][role][f]
     # -------------------------------------------------------------------
-    opb.add_comment("Weekend assignment variables")
-    _diag_disable_weekends = os.environ.get("SCHED_DIAG_DISABLE_WEEKENDS") == "1"
     wr: list[list[dict[int, int]]] = []
-    for w in range(num_weeks):
-        wr.append([])
-        # A partial final (or first) week may have no weekend day inside the
-        # horizon; skip it so coverage/totals don't force a phantom weekend.
-        sat_day = _week_day(w, 5, start_dow)
-        week_has_weekend = 0 <= sat_day < num_days
-        for role_idx in range(3):
-            role_vars: dict[int, int] = {}
-            if week_has_weekend and not _diag_disable_weekends:
-                for f in range(num_fellows):
-                    if _is_weekend_eligible_static(
-                        fellow_names[f], role_idx, config.weekend_config
-                    ):
-                        role_vars[f] = opb.new_var()
-            wr[w].append(role_vars)
+    if not config.call_tier_day_granular:
+        opb.add_comment("Weekend assignment variables")
+        _diag_disable_weekends = os.environ.get("SCHED_DIAG_DISABLE_WEEKENDS") == "1"
+        for w in range(num_weeks):
+            wr.append([])
+            # A partial final (or first) week may have no weekend day inside the
+            # horizon; skip it so coverage/totals don't force a phantom weekend.
+            sat_day = _week_day(w, 5, start_dow)
+            week_has_weekend = 0 <= sat_day < num_days
+            for role_idx in range(3):
+                role_vars: dict[int, int] = {}
+                if week_has_weekend and not _diag_disable_weekends:
+                    for f in range(num_fellows):
+                        if _is_weekend_eligible_static(
+                            fellow_names[f], role_idx, config.weekend_config
+                        ):
+                            role_vars[f] = opb.new_var()
+                wr[w].append(role_vars)
 
-    # -------------------------------------------------------------------
-    # 5. Weekend constraints
-    # -------------------------------------------------------------------
-    _encode_weekend_constraints(
-        opb, wr, xs, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
-    )
-    # Weekend-layer registry walk (Option A): typed config.constraints routed to
-    # the weekend layer. EMPTY in this foundation → encodes nothing.
-    _encode_weekend_layer_rules(
-        opb, wr, xs, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
-    )
+        # -------------------------------------------------------------------
+        # 5. Weekend constraints
+        # -------------------------------------------------------------------
+        _encode_weekend_constraints(
+            opb, wr, xs, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
+        )
+        # Weekend-layer registry walk (Option A): typed config.constraints routed to
+        # the weekend layer. EMPTY in this foundation → encodes nothing.
+        _encode_weekend_layer_rules(
+            opb, wr, xs, config, fellow_mapping, fellow_names, shift_idx, soft_violations,
+        )
 
     # -------------------------------------------------------------------
     # 5b. Backup variables + constraints: bk[w][kind][f]
@@ -1772,24 +1773,46 @@ def _encode_backup_constraints(
                     [(v, 1) for v in shift_vars] + [(-bk_var, 1)], 1
                 )
         # Weekend Backup excludes any weekend call role that week.
-        for f, wb_var in bk[w][_BACKUP_WEEKEND].items():
-            for role_idx in range(3):
-                if f in wr[w][role_idx]:
-                    opb.at_most_k([wb_var, wr[w][role_idx][f]], 1)
+        # Guard: wr is empty when call_tier_day_granular is on (no legacy weekend layer).
+        if wr:
+            for f, wb_var in bk[w][_BACKUP_WEEKEND].items():
+                for role_idx in range(3):
+                    if f in wr[w][role_idx]:
+                        opb.at_most_k([wb_var, wr[w][role_idx][f]], 1)
 
-    # Hard coverage: exactly one weekday Backup + one Weekend Backup per week,
+    # Coverage: exactly one weekday Backup + one Weekend Backup per week,
     # EXCEPT week 0 — the Stroke fellows are pinned to orientation Elec there, so
     # no fellow is backup-eligible (mirrors the NCC2/Telestroke week-0 exemption).
-    opb.add_comment("Backup: hard coverage (exactly one weekday + one weekend per week, week 0 exempt)")
-    for w in range(num_weeks):
-        if w < _BACKUP_COVERAGE_FIRST_WEEK:
-            continue
-        wd_vars = list(bk[w][_BACKUP_WEEKDAY].values())
-        if wd_vars:
-            opb.exactly_one(wd_vars)
-        we_vars = list(bk[w][_BACKUP_WEEKEND].values())
-        if we_vars:
-            opb.exactly_one(we_vars)
+    # Under call_tier_day_granular (NF model) coverage is SOFT: the lean 5-fellow
+    # call roster may not spare a fellow for Elec every week.
+    if config.call_tier_day_granular:
+        opb.add_comment("Backup: soft coverage (NF model: at-most-one + uncovered penalty)")
+        for w in range(num_weeks):
+            if w < _BACKUP_COVERAGE_FIRST_WEEK:
+                continue
+            wd_vars = list(bk[w][_BACKUP_WEEKDAY].values())
+            if wd_vars:
+                u = opb.new_var()
+                opb.weighted_sum_at_least([(v, 1) for v in wd_vars] + [(u, 1)], 1)
+                opb.at_most_k(wd_vars, 1)
+                soft_violations.append((u, config.swing_uncovered_weight))
+            we_vars = list(bk[w][_BACKUP_WEEKEND].values())
+            if we_vars:
+                u = opb.new_var()
+                opb.weighted_sum_at_least([(v, 1) for v in we_vars] + [(u, 1)], 1)
+                opb.at_most_k(we_vars, 1)
+                soft_violations.append((u, config.swing_uncovered_weight))
+    else:
+        opb.add_comment("Backup: hard coverage (exactly one weekday + one weekend per week, week 0 exempt)")
+        for w in range(num_weeks):
+            if w < _BACKUP_COVERAGE_FIRST_WEEK:
+                continue
+            wd_vars = list(bk[w][_BACKUP_WEEKDAY].values())
+            if wd_vars:
+                opb.exactly_one(wd_vars)
+            we_vars = list(bk[w][_BACKUP_WEEKEND].values())
+            if we_vars:
+                opb.exactly_one(we_vars)
 
     opb.add_comment(f"Backup: max {_BACKUP_MAX_CONSECUTIVE_WEEKS} consecutive backup weeks")
     # on_backup[w][f] = OR(weekday backup, weekend backup) for fellow f, week w.
@@ -3769,6 +3792,9 @@ def decode_solution(
     for w in range(num_weeks):
         week_assignments = {}
         for role_idx, role_name in enumerate(_WEEKEND_ROLE_NAMES):
+            if not var_map.wr:
+                week_assignments[role_name] = ""
+                continue
             for fi, var in var_map.wr[w][role_idx].items():
                 if assignment.get(var, False):
                     week_assignments[role_name] = fellow_names[fi]
