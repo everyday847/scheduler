@@ -208,9 +208,17 @@ from parafrost_scheduler.schedule_types import _BACKUP_WEEKEND
 
 
 def test_weekend_backup_excludes_weekend_call_role():
-    """A Weekend Backup fellow must not also hold a weekend call role (NCC1/NF)
-    on that weekend. Regression: when the legacy wr layer is gated off for the NF
-    model, this exclusion must be re-enforced against the day-granular call tier.
+    """Invariant: a Weekend Backup fellow must not also hold a weekend call role
+    (NCC1/NF) on that weekend.
+
+    NOTE: this property currently holds via TWO independent mechanisms — the
+    explicit `_encode_call_weekend_backup_exclusion` (added when the legacy
+    wr-based exclusion was gated off for the NF model), AND transitively
+    (backup => Elec week, call-day => call-label, at-most-one-shift-per-week). So
+    this is an invariant check, not a red->green guard for the explicit clause
+    alone; the explicit clause is defense-in-depth that survives a future change
+    to backup eligibility (e.g. if a call-compatible shift were ever made
+    backup-eligible, the transitive argument would break but this would not).
 
     Index verification (empirically confirmed):
       - start_dow=0 (Monday), so week w Saturday = w*7+5.
