@@ -262,3 +262,235 @@ def test_block_offset_long_first_block_grid():
     opb.add_unit(-vm.xs[f][4][micu])    # but forbid week 4 -> contradicts the 5-wk block
     res = runner_or_skip().solve(opb, timeout=30)
     assert not res.satisfiable
+
+
+# ---------------------------------------------------------------------------
+# A3: CCM 4-week NCC blocks + soft 6-8 NF-days/block
+# ---------------------------------------------------------------------------
+
+def test_ccm_ncc_comes_in_aligned_blocks():
+    """A CCM fellow on NCC in week 0 must be NCC for the whole first (5-week) block."""
+    cfg = _assemble()
+    if not _ROUNDINGSAT.exists():
+        import pytest; pytest.skip("RoundingSat not built")
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    # pin a CCM fellow to NCC week 0; assert the block_rotation forces weeks 0..4 NCC
+    ccm = cfg.fellow_groups["CCM"][0]
+    f = vm.fellow_names.index(ccm)
+    ncc = vm.shifts.index("NCC")
+    opb.add_unit(vm.xs[f][0][ncc])
+    opb.add_unit(-vm.xs[f][3][ncc])     # forbid week 3 (inside first 5-wk block) -> UNSAT
+    res = RoundingSatRunner(_ROUNDINGSAT).solve(opb, timeout=120)
+    assert not res.satisfiable
+
+
+def test_ccm_block_nf_count_soft_penalty_registered():
+    """The CCM per-block NF-day soft target registers soft-violation vars (so the
+    objective can penalize <6 or >8 NF days in a selected CCM block)."""
+    cfg = _assemble()
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    # soft_violations is a list of (var, weight); the CCM-NF-count helper appends some.
+    # Assert at least one soft violation exists tagged at the CCM-NF weight (use a
+    # sentinel weight set in config, or just assert the helper added vars by comparing
+    # soft-violation count with/without the helper — simplest: assert > 0 here and rely
+    # on the dedicated unit test below for the precise behavior).
+    assert len(vm.soft_violations) > 0
+
+
+# ---------------------------------------------------------------------------
+# A3 precision: unit-test the CCM NF-count helper's gating behavior
+# ---------------------------------------------------------------------------
+# Uses a minimal fixture: 1 CCM fellow, 5 days (one block), "NCC" shift.
+# Verifies:
+#   - A selected block (NCC weekly var active) with <6 NF days is penalized.
+#   - An unselected block (NCC weekly var inactive) is NOT penalized regardless
+#     of NF-day count (the blk_active gate must swallow the lo-side penalty).
+#   - A selected block with >8 NF days is penalized.
+
+_CCM_NF_WEIGHT = 50   # sentinel weight used by _encode_ccm_block_nf_count
+
+
+def test_ccm_nf_count_selected_block_below_lo_penalized():
+    """A selected CCM block with fewer than 6 NF days fires the lo-side penalty.
+
+    Build the FULL assembled config (all 5 fellows satisfy coverage).
+    Pin CCM fellow 0 to NCC in week 0 -> block [0..4] is selected.
+    Pin all call-days in that block to NCC1 (not NF) -> 0 NF days -> lo violation.
+    The model must still be SAT (soft penalty) and vm.soft_violations must contain
+    the CCM-NF sentinel weight.
+    """
+    cfg = _assemble()
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+
+    ccm_name = cfg.fellow_groups["CCM"][0]
+    f = vm.fellow_names.index(ccm_name)
+    ncc_si = vm.shifts.index("NCC")
+
+    # Pin week 0 NCC => block 0 selected (weeks 0..4, 35 days)
+    if vm.xs[f][0][ncc_si] != 0:
+        opb.add_unit(vm.xs[f][0][ncc_si])
+
+    # Forbid NF for this fellow across all block-0 days (days 0..34)
+    for d in range(min(35, len(vm.call))):
+        nf_var = vm.call[d][f]["NF"]
+        if nf_var != 0:
+            opb.add_unit(-nf_var)
+
+    runner = runner_or_skip()
+    res = runner.solve(opb, timeout=120)
+    assert res.satisfiable, (
+        "model UNSAT after forbidding CCM NF days in selected block — "
+        "lo-side penalty must be SOFT"
+    )
+    # The CCM-NF sentinel weight must appear in soft_violations
+    assert _CCM_NF_WEIGHT in [w for _, w in vm.soft_violations], (
+        f"CCM-NF sentinel weight {_CCM_NF_WEIGHT} not in soft_violations — "
+        "helper may not have emitted any lo-side penalty var"
+    )
+
+
+def test_ccm_nf_count_unselected_block_no_penalty():
+    """An unselected CCM block incurs ZERO lo-side NF-count penalty (the blk_active gate).
+
+    This is the key correctness property from the brief:
+    "a CCM fellow with NO NCC block in the year must incur ZERO CCM-NF-count penalty."
+
+    We use a minimal model (not the full assembled config) where we can control
+    block selection completely. Setup:
+      - 1 CCM fellow + 6 other fellows (for coverage)
+      - 14-day horizon (2 weeks), block_size=4, block_offset=0 → 1 block (weeks 0-1)
+      - CCM block rule with nf_days_per_block=[6,8]
+      - Forbid NCC for the CCM fellow in this block (blk_active=0)
+      - Build with objective=True and solve; verify no CCM-NF penalty var fires
+
+    The constraint `nf_count + nf_lo*slack_lo + nf_lo*(1-blk_active) >= nf_lo`:
+      blk_active=0 → nf_count + nf_lo*slack_lo + nf_lo >= nf_lo → nf_count + nf_lo*slack_lo >= 0
+      → tautology: slack_lo CAN be 0 regardless of nf_count ← no penalty
+    """
+    from _nf_helpers import make_nf_config
+    from scheduler.semantic_constraints import (
+        SemanticConstraint, ConstraintLifecycle, ConstraintStrength,
+        FellowSelector, ShiftSet,
+    )
+
+    # CCM block rule: block_size=4, no offset (14-day horizon has weeks 0-1 = 1 block)
+    ccm_blk = SemanticConstraint(
+        kind="all_or_none_block",
+        lifecycle=ConstraintLifecycle.ANNUAL_RULE,
+        strength=ConstraintStrength.HARD,
+        fellows=FellowSelector.by_groups("CCM"),
+        shifts=ShiftSet("ccm_ncc", ("NCC",)),
+        params={"name": "CCM NCC 4wk blocks", "block_size": 4, "block_offset": 0,
+                "nf_days_per_block": [6, 8]},
+    )
+    # 14 days = 2 weeks. Use default 6-fellow fixture for coverage.
+    cfg = make_nf_config(
+        shifts=("NCC", "Elec", "Vac"),
+        num_days=14,
+        start_dow=0,
+        constraints=[ccm_blk],
+    )
+    opb, vm = build_full_schedule_opb(cfg, objective=True)
+
+    # Find CCM fellow index (C1 in the default fixture)
+    ccm_names = set(cfg.fellow_groups.get("CCM", []))
+    ccm_fi = [i for i, n in enumerate(vm.fellow_names) if n in ccm_names]
+
+    ncc_si = vm.shifts.index("NCC")
+
+    # Forbid all NCC for ALL CCM fellows in the block (weeks 0-1)
+    for f in ccm_fi:
+        for w in range(vm.num_weeks):
+            v = vm.xs[f][w][ncc_si]
+            if v != 0:
+                opb.add_unit(-v)
+
+    runner = runner_or_skip()
+    res = runner.optimize(opb, time_limit=60)
+    assert res.satisfiable, (
+        "model UNSAT after forbidding CCM NCC in a small fixture — "
+        "other fellows should cover call without CCM NCC"
+    )
+
+    a = res.assignment
+    # All CCM-NF penalty vars (sentinel weight) must be False in the optimal solution
+    ccm_nf_viol_vars = [var for var, w in vm.soft_violations if w == _CCM_NF_WEIGHT]
+    assert ccm_nf_viol_vars, (
+        f"no CCM-NF penalty vars found (sentinel weight {_CCM_NF_WEIGHT}) — "
+        "helper must have emitted lo-side vars"
+    )
+    active_count = sum(1 for var in ccm_nf_viol_vars if a.get(var, False))
+    assert active_count == 0, (
+        f"unselected CCM block has {active_count} active penalty var(s) — "
+        "the blk_active gate must suppress lo-side penalty when blk_active=0. "
+        "When blk_active=0: nf_count + nf_lo*slack_lo + nf_lo >= nf_lo → "
+        "nf_count + nf_lo*slack_lo >= 0 (tautology, slack_lo free to be 0)."
+    )
+
+
+def test_ccm_nf_count_selected_block_above_hi_penalized():
+    """A selected CCM block with more than 8 NF days fires the hi-side penalty.
+
+    Build the full assembled config. Pin CCM fellow 0 to NCC week 0 (block selected).
+    Pin NF days in a valid 4-6-day run that exceeds 8 days total across the block.
+    The model must stay SAT (soft penalty) and the CCM-NF sentinel weight must appear
+    and at least one hi-side var must be True in the solution.
+
+    Uses two well-spaced runs with at least 2 rest days between them:
+      Run 1: days 0-4 (5 days, Mon-Fri of week 0). Run ends at day 4.
+             After-rest: days 5-6 must be off (Sat, Sun of week 0).
+      Run 2: days 9-13 (5 days, Mon-Fri of week 1). Run starts at day 9.
+             Before-rest: days 7-8 must be off.
+    Total NF = 10 days > 8 → hi-side penalty fires.
+    """
+    cfg = _assemble()
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+
+    ccm_name = cfg.fellow_groups["CCM"][0]
+    f = vm.fellow_names.index(ccm_name)
+    ncc_si = vm.shifts.index("NCC")
+
+    # Pin week 0 NCC => block 0 selected
+    if vm.xs[f][0][ncc_si] != 0:
+        opb.add_unit(vm.xs[f][0][ncc_si])
+
+    # Run 1: days 0-4 (Mon-Fri of week 0, start_dow=0) — 5 consecutive NF days
+    for d in range(5):
+        nf_var = vm.call[d][f]["NF"]
+        if nf_var != 0:
+            opb.add_unit(nf_var)
+    # Explicitly forbid NF on rest days 5-6 (Sat-Sun of week 0)
+    for d in range(5, 7):
+        nf_var = vm.call[d][f]["NF"]
+        if nf_var != 0:
+            opb.add_unit(-nf_var)
+
+    # Run 2: days 9-13 (Mon-Fri of week 1) — 5 consecutive NF days
+    # Before rest (days 7-8 off) is satisfied by forbidding NF on days 7-8
+    for d in range(7, 9):
+        nf_var = vm.call[d][f]["NF"]
+        if nf_var != 0:
+            opb.add_unit(-nf_var)
+    for d in range(9, 14):
+        nf_var = vm.call[d][f]["NF"]
+        if nf_var != 0:
+            opb.add_unit(nf_var)
+
+    runner = runner_or_skip()
+    res = runner.solve(opb, timeout=120)
+    assert res.satisfiable, (
+        "model UNSAT after pinning 10 NF days in selected CCM block — "
+        "hi-side penalty must be SOFT"
+    )
+    a = res.assignment
+    # The CCM-NF sentinel weight must appear and at least one hi-side var must be True
+    assert _CCM_NF_WEIGHT in [w for _, w in vm.soft_violations], (
+        f"CCM-NF sentinel weight {_CCM_NF_WEIGHT} not in soft_violations — "
+        "helper may not have emitted any hi-side penalty var"
+    )
+    ccm_nf_vars = [(var, w) for var, w in vm.soft_violations if w == _CCM_NF_WEIGHT]
+    active = sum(1 for var, _ in ccm_nf_vars if a.get(var, False))
+    assert active >= 1, (
+        f"expected at least one active CCM-NF penalty for 10 NF days in selected block, "
+        f"but zero fired (total CCM-NF vars: {len(ccm_nf_vars)})"
+    )

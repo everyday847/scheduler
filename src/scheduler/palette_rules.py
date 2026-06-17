@@ -155,6 +155,7 @@ def _convert_block_rotation(
             "name": name,
             "block_size": rule["block_size"],
             **({"block_offset": rule["block_offset"]} if "block_offset" in rule else {}),
+            **({"nf_days_per_block": rule["nf_days_per_block"]} if "nf_days_per_block" in rule else {}),
         },
     )]
 

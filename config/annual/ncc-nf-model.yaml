@@ -52,6 +52,8 @@ rules:
   - {type: specific_assignment, name: "SR2 Vac wk17", fellow: SR2, week: 17, shift: Vac, strength: hard}
   - {type: specific_assignment, name: "SR2 Vac wk35", fellow: SR2, week: 35, shift: Vac, strength: hard}
   - {type: specific_assignment, name: "SR2 Vac wk48", fellow: SR2, week: 48, shift: Vac, strength: hard}
+  # --- CCM generic coverage: 4-week NCC blocks (first block long: 53 = 5 + 4*12) ---
+  - {type: block_rotation, name: "CCM NCC 4wk blocks", groups: [CCM], shifts: [NCC], block_size: 4, block_offset: 1, strength: hard, nf_days_per_block: [6, 8]}
   # --- Hard NCC-week cap per group (item #3) ---
   # DEFERRED: both caps together cause solver timeout (>120s) on the full-year model.
   # Probe showed Stage 2 (add caps) = TIMEOUT. Kept here as inactive for future re-evaluation.

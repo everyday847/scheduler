@@ -392,6 +392,239 @@ def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
 
 
 # ---------------------------------------------------------------------------
+# CCM per-block NF-day soft target
+# ---------------------------------------------------------------------------
+
+#: Sentinel weight for CCM per-block NF-day band soft penalties. A dedicated
+#: weight (not reusing weekly_soft_weight) makes the penalty identifiable in
+#: tests and in the objective breakdown without changing the objective scale.
+_CCM_NF_BLOCK_WEIGHT = 50
+
+
+def _block_starts_grid(num_weeks: int, block_size: int, block_offset: int):
+    """Yield (start, end) week-index pairs for an offset block grid.
+
+    With block_offset=k the FIRST block is (block_size+k) weeks long; subsequent
+    blocks are block_size weeks long. block_offset=0 is the standard even grid.
+
+    Example: num_weeks=53, block_size=4, block_offset=1
+        → [0,5), [5,9), [9,13), …, [49,53)   (13 blocks, first is 5 wide)
+    """
+    if num_weeks <= 0:
+        return
+    first_end = min(block_size + block_offset, num_weeks)
+    yield 0, first_end
+    s = first_end
+    while s < num_weeks:
+        yield s, min(s + block_size, num_weeks)
+        s += block_size
+
+
+def _encode_ccm_block_nf_count(
+    opb: "OpbBuilder",
+    call: list[list[dict[str, int]]],
+    xs: list[list[list[int]]],
+    shift_idx: dict[str, int],
+    config: "ScheduleSolverConfig",
+    fellow_names: list[str],
+    num_days: int,
+    start_dow: int,
+    soft_violations: list[tuple[int, int]],
+) -> None:
+    """SOFT per-block NF-day-count target for CCM fellows on NCC blocks.
+
+    For each CCM fellow × block that carries `nf_days_per_block: [lo, hi]` in its
+    ``all_or_none_block`` constraint params, emit a soft band on the count of NF
+    call-days the fellow holds inside that block's weeks.
+
+    Correctness gate (the brief's "one correctness trap"):
+    An UNSELECTED block must incur ZERO penalty. A block is selected iff the fellow
+    has any NCC weekly var active in it. We build:
+
+        blk_active = OR(xs[f][w][ncc_si] for w in block)
+
+    and gate the lo-side penalty on blk_active:
+
+        lo-side:  nf_count + lo*(1 - blk_active) + slack_lo >= lo
+                  → if blk_active=0: nf_count + lo + slack_lo >= lo → trivially true
+                    (slack_lo free to 0, nf_count is typically 0 → no penalty)
+                  → if blk_active=1: nf_count + slack_lo >= lo
+                    (slack_lo must absorb any shortfall → penalized if short)
+
+        hi-side:  nf_count - slack_hi <= hi
+                  → no blk_active gate needed: a non-selected block has 0 NF days
+                    which is trivially <= hi; the hi-side never fires for unused blocks.
+
+    Both slack_lo and slack_hi are registered in soft_violations with weight
+    _CCM_NF_BLOCK_WEIGHT (a sentinel value tests can assert on).
+    """
+    ncc_si = shift_idx.get("NCC")
+    if ncc_si is None:
+        return
+
+    # Collect all CCM all_or_none_block constraints that carry nf_days_per_block
+    ccm_names = set(config.fellow_groups.get("CCM", []))
+    if not ccm_names:
+        return
+
+    # Find the block_rotation constraints for CCM fellows over NCC
+    ccm_block_constraints = [
+        c for c in config.constraints
+        if c.kind == "all_or_none_block"
+        and c.shifts and "NCC" in c.shifts.shifts
+        and "nf_days_per_block" in c.params
+        and c.fellows is not None
+        and any(
+            name in ccm_names
+            for g in (c.fellows.groups or [])
+            for name in config.fellow_groups.get(g, [])
+        )
+    ]
+    if not ccm_block_constraints:
+        return
+
+    # Build day->week mapping
+    days_in_week: dict[int, list[int]] = {}
+    for d in range(num_days):
+        w = _day_to_week(d, start_dow)
+        days_in_week.setdefault(w, []).append(d)
+
+    opb.add_comment("NF model: CCM per-block NF-day soft band (6-8 per selected block)")
+    for constraint in ccm_block_constraints:
+        nf_lo, nf_hi = constraint.params["nf_days_per_block"]
+        block_size = constraint.params.get("block_size", 4)
+        block_offset = constraint.params.get("block_offset", 0)
+        num_weeks = config.num_weeks
+
+        # Resolve CCM fellow indices for this constraint
+        ccm_fi: list[int] = []
+        for g in (constraint.fellows.groups or []):
+            for name in config.fellow_groups.get(g, []):
+                if name in ccm_names and name in fellow_names:
+                    ccm_fi.append(fellow_names.index(name))
+
+        for f in ccm_fi:
+            for blk_start, blk_end in _block_starts_grid(num_weeks, block_size, block_offset):
+                # NCC weekly vars for this fellow in this block
+                blk_ncc_vars = [
+                    xs[f][w][ncc_si]
+                    for w in range(blk_start, blk_end)
+                    if xs[f][w][ncc_si] != 0
+                ]
+                if not blk_ncc_vars:
+                    # No NCC var possible in this block → fully forbidden, skip
+                    continue
+
+                # Build blk_active = OR(blk_ncc_vars)
+                if len(blk_ncc_vars) == 1:
+                    blk_active = blk_ncc_vars[0]
+                else:
+                    blk_active = opb.new_var()
+                    # blk_active => each ncc_var doesn't matter for correctness;
+                    # we need: blk_active <= OR(ncc_vars) and blk_active >= each ncc_var
+                    for nv in blk_ncc_vars:
+                        # nv => blk_active (blk_active >= nv)
+                        opb.weighted_sum_at_least([(blk_active, 1), (-nv, 1)], 1)
+                    # blk_active <= OR(ncc_vars): blk_active => some ncc_var is true
+                    opb.weighted_sum_at_least(
+                        [(-blk_active, 1)] + [(nv, 1) for nv in blk_ncc_vars], 1
+                    )
+
+                # NF day vars for this fellow in this block
+                nf_vars: list[int] = []
+                for w in range(blk_start, blk_end):
+                    for d in days_in_week.get(w, []):
+                        cv = call[d][f]["NF"]
+                        if cv != 0:
+                            nf_vars.append(cv)
+
+                if not nf_vars:
+                    # No NF call days possible (e.g. very short horizon) → skip
+                    continue
+
+                # nf_count = Σ nf_vars  (pseudo-Boolean sum, not an explicit var)
+                # ------------------------------------------------------------------
+                # Lo-side: penalize nf_count < nf_lo when block is selected
+                #   nf_count + nf_lo*(1 - blk_active) + slack_lo >= nf_lo
+                # → weighted_sum_at_least: Σ nf_vars·1 + (-blk_active)·nf_lo + slack_lo·1 >= 0
+                # Equivalently add as:
+                #   Σ (nf_vars, 1) + (-blk_active, nf_lo) + (slack_lo, 1) >= 0
+                # But OPB terms must be >= 1 in the >= sense; shift by nf_lo:
+                #   Σ (nf_vars, 1) + (-blk_active, nf_lo) + (slack_lo, 1) >= 0
+                # Since all vars ∈ {0,1}: the min of LHS is -nf_lo (blk_active=1, all else 0)
+                # To keep RHS ≥ 0 for the UNSAT check, reformulate as:
+                #   Σ (nf_vars, 1) + (slack_lo, 1) + (NOT blk_active, nf_lo) >= nf_lo
+                # Which is the original gated form above.
+                slack_lo = opb.new_var()
+                # Lo-side gated soft constraint: penalize nf_count < nf_lo ONLY when
+                # blk_active=1 (block selected). Standard soft at-least-k with gating:
+                #
+                #   nf_count + nf_lo*(1-slack_lo) + nf_lo*(1-blk_active) >= nf_lo
+                #
+                # OPB form: Σ(nf, 1) + (-slack_lo, nf_lo) + (-blk_active, nf_lo) >= nf_lo
+                #   (-slack_lo, nf_lo)   = nf_lo * (1 - slack_lo)
+                #   (-blk_active, nf_lo) = nf_lo * (1 - blk_active)
+                #
+                # Gating proof:
+                #   blk_active=0: nf_count + nf_lo*(1-slack_lo) + nf_lo >= nf_lo
+                #     → nf_count + nf_lo*(1-slack_lo) >= 0  ← tautology (no penalty forced)
+                #   blk_active=1, nf_count<nf_lo: nf_count + nf_lo*(1-slack_lo) >= 0
+                #     → needs nf_lo*(1-slack_lo) >= -nf_count (always true) BUT also
+                #     → when slack_lo=0: nf_count + nf_lo >= nf_lo → nf_count >= 0 ✓
+                #     Actually the binding case is:
+                #   blk_active=1, nf_count < nf_lo, slack_lo=0:
+                #     nf_count + nf_lo >= nf_lo → nf_count >= 0 ✓ ... still tautology??
+                #
+                # Hmm. Let me re-derive correctly.
+                # When blk_active=1: contribution of (-blk_active, nf_lo) = nf_lo*(1-1) = 0.
+                # Constraint becomes: nf_count + nf_lo*(1-slack_lo) >= nf_lo
+                # When slack_lo=0: nf_count + nf_lo >= nf_lo → nf_count >= 0. Still tautology!
+                #
+                # The correct formulation:
+                # nf_count >= nf_lo is the HARD form.
+                # Soft form: nf_count + nf_lo*(slack_lo) >= nf_lo → nf_count >= nf_lo*(1-slack_lo)
+                # When slack_lo=0: nf_count >= nf_lo (enforced). When slack_lo=1: nf_count >= 0.
+                # i.e. OPB: Σ(nf,1) + (slack_lo, nf_lo) >= nf_lo  [slack_lo is POSITIVE here]
+                #
+                # Gated on blk_active:
+                # nf_count + nf_lo*slack_lo + nf_lo*(1-blk_active) >= nf_lo
+                # OPB: Σ(nf,1) + (slack_lo, nf_lo) + (-blk_active, nf_lo) >= nf_lo
+                #   blk_active=0: nf_count + nf_lo*slack_lo + nf_lo >= nf_lo → nf_count + nf_lo*slack_lo >= 0 ✓
+                #   blk_active=1, slack_lo=0: nf_count >= nf_lo (enforced)
+                #   blk_active=1, slack_lo=1: nf_count + nf_lo >= nf_lo → nf_count >= 0 ✓
+                # This is CORRECT. slack_lo=1 costs a penalty but relaxes the hard bound.
+                nf_lo_terms = [(v, 1) for v in nf_vars] + [(slack_lo, nf_lo), (-blk_active, nf_lo)]
+                opb.weighted_sum_at_least(nf_lo_terms, nf_lo)
+                soft_violations.append((slack_lo, _CCM_NF_BLOCK_WEIGHT))
+
+                # Hi-side: penalize nf_count > nf_hi (no blk_active gate needed; an
+                # unselected block has 0 NF days which is always <= nf_hi, so the
+                # hi-side never fires for unused blocks — no gating needed here).
+                #
+                # Encoding: excess_cap*slack_hi + Σ(1-nf_v) >= excess_cap
+                #   where excess_cap = max_nf_days - nf_hi (max possible excess)
+                #
+                # Equivalently: Σ(-nf_v, 1) + (slack_hi, excess_cap) >= excess_cap
+                #   (-nf_v, 1) = (1 - nf_v) in OPB semantics
+                #
+                # Proof:
+                #   slack_hi=0, Σnf <= nf_hi: (max_nf - Σnf) >= excess_cap
+                #     = max_nf - Σnf >= max_nf - nf_hi → Σnf <= nf_hi ✓ (no violation)
+                #   slack_hi=0, Σnf > nf_hi: (max_nf - Σnf) < (max_nf - nf_hi) = excess_cap
+                #     → constraint violated → solver must set slack_hi=1 ✓
+                #   slack_hi=1: excess_cap + (max_nf - Σnf) >= excess_cap → max_nf >= Σnf ✓ (trivial)
+                max_nf_days = len(nf_vars)
+                excess_cap = max_nf_days - nf_hi
+                if excess_cap > 0:
+                    slack_hi = opb.new_var()
+                    # Σ(1-nf_v)*1 + slack_hi*excess_cap >= excess_cap
+                    opb.weighted_sum_at_least(
+                        [(-v, 1) for v in nf_vars] + [(slack_hi, excess_cap)], excess_cap
+                    )
+                    soft_violations.append((slack_hi, _CCM_NF_BLOCK_WEIGHT))
+
+
+# ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
 
@@ -605,6 +838,9 @@ def build_full_schedule_opb(
         _encode_nf_run_length(opb, call, fellow_names, num_days)
         _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)
+        _encode_ccm_block_nf_count(
+            opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow,
+            soft_violations)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer
