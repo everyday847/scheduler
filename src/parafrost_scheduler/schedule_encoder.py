@@ -464,6 +464,31 @@ def _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, conf
             opb.weighted_sum_at_least([(-cday[d + o], 1) for o in range(win)], 1)
 
 
+def _encode_nf_ccm_no_block_bridge(opb, call, config, fellow_names, num_days,
+                                   start_dow, num_weeks):
+    """HARD: a CCM fellow's NF run may not bridge a 4-week NCC block boundary. At each
+    block-start day b (first day of the block-start weeks from _block_starts_grid, except
+    week 0), forbid nf[b-1] AND nf[b]. No-op when nf_ccm_no_bridge_blocks is False."""
+    if not config.nf_ccm_no_bridge_blocks:
+        return
+    opb.add_comment("NF model: CCM NF runs do not bridge a 4-week block boundary")
+    ccm = set(config.fellow_groups.get("CCM", []))
+    starts = [bs for bs, _ in _block_starts_grid(num_weeks, 4, 1)][1:]
+    days_in_week = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+    for f, name in enumerate(fellow_names):
+        if name not in ccm:
+            continue
+        for wk in starts:
+            ds = days_in_week.get(wk, [])
+            if not ds:
+                continue
+            b = min(ds)
+            if b - 1 >= 0:
+                opb.at_most_k([call[b - 1][f]["NF"], call[b][f]["NF"]], 1)
+
+
 def _encode_nf_ncc1_continuity(opb, call, config, fellow_names, num_days, start_dow):
     """HARD: NCC1 is constant across consecutive days within a week, per fellow.
     mode "fullweek" => all 7 days; "weekday" => Mon-Fri only (weekend NCC1 free, which
@@ -990,6 +1015,8 @@ def build_full_schedule_opb(
         _encode_nf_max_consecutive_off(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_max_consecutive_call_days(opb, call, fellow_names, num_days, config)
+        _encode_nf_ccm_no_block_bridge(
+            opb, call, config, fellow_names, num_days, start_dow, num_weeks)
         _encode_nf_ncc1_continuity(
             opb, call, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)

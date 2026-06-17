@@ -40,6 +40,7 @@ _SOLVER_OPTION_BOOL_KEYS = (
     "weekend_night_saturday_hard",
     "weekend_night_sunday_hard",
     "call_tier_day_granular",
+    "nf_ccm_no_bridge_blocks",
 )
 
 

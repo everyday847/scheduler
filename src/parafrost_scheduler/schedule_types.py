@@ -254,6 +254,8 @@ class ScheduleSolverConfig:
     # Max consecutive call (NCC1/NCC2/NF) days per fellow (0 = off; production = 14).
     # A background/off day breaks the streak.
     nf_max_consecutive_call_days: int = 0
+    # When True, a CCM fellow's NF run may not bridge a 4-week NCC block boundary.
+    nf_ccm_no_bridge_blocks: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))
