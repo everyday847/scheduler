@@ -7,7 +7,15 @@
 # needed in Phase 1 because the legacy night layer is skipped entirely when
 # call_tier_day_granular is True, and weekend encoding uses the same empty-palette
 # safe defaults.
+#
+# NOTE: activation (call_tier_day_granular) lives in the ANNUAL config's
+# solver_options, NOT here — assemble_annual_dict reads only rules/shift_palette/
+# night_rules/weekend_rules from the standing file and ignores a standing
+# solver_options block. Putting the flag here would be dead weight.
 shift_palette: {}
+# Phase 1: rules:[] => the assembler takes the legacy (non-palette) constraint
+# path. Phase 2/3 rules added here must be typed/palette-format (type: ...) and
+# route through solver_bridge's palette path; verify they land (see test).
 rules: []
 night_rules: []
 weekend_rules: []
