@@ -223,6 +223,28 @@ def _encode_call_weekend_backup_exclusion(
                 opb.at_most_k([wb_var, cv], 1)
 
 
+def _encode_nf_run_length(opb, call, fellow_names, num_days):
+    """HARD: every NF run is 4-6 consecutive days (NF model). nf[d]=call[d][f]['NF'].
+    Min 4: a run start (nf[d] & ~nf[d-1]) forces nf[d+1..d+3] (in-horizon clauses
+    only; a run starting in the last 3 days may be a short truncated tail run — the
+    year boundary is artificial, so no phantom run is forced past it).
+    Max 6: no 7 consecutive NF days."""
+    opb.add_comment("NF model: NF runs are 4-6 consecutive days")
+    num_fellows = len(fellow_names)
+    for f in range(num_fellows):
+        nf = [call[d][f]["NF"] for d in range(num_days)]
+        for d in range(num_days):
+            for off in (1, 2, 3):
+                if d + off >= num_days:
+                    continue
+                terms = [(-nf[d], 1), (nf[d + off], 1)]
+                if d - 1 >= 0:
+                    terms.append((nf[d - 1], 1))
+                opb.weighted_sum_at_least(terms, 1)
+        for d in range(num_days - 6):
+            opb.at_most_k([nf[d + o] for o in range(7)], 6)
+
+
 # ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
@@ -434,6 +456,7 @@ def build_full_schedule_opb(
             opb, call, xs, shift_idx, fellow_names, num_days, start_dow, num_weeks)
         _encode_call_weekend_backup_exclusion(
             opb, call, bk, fellow_names, num_days, start_dow)
+        _encode_nf_run_length(opb, call, fellow_names, num_days)
 
     # The former `call_rules` channel is fully dissolved: all its types now route
     # through the typed config.constraints pipeline (weekly/weekend/night layer
