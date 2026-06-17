@@ -248,6 +248,9 @@ class ScheduleSolverConfig:
     # Per-group NCC service-DAY band override {"NCC_JR":[lo,hi],"NCC_SR":[lo,hi]}.
     # None => the historical hardcoded 75/85 (JR), 125/135 (SR).
     nf_service_day_band: dict | None = None
+    # Max OFF days per week (0 = off). At most this many off days/week, EXCEPT a week
+    # holding a full NF run's 3 mandatory rest days may have 3 (all forced). Normally 2.
+    nf_week_off_cap: int = 0
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))

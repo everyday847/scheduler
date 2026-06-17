@@ -363,6 +363,61 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
                     )
 
 
+def _encode_nf_week_off_cap(opb, call, xs, shift_idx, config,
+                            fellow_names, num_days, start_dow):
+    """HARD: at most config.nf_week_off_cap (normally 2) off days per week, EXCEPT a week
+    holding a full NF run's 3 mandatory rest days may have cap+1 (all forced). No-op at 0.
+    A 'mandatory rest day' = an off day that is the 1 day before a run start, or one of the
+    2 days after a run end. off via _build_off_indicator (Elec/Vac/MICU weeks unaffected)."""
+    cap = config.nf_week_off_cap
+    if cap <= 0:
+        return
+    opb.add_comment(f"NF model: <= {cap} off days/week (exempt full in-week NF rest)")
+    days_in_week = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+
+    def and_upper(lits):
+        v = opb.new_var()
+        for lit in lits:
+            opb.weighted_sum_at_least([(-v, 1), (lit, 1)], 1)   # v => lit
+        return v
+
+    for f in range(len(fellow_names)):
+        nf = [call[d][f]["NF"] for d in range(num_days)]
+        off = [_build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow)
+               for d in range(num_days)]
+        rest = [None] * num_days
+        for d in range(num_days):
+            terms = []
+            if d + 1 < num_days:
+                terms.append(and_upper([off[d], nf[d + 1]]))            # 1 before a start
+            if d - 1 >= 0:
+                terms.append(and_upper([off[d], nf[d - 1]]))            # 1st after an end
+            if d - 2 >= 0:
+                nnf = opb.new_var()
+                opb.weighted_sum_at_least([(-nnf, 1), (-nf[d - 1], 1)], 1)  # nnf => ~nf[d-1]
+                terms.append(and_upper([off[d], nnf, nf[d - 2]]))       # 2nd after an end
+            rv = opb.new_var()
+            if terms:
+                opb.weighted_sum_at_least([(t, 1) for t in terms] + [(-rv, 1)], 0)  # rv <= sum(terms)
+            else:
+                opb.add_unit(-rv)
+            rest[d] = rv
+        for w, days in days_in_week.items():
+            offs = [off[d] for d in days]
+            rests = [rest[d] for d in days]
+            extra = opb.new_var()
+            # extra can be 1 only with >= cap+1 mandatory rest days that week.
+            # MUST be (extra, -(cap+1)) — neg weight on the POSITIVE literal — giving
+            # sum(rests) - (cap+1)*extra >= 0. NOT (-extra, cap+1): that emits
+            # +(cap+1)*~extra = +(cap+1)*(1-extra), VACUOUS (extra unconstrained → cap
+            # never binds). This bug was caught in the solved schedule (JR1 wk10 = 3 off).
+            opb.weighted_sum_at_least([(r, 1) for r in rests] + [(extra, -(cap + 1))], 0)
+            # sum(off) <= cap + extra
+            opb.weighted_sum_at_most([(o, 1) for o in offs] + [(extra, -1)], cap)
+
+
 def _encode_nf_max_consecutive_off(opb, call, xs, shift_idx, config,
                                    fellow_names, num_days, start_dow):
     """HARD: no JR/SR fellow is fully OFF for more than config.nf_max_consecutive_off
@@ -908,6 +963,8 @@ def build_full_schedule_opb(
             opb, call, bk, fellow_names, num_days, start_dow)
         _encode_nf_run_length(opb, call, fellow_names, num_days)
         _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_week_off_cap(
+            opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_max_consecutive_off(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_ncc1_continuity(
