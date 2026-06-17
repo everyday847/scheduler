@@ -183,10 +183,19 @@ def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
             continue
         for f in range(num_fellows):
             for w, days in days_in_week.items():
+                day_vars = [call[d][f][role] for d in days]
                 wk_var = xs[f][w][si]
                 if wk_var == 0:
+                    # The weekly slot (f, w, role) is FORBIDDEN (a hard weekly rule
+                    # zeroed the var). There is no label to carry the call days, so a
+                    # call day here could neither set nor be blocked by the weekly
+                    # roster — the forbid would be silently bypassed at the day tier.
+                    # Forbid the call days outright so the weekly prohibition holds.
+                    # (Inert in Phase 1: ncc-nf-model ships rules:[], so no call role
+                    # is forbidden; matters once Phase 2/3 add weekly rules.)
+                    for cv in day_vars:
+                        opb.add_unit(-cv)
                     continue
-                day_vars = [call[d][f][role] for d in days]
                 for cv in day_vars:                       # each call day => weekly label
                     opb.weighted_sum_at_least([(-cv, 1), (wk_var, 1)], 1)
                 # weekly label => some call day
@@ -1825,6 +1834,10 @@ def _encode_backup_constraints(
     # call roster may not spare a fellow for Elec every week.
     if config.call_tier_day_granular:
         opb.add_comment("Backup: soft coverage (NF model: at-most-one + uncovered penalty)")
+        # Penalty weight: reuse swing_uncovered_weight (the generic "a coverage slot
+        # went unfilled" tier) — the NF model has no Swing, so the field is free to
+        # double as the backup-uncovered weight. Split into a dedicated
+        # backup_uncovered_weight if the two ever need independent tuning.
         for w in range(num_weeks):
             if w < _BACKUP_COVERAGE_FIRST_WEEK:
                 continue

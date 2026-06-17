@@ -151,6 +151,30 @@ def test_decode_surfaces_call_assignments():
     assert day0["NCC1"] != "" and day0["NF"] != ""
 
 
+def test_forbidden_weekly_call_role_forbids_that_call_at_day_tier():
+    """A fellow forbidden their WEEKLY NF rotation must not hold NF CALL that week.
+
+    Guards the weekly<->day link's handling of a forbidden weekly call-role slot —
+    the latent Phase-2 trap where a hard weekly rule could be bypassed at the day
+    tier. Holds via two routes that this test covers together: (a) when the weekly
+    var is allocated-but-forced-false (zero_shifts here), the link's forward
+    implication call=>weekly-label propagates the forbid; (b) when the weekly var
+    is UNALLOCATED (==0), `_encode_call_weekly_link` now emits add_unit(-call) for
+    those days. Either way the call role must be off."""
+    from scheduler.semantic_constraints import (
+        SemanticConstraint, ConstraintLifecycle, ConstraintStrength, FellowSelector)
+    forbid_nf = SemanticConstraint(
+        kind="zero_shifts", lifecycle=ConstraintLifecycle.STANDING_RULE,
+        strength=ConstraintStrength.HARD, fellows=FellowSelector.by_names("J1"),
+        params={"zero_shifts": ["NF"]})
+    cfg = make_nf_config(num_days=14, constraints=[forbid_nf])
+    opb, vm = build(cfg)
+    f = vm.fellow_names.index("J1")
+    opb.add_unit(vm.call[0][f]["NF"])     # try to put J1 on NF call despite the forbid
+    res = runner_or_skip().solve(opb, timeout=30)
+    assert not res.satisfiable
+
+
 # ---------------------------------------------------------------------------
 # Task 6: Config-file integration — assemble via real YAML configs
 # ---------------------------------------------------------------------------
