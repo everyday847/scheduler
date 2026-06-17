@@ -342,10 +342,20 @@ def test_ccm_nf_count_selected_block_below_lo_penalized():
         "model UNSAT after forbidding CCM NF days in selected block — "
         "lo-side penalty must be SOFT"
     )
+    a = res.assignment
     # The CCM-NF sentinel weight must appear in soft_violations
     assert _CCM_NF_WEIGHT in [w for _, w in vm.soft_violations], (
         f"CCM-NF sentinel weight {_CCM_NF_WEIGHT} not in soft_violations — "
         "helper may not have emitted any lo-side penalty var"
+    )
+    # At least one lo-side slack var must be True: with 0 NF days in a selected
+    # block and nf_lo=6, the lo-side penalty MUST fire.
+    ccm_nf_vars = [var for var, w in vm.soft_violations if w == _CCM_NF_WEIGHT]
+    active = sum(1 for var in ccm_nf_vars if a.get(var, False))
+    assert active >= 1, (
+        f"expected at least one active CCM-NF lo-side penalty var (0 NF days in "
+        f"selected block, nf_lo=6), but zero fired "
+        f"(total CCM-NF vars: {len(ccm_nf_vars)})"
     )
 
 

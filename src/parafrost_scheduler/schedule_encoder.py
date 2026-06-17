@@ -556,43 +556,13 @@ def _encode_ccm_block_nf_count(
                 #   Σ (nf_vars, 1) + (slack_lo, 1) + (NOT blk_active, nf_lo) >= nf_lo
                 # Which is the original gated form above.
                 slack_lo = opb.new_var()
-                # Lo-side gated soft constraint: penalize nf_count < nf_lo ONLY when
-                # blk_active=1 (block selected). Standard soft at-least-k with gating:
-                #
-                #   nf_count + nf_lo*(1-slack_lo) + nf_lo*(1-blk_active) >= nf_lo
-                #
-                # OPB form: Σ(nf, 1) + (-slack_lo, nf_lo) + (-blk_active, nf_lo) >= nf_lo
-                #   (-slack_lo, nf_lo)   = nf_lo * (1 - slack_lo)
-                #   (-blk_active, nf_lo) = nf_lo * (1 - blk_active)
-                #
-                # Gating proof:
-                #   blk_active=0: nf_count + nf_lo*(1-slack_lo) + nf_lo >= nf_lo
-                #     → nf_count + nf_lo*(1-slack_lo) >= 0  ← tautology (no penalty forced)
-                #   blk_active=1, nf_count<nf_lo: nf_count + nf_lo*(1-slack_lo) >= 0
-                #     → needs nf_lo*(1-slack_lo) >= -nf_count (always true) BUT also
-                #     → when slack_lo=0: nf_count + nf_lo >= nf_lo → nf_count >= 0 ✓
-                #     Actually the binding case is:
-                #   blk_active=1, nf_count < nf_lo, slack_lo=0:
-                #     nf_count + nf_lo >= nf_lo → nf_count >= 0 ✓ ... still tautology??
-                #
-                # Hmm. Let me re-derive correctly.
-                # When blk_active=1: contribution of (-blk_active, nf_lo) = nf_lo*(1-1) = 0.
-                # Constraint becomes: nf_count + nf_lo*(1-slack_lo) >= nf_lo
-                # When slack_lo=0: nf_count + nf_lo >= nf_lo → nf_count >= 0. Still tautology!
-                #
-                # The correct formulation:
-                # nf_count >= nf_lo is the HARD form.
-                # Soft form: nf_count + nf_lo*(slack_lo) >= nf_lo → nf_count >= nf_lo*(1-slack_lo)
-                # When slack_lo=0: nf_count >= nf_lo (enforced). When slack_lo=1: nf_count >= 0.
-                # i.e. OPB: Σ(nf,1) + (slack_lo, nf_lo) >= nf_lo  [slack_lo is POSITIVE here]
-                #
-                # Gated on blk_active:
-                # nf_count + nf_lo*slack_lo + nf_lo*(1-blk_active) >= nf_lo
+                # Lo-side gated soft constraint:
+                #   Σnf + nf_lo*slack_lo + nf_lo*(1-blk_active) >= nf_lo
                 # OPB: Σ(nf,1) + (slack_lo, nf_lo) + (-blk_active, nf_lo) >= nf_lo
-                #   blk_active=0: nf_count + nf_lo*slack_lo + nf_lo >= nf_lo → nf_count + nf_lo*slack_lo >= 0 ✓
-                #   blk_active=1, slack_lo=0: nf_count >= nf_lo (enforced)
-                #   blk_active=1, slack_lo=1: nf_count + nf_lo >= nf_lo → nf_count >= 0 ✓
-                # This is CORRECT. slack_lo=1 costs a penalty but relaxes the hard bound.
+                #   blk_active=0: nf_lo*(1-blk_active)=nf_lo makes the constraint a tautology
+                #     → slack_lo free to 0; no penalty for an unselected block.
+                #   blk_active=1: nf_lo*(1-blk_active)=0; slack_lo=0 forces Σnf >= nf_lo;
+                #     slack_lo=1 absorbs any shortfall at cost _CCM_NF_BLOCK_WEIGHT.
                 nf_lo_terms = [(v, 1) for v in nf_vars] + [(slack_lo, nf_lo), (-blk_active, nf_lo)]
                 opb.weighted_sum_at_least(nf_lo_terms, nf_lo)
                 soft_violations.append((slack_lo, _CCM_NF_BLOCK_WEIGHT))
