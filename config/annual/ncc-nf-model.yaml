@@ -13,7 +13,7 @@ fellow_groups:
   NCC_SR: [SR1, SR2]
   CCM: [CCM Generic 1]
 
-shifts: [NCC1, NCC2, NF, MICU, NS, SICU, Elec, Vac]
+shifts: [NCC, MICU, NS, SICU, Elec, Vac]
 
 horizon_start: '2026-07-01'
 num_weeks: 53

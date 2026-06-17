@@ -127,16 +127,16 @@ def test_legacy_night_layer_absent_under_flag():
     assert vm.xn == [] or all(all(v == 0 for v in day) for day in vm.xn)
 
 
-def test_weekly_label_reflects_call_day():
+def test_weekly_ncc_label_reflects_any_call_day():
     cfg = make_nf_config(num_days=14)
     opb, vm = build(cfg)
-    f, d = 0, 0
-    opb.add_unit(vm.call[d][f]["NF"])      # force fellow 0 onto NF day 0
+    f = 1
+    opb.add_unit(vm.call[0][f]["NF"])     # f has an NF call day in week 0
     res = runner_or_skip().solve(opb, timeout=30)
     assert res.satisfiable
-    nf_si = vm.shifts.index("NF")
-    assert res.assignment.get(vm.xs[f][0][nf_si], False), \
-        "weekly NF label must be set when the fellow has an NF call day that week"
+    ncc_si = vm.shifts.index("NCC")
+    assert res.assignment.get(vm.xs[f][0][ncc_si], False), \
+        "weekly NCC label must be set when the fellow has any call day that week"
 
 
 def test_decode_surfaces_call_assignments():
@@ -151,26 +151,25 @@ def test_decode_surfaces_call_assignments():
     assert day0["NCC1"] != "" and day0["NF"] != ""
 
 
-def test_forbidden_weekly_call_role_forbids_that_call_at_day_tier():
-    """A fellow forbidden their WEEKLY NF rotation must not hold NF CALL that week.
+def test_forbidden_weekly_ncc_forbids_all_call_at_day_tier():
+    """Forbidding the weekly NCC shift for a fellow must block ALL call roles at
+    the day tier for that fellow that week.
 
-    Guards the weekly<->day link's handling of a forbidden weekly call-role slot —
-    the latent Phase-2 trap where a hard weekly rule could be bypassed at the day
-    tier. Holds via two routes that this test covers together: (a) when the weekly
-    var is allocated-but-forced-false (zero_shifts here), the link's forward
-    implication call=>weekly-label propagates the forbid; (b) when the weekly var
-    is UNALLOCATED (==0), `_encode_call_weekly_link` now emits add_unit(-call) for
-    those days. Either way the call role must be off."""
+    Under the generic model the per-role split lives only in the day layer, so
+    you can't selectively forbid NF-only via a weekly shift; forbidding NCC
+    forbids all call. This test guards the weekly<->day link's handling of a
+    forbidden weekly NCC slot: when xs[f][w][NCC] == 0 (unallocated because
+    zero_shifts removed it), `_encode_call_weekly_link` must emit add_unit(-call)
+    for every call-role day in that week, making any pinned call day UNSAT."""
     from scheduler.semantic_constraints import (
         SemanticConstraint, ConstraintLifecycle, ConstraintStrength, FellowSelector)
-    forbid_nf = SemanticConstraint(
-        kind="zero_shifts", lifecycle=ConstraintLifecycle.STANDING_RULE,
+    forbid = SemanticConstraint(kind="zero_shifts", lifecycle=ConstraintLifecycle.STANDING_RULE,
         strength=ConstraintStrength.HARD, fellows=FellowSelector.by_names("J1"),
-        params={"zero_shifts": ["NF"]})
-    cfg = make_nf_config(num_days=14, constraints=[forbid_nf])
+        params={"zero_shifts": ["NCC"]})
+    cfg = make_nf_config(num_days=14, constraints=[forbid])
     opb, vm = build(cfg)
     f = vm.fellow_names.index("J1")
-    opb.add_unit(vm.call[0][f]["NF"])     # try to put J1 on NF call despite the forbid
+    opb.add_unit(vm.call[0][f]["NF"])    # try to give J1 a call day despite NCC forbidden
     res = runner_or_skip().solve(opb, timeout=30)
     assert not res.satisfiable
 
@@ -193,7 +192,9 @@ def test_nf_model_configs_assemble_with_flag_on():
         verbose=False)
     assert cfg.call_tier_day_granular is True
     assert "Swing" not in cfg.shifts
-    assert {"NCC1", "NCC2", "NF"} <= set(cfg.shifts)
+    assert "NCC" in cfg.shifts
+    assert not {"NCC1", "NCC2", "NF"} & set(cfg.shifts), \
+        "per-role names must not appear as weekly shifts (day-layer only)"
     all_fellows = [f for g in cfg.fellow_groups.values() for f in g]
     assert len(all_fellows) == 6   # 3 JR + 2 SR + 1 CCM
 

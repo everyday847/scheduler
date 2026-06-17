@@ -165,41 +165,31 @@ def _encode_call_tier_coverage(opb, call, fellow_names, num_days, start_dow):
 
 def _encode_call_weekly_link(opb, call, xs, shift_idx, fellow_names,
                              num_days, start_dow, num_weeks):
-    """Link the weekly roster label to the day-granular call tier so the weekly
-    calendar stays readable (apples-to-apples with Swing-style schedules):
-        xs[f][w][role] == 1  iff  the fellow has a day of that call role in week w.
-    NOTE (Phase 1 limitation): combined with at-most-one-shift-per-week, a fellow's
-    call days within a week share ONE role; multi-role-within-week tours are a later
-    continuity concern.
-    """
-    opb.add_comment("NF model: weekly label <=> day-granular call (per role)")
+    """Link the GENERIC weekly 'NCC' label to the day-granular call tier:
+        xs[f][w]['NCC'] == 1  iff  the fellow has ANY call day (NCC1/NCC2/NF) in
+        week w. Per-role split lives only in the day layer. A blank day inside an
+        NCC week is a legitimate non-working day (Phase-2 rest depends on it).
+        Non-NF configs (no 'NCC' shift) are untouched."""
+    si = shift_idx.get("NCC")
+    if si is None:
+        return
+    opb.add_comment("NF model: weekly NCC label <=> any day-granular call that week")
     num_fellows = len(fellow_names)
     days_in_week: dict[int, list[int]] = {}
     for d in range(num_days):
         days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
-    for role in CALL_ROLES:
-        si = shift_idx.get(role)
-        if si is None:
-            continue
-        for f in range(num_fellows):
-            for w, days in days_in_week.items():
-                day_vars = [call[d][f][role] for d in days]
-                wk_var = xs[f][w][si]
-                if wk_var == 0:
-                    # The weekly slot (f, w, role) is FORBIDDEN (a hard weekly rule
-                    # zeroed the var). There is no label to carry the call days, so a
-                    # call day here could neither set nor be blocked by the weekly
-                    # roster — the forbid would be silently bypassed at the day tier.
-                    # Forbid the call days outright so the weekly prohibition holds.
-                    # (Inert in Phase 1: ncc-nf-model ships rules:[], so no call role
-                    # is forbidden; matters once Phase 2/3 add weekly rules.)
-                    for cv in day_vars:
-                        opb.add_unit(-cv)
-                    continue
-                for cv in day_vars:                       # each call day => weekly label
-                    opb.weighted_sum_at_least([(-cv, 1), (wk_var, 1)], 1)
-                # weekly label => some call day
-                opb.weighted_sum_at_least([(-wk_var, 1)] + [(cv, 1) for cv in day_vars], 1)
+    for f in range(num_fellows):
+        for w, days in days_in_week.items():
+            wk = xs[f][w][si]
+            if wk == 0:
+                for d in days:
+                    for role in CALL_ROLES:
+                        opb.add_unit(-call[d][f][role])
+                continue
+            day_call_vars = [call[d][f][role] for d in days for role in CALL_ROLES]
+            for cv in day_call_vars:
+                opb.weighted_sum_at_least([(-cv, 1), (wk, 1)], 1)
+            opb.weighted_sum_at_least([(-wk, 1)] + [(cv, 1) for cv in day_call_vars], 1)
 
 
 def _encode_call_weekend_backup_exclusion(

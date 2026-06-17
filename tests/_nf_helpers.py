@@ -27,7 +27,7 @@ def make_nf_config(
     *,
     fellow_groups: dict[str, list[str]] | None = None,
     fellows: tuple[str, ...] | None = None,
-    shifts=("NCC1", "NCC2", "NF", "MICU", "Elec", "Vac"),
+    shifts=("NCC", "MICU", "Elec", "Vac"),
     num_days: int = 14,
     start_dow: int = 0,
     constraints=(),
