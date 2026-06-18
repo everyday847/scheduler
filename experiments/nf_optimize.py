@@ -79,6 +79,20 @@ def main() -> int:
     cfg = res[0] if isinstance(res, tuple) else res
     sd = cfg.start_dow
 
+    # Mirror the CLI rule flags onto the frozen config so the post-solve evaluator
+    # (which reads config.nf_*) audits exactly what this run injected. The probe still
+    # injects the constraints inline below; these just let evaluate_nf know they're on.
+    if args.rule_a:
+        object.__setattr__(cfg, "nf_week_off_cap", args.rule_a)
+    if args.rule_b:
+        object.__setattr__(cfg, "nf_max_consecutive_call_days", args.rule_b)
+    if args.rule_c:
+        object.__setattr__(cfg, "nf_ccm_no_bridge_blocks", True)
+    if args.ncc1_weekday:
+        object.__setattr__(cfg, "nf_ncc1_continuity", "weekday")
+    elif args.ncc1_fullweek:
+        object.__setattr__(cfg, "nf_ncc1_continuity", "fullweek")
+
     opb, vm = build_full_schedule_opb(cfg, objective=False)
     si = {s: i for i, s in enumerate(vm.shifts)}
     nccsi = vm.shifts.index("NCC")
@@ -245,6 +259,16 @@ def main() -> int:
         dens = f"{nccdays/ncc:.2f}" if ncc else "-"
         print(f"    {name:16s} NCC={ncc:2d} Elec={elec:2d} blank={blank:2d} "
               f"dens={dens:>5s} svc-days={svc:3d}")
+
+    # Post-solve evaluator: audit the decoded schedule against the active NF rules.
+    # This catches solver-semantics bugs a build-only check can't (e.g. an OPB negative
+    # coefficient silently dropped). Reports independently of the encoder.
+    from parafrost_scheduler.nf_evaluate import evaluate_nf
+    ev = evaluate_nf(sol, cfg)
+    print("\n" + ev.summary())
+    if not ev.ok:
+        print(f"!!! EVALUATOR FOUND {len(ev.violations)} VIOLATION(S) — the solve does NOT "
+              f"satisfy the rules it was given. Investigate before trusting this schedule.")
 
     if args.prefix:
         from parafrost_scheduler.workbook import write_nf_workbook
