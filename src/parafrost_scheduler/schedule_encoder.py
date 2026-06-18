@@ -400,26 +400,30 @@ def _encode_nf_week_off_cap(opb, call, xs, shift_idx, config,
                 terms.append(and_upper([off[d], nnf, nf[d - 2]]))       # 2nd after an end
             rv = opb.new_var()
             if terms:
-                opb.weighted_sum_at_least([(t, 1) for t in terms] + [(-rv, 1)], 0)  # rv <= sum(terms)
+                # rv => OR(terms): rv may be 1 ONLY if some term is 1 (a genuine NF-rest
+                # day). MUST be bound 1, not 0 — bound 0 (sum(terms)+~rv >= 0) is VACUOUS
+                # (always true), leaving rv free to be 1 anywhere, which inflates sum(rests)
+                # and lets `extra` relax the off-cap everywhere. That vacuity is exactly
+                # why JR1 wk13 had 3 off days with no NF and still solved SAT.
+                opb.weighted_sum_at_least([(t, 1) for t in terms] + [(-rv, 1)], 1)
             else:
                 opb.add_unit(-rv)
             rest[d] = rv
         for w, days in days_in_week.items():
             offs = [off[d] for d in days]
             rests = [rest[d] for d in days]
+            n = len(days)
             extra = opb.new_var()
-            # extra can be 1 only with >= cap+1 mandatory rest days that week.
-            # sum(rests) >= (cap+1)*extra. Use a NEGATED literal, not a negative
-            # coefficient: (cap+1)*extra = (cap+1)*(1 - ~extra), so
-            #   sum(rests) - (cap+1)*extra >= 0
-            #   <=> sum(rests) + (cap+1)*~extra >= cap+1.
-            # (OPB has no '<=' with negative coeffs on this parser — every working
-            # at_most here uses positive weights + negated LITERALS, never -w. An
-            # earlier -w form silently failed: JR1 had 3 off days with no NF rest.)
+            # extra=1 (relax the cap to cap+1) allowed ONLY with >= cap+1 mandatory NF-rest
+            # days: sum(rests) - (cap+1)*extra >= 0  <=>  sum(rests) + (cap+1)*~extra >= cap+1.
             opb.weighted_sum_at_least(
                 [(r, 1) for r in rests] + [(-extra, cap + 1)], cap + 1)
-            # sum(off) - extra <= cap  <=>  sum(off) + ~extra <= cap + 1.
-            opb.weighted_sum_at_most([(o, 1) for o in offs] + [(-extra, 1)], cap + 1)
+            # off-cap as a PURE >= with positive coeffs + negated literals (the only OPB
+            # form this path reliably honors — both <=-with-negative-coeff and
+            # <=-with-negated-literal forms failed to bind in earlier attempts):
+            #   sum(off) <= cap + extra  <=>  sum(~off) + extra >= n - cap.
+            opb.weighted_sum_at_least(
+                [(-o, 1) for o in offs] + [(extra, 1)], n - cap)
 
 
 def _encode_nf_max_consecutive_off(opb, call, xs, shift_idx, config,
