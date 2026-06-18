@@ -409,13 +409,17 @@ def _encode_nf_week_off_cap(opb, call, xs, shift_idx, config,
             rests = [rest[d] for d in days]
             extra = opb.new_var()
             # extra can be 1 only with >= cap+1 mandatory rest days that week.
-            # MUST be (extra, -(cap+1)) — neg weight on the POSITIVE literal — giving
-            # sum(rests) - (cap+1)*extra >= 0. NOT (-extra, cap+1): that emits
-            # +(cap+1)*~extra = +(cap+1)*(1-extra), VACUOUS (extra unconstrained → cap
-            # never binds). This bug was caught in the solved schedule (JR1 wk10 = 3 off).
-            opb.weighted_sum_at_least([(r, 1) for r in rests] + [(extra, -(cap + 1))], 0)
-            # sum(off) <= cap + extra
-            opb.weighted_sum_at_most([(o, 1) for o in offs] + [(extra, -1)], cap)
+            # sum(rests) >= (cap+1)*extra. Use a NEGATED literal, not a negative
+            # coefficient: (cap+1)*extra = (cap+1)*(1 - ~extra), so
+            #   sum(rests) - (cap+1)*extra >= 0
+            #   <=> sum(rests) + (cap+1)*~extra >= cap+1.
+            # (OPB has no '<=' with negative coeffs on this parser — every working
+            # at_most here uses positive weights + negated LITERALS, never -w. An
+            # earlier -w form silently failed: JR1 had 3 off days with no NF rest.)
+            opb.weighted_sum_at_least(
+                [(r, 1) for r in rests] + [(-extra, cap + 1)], cap + 1)
+            # sum(off) - extra <= cap  <=>  sum(off) + ~extra <= cap + 1.
+            opb.weighted_sum_at_most([(o, 1) for o in offs] + [(-extra, 1)], cap + 1)
 
 
 def _encode_nf_max_consecutive_off(opb, call, xs, shift_idx, config,

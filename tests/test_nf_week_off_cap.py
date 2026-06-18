@@ -90,3 +90,22 @@ def test_week_off_cap_2_holds_except_forced_nf_rest_weeks(tmp_path):
                         nf_adj += 1
                 assert nf_in_week >= 3 or nf_adj >= 1, (
                     name, w, f"3 off but no NF justification (in_week={nf_in_week}, adj={nf_adj})")
+
+
+def test_pinned_lone_3off_ncc_week_is_unsat():
+    """RED->GREEN guard (Slurm): pin JR1 to an NCC week (13, days 89-95) with exactly 4
+    call days and 3 off days (Tue/Sat/Sun) and NO NF that week. With cap=2 and 0 NF (so
+    extra must be 0), this must be UNSAT. This directly guards the negative-coefficient
+    bug: the earlier (extra,-1) form let this through (the solver ignored the -1 term),
+    producing real 3-off weeks with no NF justification."""
+    from parafrost_scheduler.schedule_encoder import CALL_ROLES
+    cfg = _cfg(2)
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    f = vm.fellow_names.index("JR1")
+    on = {89: "NCC1", 91: "NCC2", 92: "NCC1", 93: "NCC1"}
+    for d in range(89, 96):
+        for role in CALL_ROLES:
+            v = vm.call[d][f][role]
+            opb.add_unit(v if on.get(d) == role else -v)
+    r = _runner_or_skip().solve(opb, timeout=900)
+    assert not r.satisfiable
