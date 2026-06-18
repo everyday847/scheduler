@@ -562,18 +562,32 @@ def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
     Bands are config-driven via config.fellow_groups membership and overridden by
     config.nf_service_day_band when present.
     """
+    # Disable switch: nf_service_day_band == "off" (or {}) emits NO band — use when the
+    # NCC-WEEK cap is the binding lever and you want density to fall out naturally.
+    raw = config.nf_service_day_band
+    if raw == "off" or raw == {}:
+        return
     jr_names = set(config.fellow_groups.get("NCC_JR", []))
     sr_names = set(config.fellow_groups.get("NCC_SR", []))
-    band = config.nf_service_day_band or {"NCC_JR": [75, 85], "NCC_SR": [125, 135]}
-    jr_lo, jr_hi = band.get("NCC_JR", [75, 85])
-    sr_lo, sr_hi = band.get("NCC_SR", [125, 135])
+    band = raw or {"NCC_JR": [75, 85], "NCC_SR": [125, 135]}
+
+    def _bounds(group):
+        """Return (lo, hi) for a group, or None if its band is disabled
+        (missing / None / "off" / empty list)."""
+        v = band.get(group)
+        if not v or v == "off":
+            return None
+        return v[0], v[1]
+
+    jr_band = _bounds("NCC_JR")
+    sr_band = _bounds("NCC_SR")
 
     opb.add_comment("NF model: per-fellow NCC service-day band")
     for f, name in enumerate(fellow_names):
-        if name in jr_names:
-            lo, hi = jr_lo, jr_hi
-        elif name in sr_names:
-            lo, hi = sr_lo, sr_hi
+        if name in jr_names and jr_band is not None:
+            lo, hi = jr_band
+        elif name in sr_names and sr_band is not None:
+            lo, hi = sr_band
         else:
             continue
         if num_days < lo:
