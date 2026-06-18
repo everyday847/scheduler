@@ -7,6 +7,16 @@
 # totals None (no per-fellow quotas yet — Phase 1 is a feasibility skeleton).
 solver_options:
   call_tier_day_granular: true
+  # --- NF density / continuity / rest rules (all verified 2026-06-18) ---
+  nf_week_off_cap: 2              # Rule A: <=2 off days/week (exempt a full in-week NF rest)
+  nf_max_consecutive_call_days: 14  # Rule B: <=14 consecutive call days
+  nf_ccm_no_bridge_blocks: true  # Rule C: CCM NF runs don't bridge a 4wk block boundary
+  nf_min_ncc_block_weeks: true   # Rule 11: NCC call blocks >= 2 consecutive weeks
+  nf_ncc1_continuity: weekday    # NCC1 constant Mon-Fri; weekend NCC1 free
+  # --- soft concentration objective (fewer NCC weeks => more Elec; concentrate CCM) ---
+  nf_ncc_week_penalty: 10        # per JR/SR NCC-labeled week
+  nf_ccm_block_penalty: 50       # per active CCM 4wk NCC block
+  # nf_run_length / nf_rest_days left at defaults (4-6 / 1-before-2-after).
 
 fellow_groups:
   NCC_JR: [JR1, JR2, JR3]
@@ -57,6 +67,14 @@ rules:
   - {type: specific_assignment, name: "SR2 Vac wk48", fellow: SR2, week: 48, shift: Vac, strength: hard}
   # --- CCM generic coverage: 4-week NCC blocks (first block long: 53 = 5 + 4*12) ---
   - {type: block_rotation, name: "CCM NCC 4wk blocks", groups: [CCM], shifts: [NCC], block_size: 4, block_offset: 1, strength: hard, nf_days_per_block: [6, 8]}
+  # --- Elec: un-forbid (a budget rule stops derive_forbidden_shifts zeroing it) + floor/target ---
+  # Hard floor guarantees a minimum; soft target pulls toward the ideal. Floor kept
+  # conservative (3) — the last verified-feasible level under the binding Rule A; the
+  # cap×band frontier sweep may license raising it.
+  - {type: shift_total, name: "JR Elec floor",  groups: [NCC_JR], shifts: [Elec], relation: at_least, count: 3, strength: hard}
+  - {type: shift_total, name: "SR Elec floor",  groups: [NCC_SR], shifts: [Elec], relation: at_least, count: 3, strength: hard}
+  - {type: shift_total, name: "JR Elec target", groups: [NCC_JR], shifts: [Elec], relation: at_least, count: 9, strength: soft}
+  - {type: shift_total, name: "SR Elec target", groups: [NCC_SR], shifts: [Elec], relation: at_least, count: 9, strength: soft}
   # --- Hard NCC-week cap per group (item #3) ---
   # DEFERRED: both caps together cause solver timeout (>120s) on the full-year model.
   # Probe showed Stage 2 (add caps) = TIMEOUT. Kept here as inactive for future re-evaluation.
