@@ -34,7 +34,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--annual", default=str(REPO / "config/annual/ncc-nf-model.yaml"))
     ap.add_argument("--standing", default=str(REPO / "config/standing/ncc-nf-model.yaml"))
-    ap.add_argument("--time-limit", type=float, default=7200.0)
+    ap.add_argument("--time-limit", type=float, default=7200.0,
+                    help="optimize() wall limit (mode=opt only). Graceful: SIGTERM at "
+                         "deadline, returns best incumbent. Ignored in mode=sat.")
+    ap.add_argument("--mode", choices=["sat", "opt"], default="opt",
+                    help="sat = first-feasible solve (objective=False, NO timeout — "
+                         "bounded only by the Slurm wall); opt = optimize.")
     ap.add_argument("--prefix", default="output_nf_production")
     args = ap.parse_args()
 
@@ -74,34 +79,38 @@ def main() -> int:
         print(f"wrote {out_path}")
         return ev
 
-    # --- (1) initial SAT solution (objective=False, fast first-feasible) ---
-    opb0, vm0 = build_full_schedule_opb(cfg, objective=False)
-    print(f"[initial] solving for first feasible (objective=False)...")
-    t = time.time()
-    r0 = RUNNER.solve(opb0, timeout=min(args.time_limit, 3600))
-    print(f"[initial] {'SAT' if r0.satisfiable else 'UNSAT'} in {round(time.time()-t,1)}s")
-    ev0 = None
-    if r0.satisfiable:
-        ev0 = _report_and_write(r0.assignment, vm0, "INITIAL (first SAT)",
-                                Path(args.prefix + "_initial.xlsx"))
-    else:
-        print("[initial] UNSAT — config infeasible; skipping optimize.")
-        return 1
+    if args.mode == "sat":
+        # First-feasible solution. NO timeout — runtime is stochastic and the hard
+        # week-band floor is slow to satisfy; we WANT this output, so the Slurm --time
+        # wall is the only bound. (A subprocess timeout here raises TimeoutExpired and
+        # crashes the whole job — that wasted job 16534847's hour.)
+        opb, vm = build_full_schedule_opb(cfg, objective=False)
+        print("[sat] solving for first feasible (objective=False, no timeout)...", flush=True)
+        t = time.time()
+        r = RUNNER.solve(opb)
+        print(f"[sat] {'SAT' if r.satisfiable else 'UNSAT'} in {round(time.time()-t,1)}s",
+              flush=True)
+        if not r.satisfiable:
+            print("[sat] UNSAT — config infeasible.")
+            return 1
+        ev = _report_and_write(r.assignment, vm, "INITIAL (first SAT)",
+                               Path(args.prefix + "_initial.xlsx"))
+        return 0 if ev.ok else 2
 
-    # --- (2) final optimized solution ---
+    # mode == "opt": optimized solution. optimize() stops gracefully via SIGTERM at the
+    # deadline and returns the best incumbent — it does NOT raise on time-limit.
     opb, vm = build_full_schedule_opb(cfg, objective=True)
     if not opb.has_objective:
         print("WARNING: no objective set — config has no soft constraints?")
-    print(f"\n[final] optimizing: time_limit={args.time_limit}s, "
-          f"soft_terms={len(vm.soft_violations)}")
+    print(f"[opt] optimizing: time_limit={args.time_limit}s, "
+          f"soft_terms={len(vm.soft_violations)}", flush=True)
     t = time.time()
     r = RUNNER.optimize(opb, time_limit=args.time_limit, echo_progress=True)
     dt = round(time.time() - t, 1)
     if r.assignment is None:
-        print(f"[final] NO INCUMBENT after {dt}s (optimal={getattr(r, 'optimal', None)}) "
-              f"— keeping the initial SAT workbook.")
-        return 0 if (ev0 and ev0.ok) else 2
-    print(f"[final] optimize {dt}s optimal={r.optimal}")
+        print(f"[opt] NO INCUMBENT after {dt}s (optimal={getattr(r, 'optimal', None)})")
+        return 1
+    print(f"[opt] optimize {dt}s optimal={r.optimal}")
     ev = _report_and_write(r.assignment, vm, "FINAL (optimized)",
                            Path(args.prefix + "_final.xlsx"))
     return 0 if ev.ok else 2
