@@ -248,26 +248,28 @@ def _encode_call_weekend_backup_exclusion(
                 opb.at_most_k([wb_var, cv], 1)
 
 
-def _encode_nf_run_length(opb, call, fellow_names, num_days):
-    """HARD: every NF run is 4-6 consecutive days (NF model). nf[d]=call[d][f]['NF'].
-    Min 4: a run start (nf[d] & ~nf[d-1]) forces nf[d+1..d+3] (in-horizon clauses
-    only; a run starting in the last 3 days may be a short truncated tail run — the
+def _encode_nf_run_length(opb, call, config, fellow_names, num_days):
+    """HARD: every NF run is [lo, hi] consecutive days (config.nf_run_length, default 4-6).
+    nf[d]=call[d][f]['NF'].
+    Min lo: a run start (nf[d] & ~nf[d-1]) forces nf[d+1..d+lo-1] (in-horizon clauses
+    only; a run starting in the last lo-1 days may be a short truncated tail run — the
     year boundary is artificial, so no phantom run is forced past it).
-    Max 6: no 7 consecutive NF days."""
-    opb.add_comment("NF model: NF runs are 4-6 consecutive days")
+    Max hi: no hi+1 consecutive NF days."""
+    lo, hi = config.nf_run_length
+    opb.add_comment(f"NF model: NF runs are {lo}-{hi} consecutive days")
     num_fellows = len(fellow_names)
     for f in range(num_fellows):
         nf = [call[d][f]["NF"] for d in range(num_days)]
         for d in range(num_days):
-            for off in (1, 2, 3):
+            for off in range(1, lo):            # force lo-1 days after a run start
                 if d + off >= num_days:
                     continue
                 terms = [(-nf[d], 1), (nf[d + off], 1)]
                 if d - 1 >= 0:
                     terms.append((nf[d - 1], 1))
                 opb.weighted_sum_at_least(terms, 1)
-        for d in range(num_days - 6):
-            opb.at_most_k([nf[d + o] for o in range(7)], 6)
+        for d in range(num_days - hi):          # no hi+1 in a row
+            opb.at_most_k([nf[d + o] for o in range(hi + 1)], hi)
 
 
 def _build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow):
@@ -307,26 +309,26 @@ def _build_off_indicator(opb, call, xs, shift_idx, config, f, d, start_dow):
 
 
 def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow):
-    """HARD: ASYMMETRIC fully-off rest around every NF run — 1 day before, 2 days after.
+    """HARD: ASYMMETRIC fully-off rest around every NF run — config.nf_rest_days =
+    [before, after] (default [1, 2]: one day off before starting nights, two after).
 
-    After a run ends at day d (nf[d]=1, nf[d+1]=0): days d+1 and d+2 must be OFF (>=2).
-    Before a run starts at day d (nf[d]=1, nf[d-1]=0): day d-1 must be OFF (>=1).
+    After a run ends at day d (nf[d]=1, nf[d+1]=0): days d+1..d+after must be OFF.
+    Before a run starts at day d (nf[d]=1, nf[d-1]=0): days d-1..d-before must be OFF.
 
     Rationale (user, 2026-06-17): you need a full day off BEFORE starting nights, but only
-    one — whereas the post-NF recovery needs two. Loosening the 'before' side from 2 to 1
-    also enables NCC1→(weekend off)→NF transitions and relaxes the packing.
+    one — whereas the post-NF recovery needs two. Loosening the 'before' side also enables
+    NCC1→(weekend off)→NF transitions and relaxes the packing.
 
     "OFF" is encoded via _build_off_indicator (see docstring).
 
-    Clause shape (hard, for 'after' rest at day d, offset k in {1,2}):
-      nf[d] ∧ ~nf[d+1] => off[d+k]
-      →  (-nf[d],1) + (nf[d+1],1) + (off[d+k],1) >= 1
-
-    Clause shape (hard, for 'before' rest at day d, offset k in {1}):
-      nf[d] ∧ ~nf[d-1] => off[d-k]
-      →  (-nf[d],1) + (nf[d-1],1) + (off[d-k],1) >= 1
+    Clause shape (hard, 'after' rest at day d, offset k):
+      nf[d] ∧ ~nf[d+1] => off[d+k]  →  (-nf[d],1) + (nf[d+1],1) + (off[d+k],1) >= 1
+    Clause shape (hard, 'before' rest at day d, offset k):
+      nf[d] ∧ ~nf[d-1] => off[d-k]  →  (-nf[d],1) + (nf[d-1],1) + (off[d-k],1) >= 1
     """
-    opb.add_comment("NF model: asymmetric rest — 1 off before, 2 off after each NF run")
+    before, after = config.nf_rest_days
+    opb.add_comment(
+        f"NF model: asymmetric rest — {before} off before, {after} off after each NF run")
     num_fellows = len(fellow_names)
 
     # Build off indicators for all (d, f) up front (small model, O(D*F) vars)
@@ -339,25 +341,22 @@ def _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, st
     for f in range(num_fellows):
         nf = [call[d][f]["NF"] for d in range(num_days)]
         for d in range(num_days):
-            # --- After rest: run ends at d (nf[d]=1 and nf[d+1]=0) → 2 days off ---
-            # "after" only applies if d+1 is in horizon (otherwise at horizon edge, skip)
+            # --- After rest: run ends at d (nf[d]=1 and nf[d+1]=0) → `after` days off ---
             if d + 1 < num_days:
-                for k in (1, 2):
+                for k in range(1, after + 1):
                     dk = d + k
                     if dk >= num_days:
                         continue
-                    # (-nf[d],1) + (nf[d+1],1) + (off[dk][f],1) >= 1
                     opb.weighted_sum_at_least(
                         [(-nf[d], 1), (nf[d + 1], 1), (off[dk][f], 1)], 1
                     )
 
-            # --- Before rest: run starts at d (nf[d]=1 and nf[d-1]=0) → 1 day off ---
+            # --- Before rest: run starts at d (nf[d]=1 and nf[d-1]=0) → `before` days off ---
             if d >= 1:
-                for k in (1,):
+                for k in range(1, before + 1):
                     dk = d - k
                     if dk < 0:
                         continue
-                    # (-nf[d],1) + (nf[d-1],1) + (off[dk][f],1) >= 1
                     opb.weighted_sum_at_least(
                         [(-nf[d], 1), (nf[d - 1], 1), (off[dk][f], 1)], 1
                     )
@@ -1048,7 +1047,7 @@ def build_full_schedule_opb(
             opb, call, xs, shift_idx, fellow_names, num_days, start_dow, num_weeks)
         _encode_call_weekend_backup_exclusion(
             opb, call, bk, fellow_names, num_days, start_dow)
-        _encode_nf_run_length(opb, call, fellow_names, num_days)
+        _encode_nf_run_length(opb, call, config, fellow_names, num_days)
         _encode_nf_rest(opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
         _encode_nf_week_off_cap(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)

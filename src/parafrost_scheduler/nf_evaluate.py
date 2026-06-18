@@ -121,8 +121,10 @@ def _check_coverage(t, res):
                     week=day_to_week(d, start_dow)))
 
 
-def _check_nf_runs(t, res):
-    """Every NF run is 4-6 consecutive days (a run truncated by the horizon end is OK)."""
+def _check_nf_runs(t, config, res):
+    """Every NF run is [lo,hi] consecutive days (config.nf_run_length, default 4-6).
+    A run truncated by the horizon end is OK."""
+    lo, hi = getattr(config, "nf_run_length", (4, 6))
     fellows, num_days, _, _, _, day_role, _ = t
     for f in fellows:
         d = 0
@@ -133,17 +135,19 @@ def _check_nf_runs(t, res):
                     d += 1
                 length = d - start
                 truncated = d >= num_days       # run hits the horizon edge
-                if not truncated and not (4 <= length <= 6):
+                if not truncated and not (lo <= length <= hi):
                     res.violations.append(NfViolation(
-                        "nf_run_length", f"NF run length {length} (need 4-6)",
+                        "nf_run_length", f"NF run length {length} (need {lo}-{hi})",
                         fellow=f, day=start))
             else:
                 d += 1
 
 
-def _check_nf_rest_impl(t, weekly, working_bg, res):
-    """Asymmetric rest: >=1 off day before an NF run starts, >=2 off days after it ends.
-    off = no call role that day AND not on a working bg rotation that week."""
+def _check_nf_rest_impl(t, weekly, working_bg, config, res):
+    """Asymmetric rest: config.nf_rest_days=[before,after] (default [1,2]) off days
+    before a run starts / after it ends. off = no call role that day AND not on a
+    working bg rotation that week."""
+    before, after = getattr(config, "nf_rest_days", (1, 2))
     fellows, num_days, _, start_dow, _, day_role, _ = t
 
     def off(f, d):
@@ -156,12 +160,14 @@ def _check_nf_rest_impl(t, weekly, working_bg, res):
                 continue
             run_start = (d == 0) or (not nf[d - 1])
             run_end = (d == num_days - 1) or (not nf[d + 1])
-            if run_start and d - 1 >= 0 and not off(f, d - 1):
-                res.violations.append(NfViolation(
-                    "nf_rest_before", f"day before NF run (d{d}) not off",
-                    fellow=f, day=d - 1))
+            if run_start:
+                for k in range(1, before + 1):
+                    if d - k >= 0 and not off(f, d - k):
+                        res.violations.append(NfViolation(
+                            "nf_rest_before", f"day {k} before NF run (d{d}) not off",
+                            fellow=f, day=d - k))
             if run_end:
-                for k in (1, 2):
+                for k in range(1, after + 1):
                     if d + k < num_days and not off(f, d + k):
                         res.violations.append(NfViolation(
                             "nf_rest_after", f"day {k} after NF run (d{d}) not off",
@@ -289,8 +295,8 @@ def evaluate_nf(solution, config) -> NfEvalResult:
 
     # always-on structural checks
     _check_coverage(t, res); res.checks_run.append("coverage")
-    _check_nf_runs(t, res); res.checks_run.append("nf_run_length")
-    _check_nf_rest_impl(t, weekly, working_bg, res)
+    _check_nf_runs(t, config, res); res.checks_run.append("nf_run_length")
+    _check_nf_rest_impl(t, weekly, working_bg, config, res)
     res.checks_run += ["nf_rest_before", "nf_rest_after"]
 
     # gated checks (one per NF rule)

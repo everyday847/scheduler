@@ -59,7 +59,7 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
         "night_hard_criteria", "dual_stroke_helena", "stroke_wk2627_toggle",
         "nf_max_consecutive_off", "nf_ncc1_continuity", "nf_ncc_week_penalty",
         "nf_ccm_block_penalty", "nf_service_day_band", "nf_week_off_cap",
-        "nf_max_consecutive_call_days",
+        "nf_max_consecutive_call_days", "nf_run_length", "nf_rest_days",
     }
     unknown = set(opts) - known
     if unknown:
@@ -100,6 +100,12 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
         kwargs["nf_ncc1_continuity"] = val
     if "nf_service_day_band" in opts:
         kwargs["nf_service_day_band"] = opts["nf_service_day_band"]
+    for pair_key in ("nf_run_length", "nf_rest_days"):
+        if pair_key in opts:
+            v = opts[pair_key]
+            if not (isinstance(v, (list, tuple)) and len(v) == 2):
+                raise ValueError(f"{pair_key} must be a [min, max]/[before, after] pair, got {v!r}.")
+            kwargs[pair_key] = (int(v[0]), int(v[1]))
     return kwargs
 
 

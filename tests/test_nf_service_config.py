@@ -44,3 +44,24 @@ def test_nf_service_defaults_off():
     assert c.nf_ncc_week_penalty == 0
     assert c.nf_ccm_block_penalty == 0
     assert c.nf_service_day_band is None
+
+
+def test_nf_run_length_and_rest_days_parse():
+    from scheduler.solver_bridge import _solver_options_kwargs
+    import pytest
+    kw = _solver_options_kwargs({"nf_run_length": [4, 7], "nf_rest_days": [1, 2]})
+    assert kw["nf_run_length"] == (4, 7)
+    assert kw["nf_rest_days"] == (1, 2)
+    with pytest.raises(ValueError):
+        _solver_options_kwargs({"nf_run_length": [4]})       # not a pair
+
+
+def test_nf_run_rest_defaults():
+    from parafrost_scheduler.schedule_types import ScheduleSolverConfig
+    from scheduler.night_call_types import NightSolverConfig
+    from scheduler.weekend_call_types import WeekendSolverConfig
+    c = ScheduleSolverConfig(fellow_groups={}, shifts=[], constraints=[],
+                             night_config=NightSolverConfig(),
+                             weekend_config=WeekendSolverConfig())
+    assert c.nf_run_length == (4, 6)
+    assert c.nf_rest_days == (1, 2)

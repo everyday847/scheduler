@@ -261,6 +261,12 @@ class ScheduleSolverConfig:
     # flanked by non-NCC weeks is forbidden. (CCM's 4wk blocks never trigger it.) The
     # isolated-Elec-weekend case needs no exception: such a week is labeled Elec, not NCC.
     nf_min_ncc_block_weeks: bool = False
+    # NF run length bounds (consecutive NF days): [min, max]. Default [4, 6]. A run
+    # truncated by the horizon end may be shorter than min (the year boundary is artificial).
+    nf_run_length: tuple = (4, 6)
+    # NF rest, asymmetric: [days_off_before_a_run, days_off_after_a_run]. Default [1, 2]
+    # (one day off before starting nights, two after finishing). "off" via the off-indicator.
+    nf_rest_days: tuple = (1, 2)
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))
