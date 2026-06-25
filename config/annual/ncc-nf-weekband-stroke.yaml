@@ -1,0 +1,250 @@
+# STROKE-GROUP experiment (user 2026-06-18): the week-band config + a 4-fellow Stroke
+# group + five new hard NF rules. Derived from ncc-nf-weekband-jr12-14-sr20-22-3ccm.yaml
+# (do NOT edit that file). New vs. the week-band base:
+#   - Stroke group (4 fellows): 6 NCC weeks each, 3-week blocks, <=12 NF days, blank otherwise.
+#   - nf_min_ncc_run_days: 4   — NCC service (NCC1/NCC2) runs are >=4 consecutive days.
+#   - nf_weekend_ncc1_paired   — weekend NCC1 Sat==Sun (one assignment).
+#   - nf_no_triple_ccm         — >=1 call role per day held by a non-CCM (JR/SR/Stroke).
+#   - nf_stroke_lex_order      — Stroke first-NCC-week strictly increasing (symmetry break).
+#   - nf_stroke_nf_cap: 12     — each Stroke fellow holds <=12 NF days total.
+#   - JR/SR Vac exactly 3      — caps total Vac (the pins fix WHICH weeks, not the COUNT).
+# Roster: JR3 + SR2 + CCM3 + Stroke4 = 12 fellows; Stroke adds 24 NCC-fellow-weeks of supply.
+solver_options: {call_tier_day_granular: true, nf_week_off_cap: 2, nf_max_consecutive_call_days: 14,
+  nf_ccm_no_bridge_blocks: true, nf_min_ncc_block_weeks: true, nf_ncc1_continuity: weekday,
+  nf_ncc_week_penalty: 10, nf_ccm_block_penalty: 50, nf_service_day_band: 'off',
+  nf_min_ncc_run_days: 4, nf_weekend_ncc1_paired: true, nf_no_triple_ccm: true,
+  nf_stroke_lex_order: true, nf_stroke_nf_cap: 12}
+fellow_groups:
+  NCC_JR: [JR1, JR2, JR3]
+  NCC_SR: [SR1, SR2]
+  CCM: [CCM Generic 1, CCM Generic 2, CCM Generic 3]
+  Stroke: [Stroke A, Stroke B, Stroke C, Stroke D]
+shifts: [NCC, MICU, NS, SICU, Elec, Vac, Anaesthesia, Stroke, Telestroke/Clinic]
+horizon_start: '2026-07-01'
+num_weeks: 53
+rules:
+- type: shift_total
+  name: JR MICU total
+  groups: [NCC_JR]
+  shifts: [MICU]
+  relation: exactly
+  count: 16
+  strength: hard
+- type: shift_total
+  name: JR MICU orientation
+  groups: [NCC_JR]
+  shifts: [MICU]
+  relation: exactly
+  count: 4
+  window: [0, 4]
+  strength: hard
+- type: block_rotation
+  name: JR MICU 4wk blocks
+  groups: [NCC_JR]
+  shifts: [MICU]
+  block_size: 4
+  strength: hard
+- type: block_rotation
+  name: JR Anaesthesia 4wk block
+  groups: [NCC_JR]
+  shifts: [Anaesthesia]
+  block_size: 4
+  strength: hard
+- type: shift_total
+  name: JR Anaesthesia total
+  groups: [NCC_JR]
+  shifts: [Anaesthesia]
+  relation: exactly
+  count: 4
+  strength: hard
+- type: shift_total
+  name: JR SICU total
+  groups: [NCC_JR]
+  shifts: [SICU]
+  relation: exactly
+  count: 4
+  strength: hard
+- type: block_rotation
+  name: JR SICU 2wk blocks
+  groups: [NCC_JR]
+  shifts: [SICU]
+  block_size: 2
+  strength: hard
+- type: shift_total
+  name: SR MICU total
+  groups: [NCC_SR]
+  shifts: [MICU]
+  relation: exactly
+  count: 8
+  strength: hard
+- type: block_rotation
+  name: SR MICU 4wk blocks
+  groups: [NCC_SR]
+  shifts: [MICU]
+  block_size: 4
+  strength: hard
+- type: block_rotation
+  name: SR NS 2wk block
+  groups: [NCC_SR]
+  shifts: [NS]
+  block_size: 2
+  strength: hard
+- type: shift_total
+  name: SR NS total
+  groups: [NCC_SR]
+  shifts: [NS]
+  relation: exactly
+  count: 6
+  strength: hard
+- type: shift_total
+  name: SR Stroke total
+  groups: [NCC_SR]
+  shifts: [Stroke]
+  relation: exactly
+  count: 2
+  strength: hard
+- type: shift_total
+  name: SR Telestroke total
+  groups: [NCC_SR]
+  shifts: [Telestroke/Clinic]
+  relation: exactly
+  count: 2
+  strength: hard
+- {type: specific_assignment, name: JR1 Vac wk8, fellow: JR1, week: 8, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR1 Vac wk28, fellow: JR1, week: 28, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR1 Vac wk32, fellow: JR1, week: 32, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR2 Vac wk11, fellow: JR2, week: 11, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR2 Vac wk25, fellow: JR2, week: 25, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR2 Vac wk41, fellow: JR2, week: 41, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR3 Vac wk14, fellow: JR3, week: 14, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR3 Vac wk20, fellow: JR3, week: 20, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: JR3 Vac wk27, fellow: JR3, week: 27, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: SR1 Vac wk10, fellow: SR1, week: 10, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: SR1 Vac wk30, fellow: SR1, week: 30, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: SR1 Vac wk44, fellow: SR1, week: 44, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: SR2 Vac wk17, fellow: SR2, week: 17, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: SR2 Vac wk35, fellow: SR2, week: 35, shift: Vac,
+  strength: hard}
+- {type: specific_assignment, name: SR2 Vac wk48, fellow: SR2, week: 48, shift: Vac,
+  strength: hard}
+# Vac TOTAL cap: the pins above fix WHICH weeks; this caps the COUNT at exactly 3.
+- type: shift_total
+  name: JR Vac total
+  groups: [NCC_JR]
+  shifts: [Vac]
+  relation: exactly
+  count: 3
+  strength: hard
+- type: shift_total
+  name: SR Vac total
+  groups: [NCC_SR]
+  shifts: [Vac]
+  relation: exactly
+  count: 3
+  strength: hard
+- type: block_rotation
+  name: CCM NCC 4wk blocks
+  groups: [CCM]
+  shifts: [NCC]
+  block_size: 4
+  block_offset: 1
+  strength: hard
+  nf_days_per_block: [6, 8]
+# Stroke group: 6 NCC weeks each in 3-week blocks (2 blocks). Off NCC, a Stroke
+# fellow is on Vac (the model requires every managed fellow to hold SOME shift each
+# week — blank weeks are infeasible; forbidding all non-NCC shifts is UNSAT). Vac is
+# the filler (user 2026-06-18). Budgeting [NCC, Vac] makes derive_forbidden_shifts
+# forbid every OTHER shift, so Stroke shows only NCC or Vac. The Vac rule is a vacuous
+# at_most (just seeds Vac into the budget); Vac lands on the ~47 non-NCC weeks.
+- type: block_rotation
+  name: Stroke NCC 3wk blocks
+  groups: [Stroke]
+  shifts: [NCC]
+  block_size: 3
+  block_offset: 0
+  strength: hard
+- type: shift_total
+  name: Stroke NCC total
+  groups: [Stroke]
+  shifts: [NCC]
+  relation: exactly
+  count: 6
+  strength: hard
+- type: shift_total
+  name: Stroke Vac filler (seeds Vac into budget; non-NCC weeks => Vac)
+  groups: [Stroke]
+  shifts: [Vac]
+  relation: at_most
+  count: 53
+  strength: hard
+- type: shift_total
+  name: JR Elec floor
+  groups: [NCC_JR]
+  shifts: [Elec]
+  relation: at_least
+  count: 3
+  strength: hard
+- type: shift_total
+  name: SR Elec floor
+  groups: [NCC_SR]
+  shifts: [Elec]
+  relation: at_least
+  count: 3
+  strength: hard
+- type: shift_total
+  name: JR Elec target
+  groups: [NCC_JR]
+  shifts: [Elec]
+  relation: at_least
+  count: 9
+  strength: soft
+- type: shift_total
+  name: SR Elec target
+  groups: [NCC_SR]
+  shifts: [Elec]
+  relation: at_least
+  count: 9
+  strength: soft
+- type: shift_total
+  name: JR NCC week floor
+  groups: [NCC_JR]
+  shifts: [NCC]
+  relation: at_least
+  count: 12
+  strength: hard
+- type: shift_total
+  name: JR NCC week ceil
+  groups: [NCC_JR]
+  shifts: [NCC]
+  relation: at_most
+  count: 14
+  strength: hard
+- type: shift_total
+  name: SR NCC week floor
+  groups: [NCC_SR]
+  shifts: [NCC]
+  relation: at_least
+  count: 20
+  strength: hard
+- type: shift_total
+  name: SR NCC week ceil
+  groups: [NCC_SR]
+  shifts: [NCC]
+  relation: at_most
+  count: 22
+  strength: hard
+- {type: specific_assignment, name: CCM1 block0 symmetry break, fellow: CCM Generic
+    1, week: 0, shift: NCC, strength: hard}
