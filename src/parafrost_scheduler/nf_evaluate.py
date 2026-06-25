@@ -107,12 +107,14 @@ def _is_off(day_role, weekly, working_bg, f, d, start_dow):
 
 
 # --- checks -----------------------------------------------------------------
-def _check_coverage(t, res):
-    """Hard coverage: weekday NCC1=NCC2=NF=1; weekend NCC1=NF=1, NO weekend NCC2."""
+def _check_coverage(t, res, weekend_ncc2=False):
+    """Hard coverage: weekday NCC1=NCC2=NF=1; weekend NCC1=NF=1. Weekend NCC2 is 0
+    (forbidden) by default, or 1 (covered) when weekend_ncc2 is True."""
     _, num_days, _, start_dow, role_holder, _, _ = t
     for d in range(num_days):
         weekend = day_of_week(d, start_dow) in (5, 6)
-        need = {"NCC1": 1, "NF": 1, "NCC2": 0 if weekend else 1}
+        ncc2_need = (1 if weekend_ncc2 else 0) if weekend else 1
+        need = {"NCC1": 1, "NF": 1, "NCC2": ncc2_need}
         for role, k in need.items():
             held = 1 if role_holder[d].get(role) else 0
             if held != k:
@@ -278,6 +280,255 @@ def _check_ccm_no_bridge(t, weekly, config, res):
                     fellow=f, day=b))
 
 
+def _check_min_ncc_run(t, config, res):
+    """NCC-service runs (consecutive NCC1/NCC2 day-call) are >= nf_min_ncc_run_days.
+    NF / off days break a run. A run truncated by the horizon end is OK. All fellows."""
+    k = getattr(config, "nf_min_ncc_run_days", 0)
+    if k <= 0:
+        return
+    fellows, num_days, _, _, _, day_role, _ = t
+    for f in fellows:
+        svc = [day_role[f][d] in ("NCC1", "NCC2") for d in range(num_days)]
+        d = 0
+        while d < num_days:
+            if svc[d]:
+                start = d
+                while d < num_days and svc[d]:
+                    d += 1
+                length = d - start
+                truncated = d >= num_days
+                if not truncated and length < k:
+                    res.violations.append(NfViolation(
+                        "min_ncc_run", f"NCC service run length {length} (need >= {k})",
+                        fellow=f, day=start))
+            else:
+                d += 1
+
+
+def _check_weekend_ncc1_paired(t, config, res):
+    """Weekend NCC1 is one assignment: the Saturday and the following Sunday NCC1
+    holder must be the same fellow."""
+    if not getattr(config, "nf_weekend_ncc1_paired", False):
+        return
+    _, num_days, _, start_dow, role_holder, _, _ = t
+    for d in range(num_days - 1):
+        if day_of_week(d, start_dow) == 5 and day_of_week(d + 1, start_dow) == 6:
+            sat = role_holder[d].get("NCC1", "")
+            sun = role_holder[d + 1].get("NCC1", "")
+            if sat != sun:
+                res.violations.append(NfViolation(
+                    "weekend_ncc1_paired",
+                    f"Sat NCC1={sat!r} != Sun NCC1={sun!r}", day=d,
+                    week=day_to_week(d, start_dow)))
+
+
+def _check_no_triple_ccm(t, config, res):
+    """Every day, >= 1 active call role held by a NON-CCM fellow (never all-CCM)."""
+    if not getattr(config, "nf_no_triple_ccm", False):
+        return
+    _, num_days, _, start_dow, role_holder, _, _ = t
+    ccm = set(config.fellow_groups.get("CCM", []))
+    for d in range(num_days):
+        weekend = day_of_week(d, start_dow) in (5, 6)
+        roles = ("NCC1", "NF") if weekend else ("NCC1", "NCC2", "NF")
+        holders = [role_holder[d].get(r, "") for r in roles]
+        held = [h for h in holders if h]
+        if held and all(h in ccm for h in held):
+            res.violations.append(NfViolation(
+                "no_triple_ccm", f"all call roles held by CCM ({held})", day=d,
+                week=day_to_week(d, start_dow)))
+
+
+def _check_stroke_nf_cap(t, config, res):
+    """Each Stroke fellow holds <= nf_stroke_nf_cap NF days total."""
+    cap = getattr(config, "nf_stroke_nf_cap", 0)
+    if cap <= 0:
+        return
+    fellows, num_days, _, _, _, day_role, _ = t
+    stroke = set(config.fellow_groups.get("Stroke", []))
+    for f in fellows:
+        if f not in stroke:
+            continue
+        nf_days = sum(1 for d in range(num_days) if day_role[f][d] == "NF")
+        if nf_days > cap:
+            res.violations.append(NfViolation(
+                "stroke_nf_cap", f"{nf_days} NF days (cap {cap})", fellow=f))
+
+
+def _check_stroke_lex_order(weekly, num_weeks, config, res):
+    """Stroke fellows' first NCC week is strictly increasing in roster order."""
+    if not getattr(config, "nf_stroke_lex_order", False):
+        return
+    order = [f for f in config.fellow_groups.get("Stroke", []) if f in weekly]
+    if len(order) < 2:
+        return
+
+    def first_ncc(f):
+        for w in range(num_weeks):
+            if weekly[f][w] == "NCC":
+                return w
+        return None
+
+    firsts = [(name, first_ncc(name)) for name in order]
+    for (a_name, a_w), (b_name, b_w) in zip(firsts, firsts[1:]):
+        if a_w is None or b_w is None or not (a_w < b_w):
+            res.violations.append(NfViolation(
+                "stroke_lex_order",
+                f"first-NCC week not increasing: {a_name}@{a_w} vs {b_name}@{b_w}",
+                fellow=b_name))
+
+
+def _check_min_ncc2_run(t, config, res):
+    """NCC2 runs (consecutive NCC2-held days, per fellow) are >= nf_min_ncc2_run_days.
+    NF/off/NCC1 days break a run. A run truncated by the horizon end is OK. All fellows."""
+    k = getattr(config, "nf_min_ncc2_run_days", 0)
+    if k <= 0:
+        return
+    fellows, num_days, _, _, _, day_role, _ = t
+    for f in fellows:
+        n2 = [day_role[f][d] == "NCC2" for d in range(num_days)]
+        d = 0
+        while d < num_days:
+            if n2[d]:
+                start = d
+                while d < num_days and n2[d]:
+                    d += 1
+                length = d - start
+                truncated = d >= num_days
+                if not truncated and length < k:
+                    res.violations.append(NfViolation(
+                        "min_ncc2_run", f"NCC2 run length {length} (need >= {k})",
+                        fellow=f, day=start))
+            else:
+                d += 1
+
+
+def _check_one_third_nf(t, config, res):
+    """When nf_one_third_nf_band is on, each banded fellow's NF share of total service
+    days (NF/(NCC1+NCC2+NF)) must lie in its band. bool True -> [27%, 40%] for every
+    fellow; {group:[lo,hi]} -> per-group bands (unnamed groups skipped). Fellows with no
+    service days are skipped."""
+    band = getattr(config, "nf_one_third_nf_band", False)
+    if not band:
+        return
+    fellows, num_days, _, _, _, day_role, _ = t
+    if isinstance(band, dict):
+        bounds = _fellow_group_bounds(config, fellows, band)
+    else:
+        bounds = {f: (27, 40) for f in fellows}
+    for f in fellows:
+        if f not in bounds:
+            continue
+        lo, hi = bounds[f]
+        nf = sum(1 for d in range(num_days) if day_role[f][d] == "NF")
+        rest = sum(1 for d in range(num_days) if day_role[f][d] in ("NCC1", "NCC2"))
+        total = nf + rest
+        if total == 0:
+            continue
+        share = nf / total
+        if not (lo / 100 <= share <= hi / 100):
+            res.violations.append(NfViolation(
+                "one_third_nf",
+                f"NF share {share:.0%} ({nf}/{total}) outside [{lo}%, {hi}%]", fellow=f))
+
+
+def _fellow_group_bounds(config, fellows, band_dict):
+    """{fellow_name: (lo, hi)} from a {group: [lo,hi]} dict; skip off/empty groups."""
+    if not band_dict or band_dict == "off":
+        return {}
+    out = {}
+    for group, bounds in band_dict.items():
+        if not bounds or bounds == "off":
+            continue
+        for name in config.fellow_groups.get(group, []):
+            if name in fellows:
+                out[name] = (bounds[0], bounds[1])
+    return out
+
+
+def _check_nf_day_band(t, config, res):
+    """Per-fellow absolute NF-day count must lie in config.nf_nf_day_band[group]."""
+    fellows, num_days, _, _, _, day_role, _ = t
+    bounds = _fellow_group_bounds(config, fellows, getattr(config, "nf_nf_day_band", None))
+    for f, (lo, hi) in bounds.items():
+        nf = sum(1 for d in range(num_days) if day_role[f][d] == "NF")
+        if not (lo <= nf <= hi):
+            res.violations.append(NfViolation(
+                "nf_day_band", f"{nf} NF days outside [{lo}, {hi}]", fellow=f))
+
+
+def _check_service_day_band(t, config, res):
+    """Per-fellow service-day count (NCC1+NCC2+NF) must lie in nf_service_day_band[group]."""
+    raw = getattr(config, "nf_service_day_band", None)
+    if raw == "off" or raw == {} or not isinstance(raw, dict):
+        return
+    fellows, num_days, _, _, _, day_role, _ = t
+    bounds = _fellow_group_bounds(config, fellows, raw)
+    for f, (lo, hi) in bounds.items():
+        svc = sum(1 for d in range(num_days) if day_role[f][d] in CALL_ROLES)
+        if not (lo <= svc <= hi):
+            res.violations.append(NfViolation(
+                "service_day_band", f"{svc} service days outside [{lo}, {hi}]", fellow=f))
+
+
+def _check_ccm_block_nf_cap(t, config, res):
+    """Each CCM fellow's NF days per NCC block <= base (+2/extra week of an offset block)."""
+    base = getattr(config, "nf_ccm_block_nf_cap", 0)
+    if base <= 0:
+        return
+    from parafrost_scheduler.schedule_encoder import _block_starts_grid
+    fellows, num_days, num_weeks, start_dow, _, day_role, days_in_week = t
+    ccm = set(config.fellow_groups.get("CCM", []))
+    block_size = 4
+    for f in fellows:
+        if f not in ccm:
+            continue
+        for bs, be in _block_starts_grid(num_weeks, block_size, 1):
+            cap = base + 2 * max(0, (be - bs) - block_size)
+            nf = sum(1 for w in range(bs, be) for d in days_in_week.get(w, [])
+                     if day_role[f][d] == "NF")
+            if nf > cap:
+                res.violations.append(NfViolation(
+                    "ccm_block_nf_cap",
+                    f"{nf} NF days in block [{bs},{be}) > cap {cap}", fellow=f, week=bs))
+
+
+def _check_block_nf_band(t, config, res):
+    """Per-group per-NCC-block NF-day band: for each fellow × 4-week block (offset-1 grid,
+    5-week first block hi+2), NF days <= hi; and >= lo when the fellow is on NCC service
+    that block (>=1 NCC-labeled week in the block)."""
+    raw = getattr(config, "nf_block_nf_band", None)
+    if not raw or raw == "off":
+        return
+    from parafrost_scheduler.schedule_encoder import _block_starts_grid
+    fellows, num_days, num_weeks, start_dow, _, day_role, days_in_week = t
+    weekly = None  # use day_role-derived on-service test instead of weekly labels
+    block_size = 4
+    name_bounds = {}
+    for group, bounds in raw.items():
+        if not bounds or bounds == "off":
+            continue
+        for name in config.fellow_groups.get(group, []):
+            name_bounds[name] = (bounds[0], bounds[1])
+    for f in fellows:
+        if f not in name_bounds:
+            continue
+        lo, hi = name_bounds[f]
+        for bs, be in _block_starts_grid(num_weeks, block_size, 1):
+            hi_b = hi + 2 * max(0, (be - bs) - block_size)
+            blk_days = [d for w in range(bs, be) for d in days_in_week.get(w, [])]
+            nf = sum(1 for d in blk_days if day_role[f][d] == "NF")
+            on_service = any(day_role[f][d] in CALL_ROLES for d in blk_days)
+            if nf > hi_b:
+                res.violations.append(NfViolation(
+                    "block_nf_band", f"{nf} NF in block [{bs},{be}) > hi {hi_b}",
+                    fellow=f, week=bs))
+            if on_service and lo > 0 and nf < lo:
+                res.violations.append(NfViolation(
+                    "block_nf_band", f"{nf} NF in on-service block [{bs},{be}) < lo {lo}",
+                    fellow=f, week=bs))
+
+
 def evaluate_nf(solution, config) -> NfEvalResult:
     """Audit a solved NF schedule. Only runs checks whose feature is active in config
     (gated like the encoder), plus the always-on structural checks (coverage, NF runs,
@@ -294,7 +545,8 @@ def evaluate_nf(solution, config) -> NfEvalResult:
     working_bg = None  # the off-helper uses the weekly LABEL, not shift indices
 
     # always-on structural checks
-    _check_coverage(t, res); res.checks_run.append("coverage")
+    _check_coverage(t, res, weekend_ncc2=getattr(config, "nf_weekend_ncc2", False))
+    res.checks_run.append("coverage")
     _check_nf_runs(t, config, res); res.checks_run.append("nf_run_length")
     _check_nf_rest_impl(t, weekly, working_bg, config, res)
     res.checks_run += ["nf_rest_before", "nf_rest_after"]
@@ -315,4 +567,38 @@ def evaluate_nf(solution, config) -> NfEvalResult:
     _check_ccm_no_bridge(t, weekly, config, res)
     if getattr(config, "nf_ccm_no_bridge_blocks", False):
         res.checks_run.append("ccm_no_bridge")
+    _check_min_ncc_run(t, config, res)
+    if getattr(config, "nf_min_ncc_run_days", 0) > 0:
+        res.checks_run.append("min_ncc_run")
+    _check_weekend_ncc1_paired(t, config, res)
+    if getattr(config, "nf_weekend_ncc1_paired", False):
+        res.checks_run.append("weekend_ncc1_paired")
+    _check_no_triple_ccm(t, config, res)
+    if getattr(config, "nf_no_triple_ccm", False):
+        res.checks_run.append("no_triple_ccm")
+    _check_stroke_nf_cap(t, config, res)
+    if getattr(config, "nf_stroke_nf_cap", 0) > 0:
+        res.checks_run.append("stroke_nf_cap")
+    _check_stroke_lex_order(weekly, num_weeks, config, res)
+    if getattr(config, "nf_stroke_lex_order", False):
+        res.checks_run.append("stroke_lex_order")
+    _check_min_ncc2_run(t, config, res)
+    if getattr(config, "nf_min_ncc2_run_days", 0) > 0:
+        res.checks_run.append("min_ncc2_run")
+    _check_one_third_nf(t, config, res)
+    if getattr(config, "nf_one_third_nf_band", False):
+        res.checks_run.append("one_third_nf")
+    _check_nf_day_band(t, config, res)
+    if getattr(config, "nf_nf_day_band", None):
+        res.checks_run.append("nf_day_band")
+    _check_service_day_band(t, config, res)
+    if isinstance(getattr(config, "nf_service_day_band", None), dict) and \
+            config.nf_service_day_band:
+        res.checks_run.append("service_day_band")
+    _check_ccm_block_nf_cap(t, config, res)
+    if getattr(config, "nf_ccm_block_nf_cap", 0) > 0:
+        res.checks_run.append("ccm_block_nf_cap")
+    _check_block_nf_band(t, config, res)
+    if getattr(config, "nf_block_nf_band", None):
+        res.checks_run.append("block_nf_band")
     return res
