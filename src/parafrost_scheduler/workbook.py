@@ -133,17 +133,20 @@ def _service_color(service: str) -> str | None:
 # easily told apart. Returned as hex (no leading '#').
 _CALL_GREENS = ("A9D08E", "C6E0B4", "70AD47")   # mid, light, dark green
 _CALL_BLUES = ("9DC3E6", "B4C6E7", "5B9BD5")    # mid, light, dark blue
+_CALL_REDS = ("FF9999", "FFC7CE", "FF5050", "C00000")  # Stroke: light->dark red
 
 
 def _call_fellow_fill_map(fellow_groups: dict[str, list[str]]) -> dict[str, str]:
     """Map each fellow name to a hex fill: NCC_JR/NCC_SR get greens, CCM gets blues,
-    cycling the 3-shade palettes by index within the group."""
+    Stroke gets reds, cycling each group's shade palette by index within the group."""
     out: dict[str, str] = {}
     ncc = fellow_groups.get("NCC_JR", []) + fellow_groups.get("NCC_SR", [])
     for i, name in enumerate(ncc):
         out[name] = _CALL_GREENS[i % 3]
     for i, name in enumerate(fellow_groups.get("CCM", [])):
         out[name] = _CALL_BLUES[i % 3]
+    for i, name in enumerate(fellow_groups.get("Stroke", [])):
+        out[name] = _CALL_REDS[i % len(_CALL_REDS)]
     return out
 
 
