@@ -267,6 +267,61 @@ class ScheduleSolverConfig:
     # NF rest, asymmetric: [days_off_before_a_run, days_off_after_a_run]. Default [1, 2]
     # (one day off before starting nights, two after finishing). "off" via the off-indicator.
     nf_rest_days: tuple = (1, 2)
+    # Min consecutive NCC-SERVICE days (NCC1 OR NCC2 day-call), 0 = off. A lone 1-day
+    # NCC stint between NF runs is nonsense; service runs must be >= N consecutive days.
+    # NF / fully-off days break a service run. Horizon-tail short runs allowed. All fellows.
+    nf_min_ncc_run_days: int = 0
+    # When True, the Saturday and Sunday weekend NCC1 holder must be the SAME fellow
+    # (weekend NCC1 is one assignment): NCC1[sat][f] <=> NCC1[sun][f] for every fellow/week.
+    nf_weekend_ncc1_paired: bool = False
+    # When True, every day at least one active call role (weekday NCC1/NCC2/NF; weekend
+    # NCC1/NF) must be held by a NON-CCM fellow — never all-CCM (a JR/SR/Stroke is on call).
+    nf_no_triple_ccm: bool = False
+    # When True, break symmetry among the (identical) Stroke fellows: their first NCC-block
+    # week is strictly increasing in roster order (A < B < C < D).
+    nf_stroke_lex_order: bool = False
+    # Max total NF days per Stroke fellow across the year (0 = off). Hard at_most cap.
+    nf_stroke_nf_cap: int = 0
+    # When True, weekend NCC2 is COVERED (exactly one holder Sat & Sun) instead of
+    # forbidden. Enables NCC service to span weekends (better continuity). Weekend NCC2
+    # may be split across fellows. Default False => the historical weekend-NCC2-forbidden
+    # behavior (wb7 byte-identical).
+    nf_weekend_ncc2: bool = False
+    # Min consecutive NCC2-day run per fellow (0 = off). Forbids isolated single-day NCC2
+    # stints (set 2). Independent of NCC1. NF/off/NCC1 days break an NCC2 run. Horizon-tail
+    # short runs allowed.
+    nf_min_ncc2_run_days: int = 0
+    # HARD-band each fellow's NF share of total service days (NF/(NCC1+NCC2+NF)).
+    #   True            -> [27%, 40%] for every fellow (legacy form).
+    #   {group:[lo,hi]} -> per-group percentage bands; unnamed groups unconstrained
+    #                      (omit CCM so its slack absorbs the balance — cheap + tractable).
+    # Whole-horizon ratio: directly bounds the SHARE (self-scaling to each fellow's
+    # denominator), unlike the per-block COUNT band (nf_block_nf_band). Pair the two:
+    # the block band propagates locally (tractability), this pins the ratio (precision).
+    # Encoded at the day layer as (100-lo)*NF - lo*(NCC1+NCC2) >= 0 and
+    # hi*(NCC1+NCC2) - (100-hi)*NF >= 0.
+    nf_one_third_nf_band: bool | dict = False
+    # Soft penalty weight pulling each fellow's NF share toward EXACTLY 1/3 (0 = off).
+    # Deviation-scaled: cost grows with |2*NF - (NCC1+NCC2)| (proportional to distance from
+    # the 1/3 point). Composes with the hard band (band bounds the slack count).
+    nf_one_third_nf_weight: int = 0
+    # Per-group HARD band on each fellow's absolute NF-day count: {group: [lo, hi]}.
+    # None = off. The absolute-budget analogue of nf_service_day_band — anchors NF days
+    # directly (strong propagation) instead of via the floating 1/3 ratio. Apply to
+    # JR/SR/Stroke; CCM is handled per-block (nf_ccm_block_nf_cap) since its week count varies.
+    nf_nf_day_band: dict | None = None
+    # CCM per-NCC-block HARD NF-day ceiling (0 = off). Value N caps a block_size-week block
+    # at N NF days; a longer offset block of (block_size + k) weeks is capped at N + 2k
+    # (so the standard offset-1 grid gives <=12 for 4-week blocks, <=14 for the 5-week first
+    # block). Balances CCM night-float per block rather than over the whole (variable) year.
+    nf_ccm_block_nf_cap: int = 0
+    # Per-group HARD per-NCC-block NF-day band: {group: [lo, hi]} per 4-week block (offset-1
+    # grid: 5-week first block gets [lo, hi + 2]). The BLOCK-SCOPED analogue of nf_nf_day_band
+    # — applied to ALL groups, gated on the fellow being on NCC service that block (an
+    # off-service block has 0 NF, exempt from lo). Block scope is tractable where whole-horizon
+    # per-fellow bands stall (verified 2026-06-23: CCM per-block free, per-fellow bands time
+    # out). None/{} = off.
+    nf_block_nf_band: dict | None = None
 
     def __post_init__(self):
         object.__setattr__(self, 'num_weeks', num_weeks_for(self.start_dow, self.num_days))

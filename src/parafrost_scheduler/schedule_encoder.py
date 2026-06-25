@@ -139,22 +139,25 @@ _date_to_day_index = date_to_day_index
 # ---------------------------------------------------------------------------
 
 
-def _encode_call_tier_coverage(opb, call, fellow_names, num_days, start_dow):
+def _encode_call_tier_coverage(opb, call, config, fellow_names, num_days, start_dow):
     """HARD coverage for the day-granular call tier (NF model).
 
     Weekdays: exactly one fellow each on NCC1, NCC2, NF.
-    Weekends: exactly one each on NCC1, NF; NCC2 forbidden.
+    Weekends: exactly one each on NCC1, NF. Weekend NCC2 is FORBIDDEN by default;
+    when config.nf_weekend_ncc2 is True it is COVERED (exactly one holder) instead —
+    letting NCC service span the weekend for better continuity.
     Per (day, fellow): at most one call role.
     """
     opb.add_comment("NF model: call-tier hard coverage (NCC1/NCC2/NF)")
+    weekend_ncc2 = getattr(config, "nf_weekend_ncc2", False)
     num_fellows = len(fellow_names)
     for d in range(num_days):
         dow = _day_of_week(d, start_dow)
         weekend = dow in (5, 6)
         for role in CALL_ROLES:
             holders = [call[d][f][role] for f in range(num_fellows)]
-            if role == "NCC2" and weekend:
-                for v in holders:           # NCC2 forbidden on weekends
+            if role == "NCC2" and weekend and not weekend_ncc2:
+                for v in holders:           # NCC2 forbidden on weekends (default)
                     opb.add_unit(-v)
             else:
                 opb.exactly_one(holders)
@@ -554,47 +557,326 @@ def _encode_nf_ncc1_continuity(opb, call, config, fellow_names, num_days, start_
                 opb.weighted_sum_at_least([(-vb, 1), (va, 1)], 1)  # vb => va
 
 
+def _group_band_map(config, fellow_names, band_dict, default):
+    """Build a per-fellow (lo, hi) map from a {group: [lo, hi]} band dict.
+
+    Applies to EVERY group named in the dict (not just JR/SR). A group whose band is
+    missing / None / "off" / [] is skipped. Returns {fellow_index: (lo, hi)}.
+    `band_dict` of "off" or {} disables everything (returns {}); None falls back to
+    `default`."""
+    if band_dict == "off" or band_dict == {}:
+        return {}
+    band = band_dict if band_dict else default
+    if not band:
+        return {}
+    out: dict[int, tuple[int, int]] = {}
+    for group, bounds in band.items():
+        if not bounds or bounds == "off":
+            continue
+        lo, hi = bounds[0], bounds[1]
+        for name in config.fellow_groups.get(group, []):
+            if name in fellow_names:
+                out[fellow_names.index(name)] = (lo, hi)
+    return out
+
+
 def _encode_nf_service_day_band(opb, call, config, fellow_names, num_days):
     """HARD per-fellow NCC service-day band (NF model).
 
-    A "service day" = any day the fellow holds NCC1, NCC2, or NF.
-    JR fellows: [75, 85] days; SR fellows: [125, 135] days (historical defaults).
-    Bands are config-driven via config.fellow_groups membership and overridden by
-    config.nf_service_day_band when present.
+    A "service day" = any day the fellow holds NCC1, NCC2, or NF. Per-group [lo, hi]
+    from config.nf_service_day_band, applied to EVERY group named there (JR/SR/Stroke/…).
+    Default (None) keeps the historical JR [75,85] / SR [125,135]; "off"/{} disables.
     """
-    # Disable switch: nf_service_day_band == "off" (or {}) emits NO band — use when the
-    # NCC-WEEK cap is the binding lever and you want density to fall out naturally.
-    raw = config.nf_service_day_band
-    if raw == "off" or raw == {}:
+    band_map = _group_band_map(
+        config, fellow_names, config.nf_service_day_band,
+        {"NCC_JR": [75, 85], "NCC_SR": [125, 135]})
+    if not band_map:
         return
-    jr_names = set(config.fellow_groups.get("NCC_JR", []))
-    sr_names = set(config.fellow_groups.get("NCC_SR", []))
-    band = raw or {"NCC_JR": [75, 85], "NCC_SR": [125, 135]}
-
-    def _bounds(group):
-        """Return (lo, hi) for a group, or None if its band is disabled
-        (missing / None / "off" / empty list)."""
-        v = band.get(group)
-        if not v or v == "off":
-            return None
-        return v[0], v[1]
-
-    jr_band = _bounds("NCC_JR")
-    sr_band = _bounds("NCC_SR")
-
     opb.add_comment("NF model: per-fellow NCC service-day band")
-    for f, name in enumerate(fellow_names):
-        if name in jr_names and jr_band is not None:
-            lo, hi = jr_band
-        elif name in sr_names and sr_band is not None:
-            lo, hi = sr_band
-        else:
-            continue
+    for f, (lo, hi) in band_map.items():
         if num_days < lo:
             continue
         daily = [call[d][f][role] for d in range(num_days) for role in CALL_ROLES]
         opb.weighted_sum_at_least([(v, 1) for v in daily], lo)
         opb.weighted_sum_at_most([(v, 1) for v in daily], hi)
+
+
+def _encode_nf_nf_day_band(opb, call, config, fellow_names, num_days):
+    """HARD per-fellow absolute NF-day band (NF model): config.nf_nf_day_band
+    {group: [lo, hi]} caps each fellow's total NF days into [lo, hi]. The absolute-budget
+    anchor for night-float — strong propagation vs. the floating 1/3 ratio. Applied to
+    every group named in the dict (intended for JR/SR/Stroke; CCM uses the per-block cap).
+    No-op when nf_nf_day_band is None/"off"/{}."""
+    band_map = _group_band_map(config, fellow_names, config.nf_nf_day_band, None)
+    if not band_map:
+        return
+    opb.add_comment("NF model: per-fellow absolute NF-day band")
+    for f, (lo, hi) in band_map.items():
+        nf = [call[d][f]["NF"] for d in range(num_days)]
+        opb.weighted_sum_at_least([(v, 1) for v in nf], lo)
+        opb.weighted_sum_at_most([(v, 1) for v in nf], hi)
+
+
+def _encode_nf_min_ncc_run_days(opb, call, config, fellow_names, num_days, start_dow):
+    """HARD: every NCC-SERVICE run is >= config.nf_min_ncc_run_days consecutive days.
+
+    A "service day" = the fellow holds NCC1 OR NCC2 (day-call) on that day; NF and
+    fully-off days are NOT service and break a run. We build a per-(day,fellow) aux
+    var svc[d] == (NCC1[d] OR NCC2[d]) and force the run minimum exactly like
+    _encode_nf_run_length on NF: a run start (svc[d] & ~svc[d-1]) forces svc[d+1..d+k-1]
+    (in-horizon clauses only; a run starting in the last k-1 days may be a short
+    truncated tail run — the year boundary is artificial). No maximum. All fellows.
+    No-op when nf_min_ncc_run_days <= 0."""
+    k = config.nf_min_ncc_run_days
+    if k <= 0:
+        return
+    opb.add_comment(f"NF model: NCC service runs are >= {k} consecutive days")
+    num_fellows = len(fellow_names)
+    for f in range(num_fellows):
+        svc = []
+        for d in range(num_days):
+            ncc1 = call[d][f]["NCC1"]
+            ncc2 = call[d][f]["NCC2"]
+            s = opb.new_var()
+            # NCC1 => svc, NCC2 => svc
+            opb.weighted_sum_at_least([(-ncc1, 1), (s, 1)], 1)
+            opb.weighted_sum_at_least([(-ncc2, 1), (s, 1)], 1)
+            # svc => (NCC1 OR NCC2)
+            opb.weighted_sum_at_least([(-s, 1), (ncc1, 1), (ncc2, 1)], 1)
+            svc.append(s)
+        for d in range(num_days):
+            for off in range(1, k):             # force k-1 days after a run start
+                if d + off >= num_days:
+                    continue
+                terms = [(-svc[d], 1), (svc[d + off], 1)]
+                if d - 1 >= 0:
+                    terms.append((svc[d - 1], 1))
+                opb.weighted_sum_at_least(terms, 1)
+
+
+def _encode_nf_min_ncc2_run_days(opb, call, config, fellow_names, num_days):
+    """HARD: every NCC2 run is >= config.nf_min_ncc2_run_days consecutive days, per
+    fellow. Forbids isolated single-day NCC2 stints (set 2). NCC2 is a direct day var
+    (no aux needed). A run start (ncc2[d] & ~ncc2[d-1]) forces ncc2[d+1..d+k-1]
+    (in-horizon clauses only — a run in the last k-1 days may be a short truncated tail).
+    No maximum. All fellows. No-op when nf_min_ncc2_run_days <= 0."""
+    k = config.nf_min_ncc2_run_days
+    if k <= 0:
+        return
+    opb.add_comment(f"NF model: NCC2 runs are >= {k} consecutive days (no lone NCC2 day)")
+    num_fellows = len(fellow_names)
+    for f in range(num_fellows):
+        n2 = [call[d][f]["NCC2"] for d in range(num_days)]
+        for d in range(num_days):
+            for off in range(1, k):             # force k-1 days after a run start
+                if d + off >= num_days:
+                    continue
+                terms = [(-n2[d], 1), (n2[d + off], 1)]
+                if d - 1 >= 0:
+                    terms.append((n2[d - 1], 1))
+                opb.weighted_sum_at_least(terms, 1)
+
+
+def _encode_nf_one_third_nf(opb, call, config, fellow_names, num_days, soft_violations):
+    """Per fellow, keep NF near 1/3 of total service days (NF/(NCC1+NCC2+NF)).
+
+    Let F = sum of the fellow's NF day-vars, R = sum of NCC1+NCC2 day-vars (so total
+    service N = F + R). The 1/3 point is F = N/3 <=> 3F = F+R <=> 2F = R.
+
+    HARD band [27%, 40%] of N (gate config.nf_one_third_nf_band), denominators cleared:
+        lower 0.27 N <= F:  100F >= 27(F+R)  =>  73F - 27R >= 0
+        upper F <= 0.40 N:  40(F+R) >= 100F  =>  40R - 60F >= 0
+    Emitted as mixed-sign weighted_sum_at_least with bound 0 (same form as
+    _build_off_indicator / _encode_call_weekly_link).
+
+    SOFT deviation penalty toward EXACTLY 2F = R (gate config.nf_one_third_nf_weight > 0),
+    proportional to |2F - R|. Encoded with BINARY-weighted slacks (NOT a unary ladder):
+    a per-direction set of slacks with coefficients 1,2,4,...,2^(b-1) can represent any
+    deviation 0..2^b - 1, and because the objective minimizes Σ weight*2^i*slack_i the
+    optimal cost is exactly weight*|2F - R| (binary representation of the deviation). This
+    keeps the slack count LOGARITHMIC in the horizon (~10 vars/direction) instead of linear
+    (~1460/direction → ~35k total → OOM, the earlier bug). Two directions:
+        over-NF  (2F > R): R - 2F + Σ(over_i·2^i)  >= 0  (penalizes 2F > R)
+        under-NF (2F < R): 2F - R + Σ(under_i·2^i) >= 0  (penalizes 2F < R)
+    The slack range spans the full possible deviation, so the soft layer never adds
+    infeasibility (the soft-only variant stays guaranteed-feasible)."""
+    band = getattr(config, "nf_one_third_nf_band", False)
+    weight = getattr(config, "nf_one_third_nf_weight", 0)
+    if not band and weight <= 0:
+        return
+    # Resolve the HARD band to a per-fellow [lo, hi] PERCENT map.
+    #   bool True        -> legacy [27, 40] for every fellow (back-compat, byte-stable).
+    #   {group:[lo,hi]}  -> per-group percentage bands; unnamed groups are unconstrained
+    #                       (CCM is usually omitted so its slack absorbs the balance).
+    band_map: dict[int, tuple[int, int]] = {}
+    if band:
+        if isinstance(band, dict):
+            band_map = _group_band_map(config, fellow_names, band, None)
+            opb.add_comment("NF model: per-fellow NF share hard band (per-group)")
+        else:
+            band_map = {f: (27, 40) for f in range(len(fellow_names))}
+            opb.add_comment(
+                "NF model: per-fellow NF share hard band [27%, 40%] of service")
+    if weight > 0:
+        opb.add_comment(f"NF model: per-fellow NF share soft pull to 1/3 (w={weight})")
+    num_fellows = len(fellow_names)
+    for f in range(num_fellows):
+        F = [call[d][f]["NF"] for d in range(num_days)]
+        R = [call[d][f][r] for d in range(num_days) for r in ("NCC1", "NCC2")]
+        if not F or not R:
+            continue
+        if f in band_map:
+            lo, hi = band_map[f]
+            # lower: share >= lo%  <=>  (100-lo)F - lo*R >= 0
+            # upper: share <= hi%  <=>  hi*R - (100-hi)F >= 0
+            opb.weighted_sum_at_least(
+                [(v, 100 - lo) for v in F] + [(v, -lo) for v in R], 0)
+            opb.weighted_sum_at_least(
+                [(v, hi) for v in R] + [(v, -(100 - hi)) for v in F], 0)
+        if weight > 0:
+            # bits to cover the max possible |2F - R|. Each fellow holds <= 1 call role/day,
+            # so F + (NCC days) <= num_days; |2F - R| <= 2*num_days. b bits cover 2^b - 1.
+            maxdev = 2 * num_days
+            nbits = max(1, maxdev.bit_length())
+
+            def _binary_slacks():
+                terms = []
+                for i in range(nbits):
+                    s = opb.new_var()
+                    coeff = 1 << i
+                    terms.append((s, coeff))
+                    soft_violations.append((s, weight * coeff))
+                return terms
+            over = _binary_slacks()
+            under = _binary_slacks()
+            # over: R - 2F + Σ over_i·2^i >= 0   (slack must cover 2F - R when positive)
+            opb.weighted_sum_at_least(
+                [(v, 1) for v in R] + [(v, -2) for v in F] + over, 0)
+            # under: 2F - R + Σ under_i·2^i >= 0 (slack must cover R - 2F when positive)
+            opb.weighted_sum_at_least(
+                [(v, 2) for v in F] + [(v, -1) for v in R] + under, 0)
+
+
+def _encode_nf_weekend_ncc1_paired(opb, call, config, fellow_names, num_days,
+                                   start_dow, num_weeks):
+    """HARD: the Saturday and Sunday weekend NCC1 holder is the SAME fellow.
+
+    Weekend NCC1 is one assignment, so per fellow per week the Sat and Sun NCC1
+    vars are equivalent: NCC1[sat][f] <=> NCC1[sun][f] (two implications, the
+    _encode_nf_ncc1_continuity bidirectional pattern). Only emitted when both the
+    Saturday and the following Sunday are in-horizon and calendar-adjacent.
+    No-op when nf_weekend_ncc1_paired is False."""
+    if not config.nf_weekend_ncc1_paired:
+        return
+    opb.add_comment("NF model: weekend NCC1 Sat==Sun (one weekend assignment)")
+    num_fellows = len(fellow_names)
+    for w in range(num_weeks):
+        sat = _week_day(w, 5, start_dow)
+        sun = sat + 1
+        if sat < 0 or sun >= num_days:
+            continue
+        if _day_of_week(sun, start_dow) != 6:   # must be a true adjacent Sat/Sun pair
+            continue
+        for f in range(num_fellows):
+            vsat = call[sat][f]["NCC1"]
+            vsun = call[sun][f]["NCC1"]
+            opb.weighted_sum_at_least([(-vsat, 1), (vsun, 1)], 1)   # sat => sun
+            opb.weighted_sum_at_least([(-vsun, 1), (vsat, 1)], 1)   # sun => sat
+
+
+def _encode_nf_no_triple_ccm(opb, call, config, fellow_names, num_days, start_dow):
+    """HARD: every day, >= 1 of that day's active call roles is held by a NON-CCM fellow.
+
+    A Stroke or NCC (JR/SR) fellow is always on NCC service, so call must never be
+    all-CCM. Active roles per day: weekday NCC1/NCC2/NF; weekend NCC1/NF (weekend
+    NCC2 is already forbidden). Collect the role vars across all non-CCM fellows and
+    require at_least_k(..., 1). No-op when nf_no_triple_ccm is False."""
+    if not config.nf_no_triple_ccm:
+        return
+    opb.add_comment("NF model: >=1 call role per day held by a non-CCM fellow")
+    ccm = set(config.fellow_groups.get("CCM", []))
+    non_ccm = [f for f, name in enumerate(fellow_names) if name not in ccm]
+    if not non_ccm:
+        return
+    for d in range(num_days):
+        weekend = _day_of_week(d, start_dow) in (5, 6)
+        roles = ("NCC1", "NF") if weekend else ("NCC1", "NCC2", "NF")
+        lits = [call[d][f][r] for f in non_ccm for r in roles]
+        if lits:
+            opb.at_least_k(lits, 1)
+
+
+def _encode_nf_stroke_lex_order(opb, xs, shift_idx, config, fellow_names, num_weeks):
+    """HARD symmetry-break: the Stroke fellows' first NCC-week is strictly increasing
+    in roster order (A < B < C < D). The Stroke fellows are otherwise interchangeable,
+    so pinning their first-block order kills the permutation symmetry without fixing
+    specific weeks.
+
+    For each Stroke fellow build first_ncc[f][w] = 1 iff week w is NCC AND no earlier
+    week is NCC (AND-of-negations, the _build_off_indicator pattern), with exactly-one
+    across weeks (every Stroke fellow has >=1 NCC week by their 6-week total). Then for
+    consecutive ordered fellows enforce  sum_w w*first[A][w] < sum_w w*first[B][w]
+    via a strict weighted-sum inequality. No-op when nf_stroke_lex_order is False or
+    there are < 2 Stroke fellows."""
+    if not config.nf_stroke_lex_order:
+        return
+    si = shift_idx.get("NCC")
+    if si is None:
+        return
+    order = [f for f in config.fellow_groups.get("Stroke", []) if f in fellow_names]
+    if len(order) < 2:
+        return
+    opb.add_comment("NF model: Stroke first-NCC-week strictly increasing (symmetry break)")
+    idx = {name: fellow_names.index(name) for name in order}
+
+    first = {}   # name -> list over weeks of the first-NCC indicator var
+    for name in order:
+        f = idx[name]
+        fvars = []
+        for w in range(num_weeks):
+            ncc_w = xs[f][w][si]
+            fw = opb.new_var()
+            if ncc_w == 0:
+                opb.add_unit(-fw)            # week forbidden => never a first-NCC week
+                fvars.append(fw)
+                continue
+            earlier = [xs[f][w2][si] for w2 in range(w) if xs[f][w2][si] != 0]
+            # fw => ncc_w
+            opb.weighted_sum_at_least([(-fw, 1), (ncc_w, 1)], 1)
+            # fw => ~earlier_j  for each earlier NCC var
+            for ev in earlier:
+                opb.weighted_sum_at_least([(-fw, 1), (-ev, 1)], 1)
+            # (ncc_w AND all ~earlier) => fw  :  fw + ~ncc_w + sum(earlier) >= 1
+            opb.weighted_sum_at_least(
+                [(fw, 1), (-ncc_w, 1)] + [(ev, 1) for ev in earlier], 1)
+            fvars.append(fw)
+        opb.exactly_one(fvars)               # exactly one first-NCC week
+        first[name] = fvars
+
+    # Strict increase between consecutive ordered fellows:
+    #   sum_w w*first[B][w] - sum_w w*first[A][w] >= 1
+    for a_name, b_name in zip(order, order[1:]):
+        terms = [(first[b_name][w], w) for w in range(num_weeks) if w]
+        terms += [(first[a_name][w], -w) for w in range(num_weeks) if w]
+        opb.weighted_sum_at_least(terms, 1)
+
+
+def _encode_nf_stroke_nf_cap(opb, call, config, fellow_names, num_days):
+    """HARD: each Stroke fellow holds at most config.nf_stroke_nf_cap NF days total
+    across the horizon. A direct per-fellow at_most over all NF day-vars (the user
+    wants a hard yearly total, not the soft per-block target nf_days_per_block).
+    No-op when nf_stroke_nf_cap <= 0."""
+    cap = config.nf_stroke_nf_cap
+    if cap <= 0:
+        return
+    stroke = set(config.fellow_groups.get("Stroke", []))
+    if not stroke:
+        return
+    opb.add_comment(f"NF model: each Stroke fellow holds <= {cap} NF days total")
+    for f, name in enumerate(fellow_names):
+        if name not in stroke:
+            continue
+        opb.at_most_k([call[d][f]["NF"] for d in range(num_days)], cap)
 
 
 # ---------------------------------------------------------------------------
@@ -624,6 +906,101 @@ def _block_starts_grid(num_weeks: int, block_size: int, block_offset: int):
     while s < num_weeks:
         yield s, min(s + block_size, num_weeks)
         s += block_size
+
+
+def _encode_nf_ccm_block_nf_cap(opb, call, xs, shift_idx, config, fellow_names,
+                                num_days, start_dow):
+    """HARD per-NCC-block NF-day ceiling for CCM fellows. config.nf_ccm_block_nf_cap = N
+    caps a block_size-week block at N NF days; a longer offset block of (block_size + k)
+    weeks is capped at N + 2k (standard offset-1 grid => <=12 for 4-week blocks, <=14 for
+    the 5-week first block). Balances CCM night-float per block, sidestepping CCM's variable
+    annual week count. No block-active selector needed: an unused block has 0 NF days, which
+    is trivially <= cap. No-op when nf_ccm_block_nf_cap <= 0."""
+    base = getattr(config, "nf_ccm_block_nf_cap", 0)
+    if base <= 0:
+        return
+    ncc_si = shift_idx.get("NCC")
+    if ncc_si is None:
+        return
+    ccm = set(config.fellow_groups.get("CCM", []))
+    if not ccm:
+        return
+    # Match the CCM block geometry (block_size=4, block_offset=1) used by _block_starts_grid.
+    block_size, block_offset = 4, 1
+    num_weeks = config.num_weeks
+    days_in_week: dict[int, list[int]] = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+    opb.add_comment(f"NF model: CCM per-block NF cap (<= {base} per {block_size}wk block, "
+                    f"+2/extra week)")
+    for f, name in enumerate(fellow_names):
+        if name not in ccm:
+            continue
+        for blk_start, blk_end in _block_starts_grid(num_weeks, block_size, block_offset):
+            cap = base + 2 * max(0, (blk_end - blk_start) - block_size)
+            nf_vars = [call[d][f]["NF"]
+                       for w in range(blk_start, blk_end)
+                       for d in days_in_week.get(w, [])]
+            if nf_vars:
+                opb.at_most_k(nf_vars, cap)
+
+
+def _encode_nf_block_nf_band(opb, call, xs, shift_idx, config, fellow_names,
+                             num_days, start_dow):
+    """HARD per-group, per-NCC-block NF-day BAND for ALL groups. config.nf_block_nf_band
+    {group: [lo, hi]} bands each fellow's NF days within each 4-week block (offset-1 grid:
+    the 5-week first block gets [lo, hi + 2]). BLOCK-SCOPED (tractable) analogue of the
+    whole-horizon nf_nf_day_band (which stalls). The lower bound is gated on the fellow being
+    on NCC service that block: blk_active = OR(NCC weekly vars in the block); an off-service
+    block (blk_active forced 0) holds 0 NF and is exempt from lo. Upper bound needs no gate
+    (an unused block has 0 NF <= hi). No-op when nf_block_nf_band is None/"off"/{}."""
+    raw = getattr(config, "nf_block_nf_band", None)
+    if not raw or raw == "off":
+        return
+    ncc_si = shift_idx.get("NCC")
+    if ncc_si is None:
+        return
+    block_size, block_offset = 4, 1
+    num_weeks = config.num_weeks
+    days_in_week: dict[int, list[int]] = {}
+    for d in range(num_days):
+        days_in_week.setdefault(_day_to_week(d, start_dow), []).append(d)
+    opb.add_comment("NF model: per-group per-block NF-day band (block-scoped, 1/3-anchored)")
+    for group, bounds in raw.items():
+        if not bounds or bounds == "off":
+            continue
+        lo, hi = bounds[0], bounds[1]
+        for name in config.fellow_groups.get(group, []):
+            if name not in fellow_names:
+                continue
+            f = fellow_names.index(name)
+            for blk_start, blk_end in _block_starts_grid(num_weeks, block_size, block_offset):
+                hi_b = hi + 2 * max(0, (blk_end - blk_start) - block_size)
+                nf_vars = [call[d][f]["NF"]
+                           for w in range(blk_start, blk_end)
+                           for d in days_in_week.get(w, [])]
+                if not nf_vars:
+                    continue
+                # Upper bound (no gate): an inactive block has 0 NF <= hi_b trivially.
+                opb.at_most_k(nf_vars, hi_b)
+                if lo <= 0:
+                    continue
+                blk_ncc_vars = [xs[f][w][ncc_si]
+                                for w in range(blk_start, blk_end)
+                                if xs[f][w][ncc_si] != 0]
+                if not blk_ncc_vars:
+                    continue
+                # blk_active = OR(blk_ncc_vars): force active=1 whenever any NCC week is on
+                # (so an on-service block must meet lo); allow 0 otherwise (lo exempt).
+                if len(blk_ncc_vars) == 1:
+                    blk_active = blk_ncc_vars[0]
+                else:
+                    blk_active = opb.new_var()
+                    for nv in blk_ncc_vars:
+                        opb.weighted_sum_at_least([(blk_active, 1), (-nv, 1)], 1)  # nv => active
+                # Lo-side gated: Σ nf - lo*blk_active >= 0  (active=1 → Σnf>=lo; active=0 → trivial)
+                opb.weighted_sum_at_least(
+                    [(v, 1) for v in nf_vars] + [(blk_active, -lo)], 0)
 
 
 def _encode_ccm_block_nf_count(
@@ -1056,7 +1433,7 @@ def build_full_schedule_opb(
             for f in range(num_fellows):
                 call[d].append({role: opb.new_var() for role in CALL_ROLES})
         _encode_call_tier_coverage(
-            opb, call, fellow_names, num_days, start_dow)
+            opb, call, config, fellow_names, num_days, start_dow)
         _encode_call_weekly_link(
             opb, call, xs, shift_idx, fellow_names, num_days, start_dow, num_weeks)
         _encode_call_weekend_backup_exclusion(
@@ -1075,6 +1452,24 @@ def build_full_schedule_opb(
         _encode_nf_ncc1_continuity(
             opb, call, config, fellow_names, num_days, start_dow)
         _encode_nf_service_day_band(opb, call, config, fellow_names, num_days)
+        _encode_nf_nf_day_band(opb, call, config, fellow_names, num_days)
+        _encode_nf_ccm_block_nf_cap(
+            opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_block_nf_band(
+            opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow)
+        _encode_nf_min_ncc_run_days(
+            opb, call, config, fellow_names, num_days, start_dow)
+        _encode_nf_min_ncc2_run_days(
+            opb, call, config, fellow_names, num_days)
+        _encode_nf_one_third_nf(
+            opb, call, config, fellow_names, num_days, soft_violations)
+        _encode_nf_weekend_ncc1_paired(
+            opb, call, config, fellow_names, num_days, start_dow, num_weeks)
+        _encode_nf_no_triple_ccm(
+            opb, call, config, fellow_names, num_days, start_dow)
+        _encode_nf_stroke_lex_order(
+            opb, xs, shift_idx, config, fellow_names, num_weeks)
+        _encode_nf_stroke_nf_cap(opb, call, config, fellow_names, num_days)
         _encode_ccm_block_nf_count(
             opb, call, xs, shift_idx, config, fellow_names, num_days, start_dow,
             soft_violations)

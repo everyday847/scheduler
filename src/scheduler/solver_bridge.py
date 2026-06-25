@@ -42,6 +42,10 @@ _SOLVER_OPTION_BOOL_KEYS = (
     "call_tier_day_granular",
     "nf_ccm_no_bridge_blocks",
     "nf_min_ncc_block_weeks",
+    "nf_weekend_ncc1_paired",
+    "nf_no_triple_ccm",
+    "nf_stroke_lex_order",
+    "nf_weekend_ncc2",
 )
 
 
@@ -60,6 +64,9 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
         "nf_max_consecutive_off", "nf_ncc1_continuity", "nf_ncc_week_penalty",
         "nf_ccm_block_penalty", "nf_service_day_band", "nf_week_off_cap",
         "nf_max_consecutive_call_days", "nf_run_length", "nf_rest_days",
+        "nf_min_ncc_run_days", "nf_stroke_nf_cap", "nf_min_ncc2_run_days",
+        "nf_one_third_nf_weight", "nf_nf_day_band", "nf_ccm_block_nf_cap",
+        "nf_block_nf_band", "nf_one_third_nf_band",
     }
     unknown = set(opts) - known
     if unknown:
@@ -89,7 +96,10 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
         kwargs["stroke_wk2627_toggle"] = val
     for int_key in ("nf_max_consecutive_off", "nf_ncc_week_penalty",
                     "nf_ccm_block_penalty", "nf_week_off_cap",
-                    "nf_max_consecutive_call_days"):
+                    "nf_max_consecutive_call_days",
+                    "nf_min_ncc_run_days", "nf_stroke_nf_cap",
+                    "nf_min_ncc2_run_days", "nf_one_third_nf_weight",
+                    "nf_ccm_block_nf_cap"):
         if int_key in opts:
             kwargs[int_key] = int(opts[int_key])
     if "nf_ncc1_continuity" in opts:
@@ -100,6 +110,12 @@ def _solver_options_kwargs(opts: Dict[str, Any]) -> Dict[str, Any]:
         kwargs["nf_ncc1_continuity"] = val
     if "nf_service_day_band" in opts:
         kwargs["nf_service_day_band"] = opts["nf_service_day_band"]
+    if "nf_nf_day_band" in opts:
+        kwargs["nf_nf_day_band"] = opts["nf_nf_day_band"]
+    if "nf_block_nf_band" in opts:
+        kwargs["nf_block_nf_band"] = opts["nf_block_nf_band"]
+    if "nf_one_third_nf_band" in opts:
+        kwargs["nf_one_third_nf_band"] = opts["nf_one_third_nf_band"]  # bool | dict
     for pair_key in ("nf_run_length", "nf_rest_days"):
         if pair_key in opts:
             v = opts[pair_key]
