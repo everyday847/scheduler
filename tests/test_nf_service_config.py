@@ -65,3 +65,73 @@ def test_nf_run_rest_defaults():
                              weekend_config=WeekendSolverConfig())
     assert c.nf_run_length == (4, 6)
     assert c.nf_rest_days == (1, 2)
+
+
+def test_nf_stroke_and_run_min_options_parse():
+    """The five new Stroke/run/no-triple-ccm flags ride through _solver_options_kwargs."""
+    opts = {
+        "nf_min_ncc_run_days": 4,
+        "nf_weekend_ncc1_paired": True,
+        "nf_no_triple_ccm": True,
+        "nf_stroke_lex_order": True,
+        "nf_stroke_nf_cap": 12,
+    }
+    kw = _solver_options_kwargs(opts)
+    assert kw["nf_min_ncc_run_days"] == 4
+    assert kw["nf_weekend_ncc1_paired"] is True
+    assert kw["nf_no_triple_ccm"] is True
+    assert kw["nf_stroke_lex_order"] is True
+    assert kw["nf_stroke_nf_cap"] == 12
+
+
+def test_nf_stroke_and_run_min_defaults_off():
+    c = ScheduleSolverConfig(fellow_groups={}, shifts=[], constraints=[],
+                             night_config=NightSolverConfig(),
+                             weekend_config=WeekendSolverConfig())
+    assert c.nf_min_ncc_run_days == 0
+    assert c.nf_weekend_ncc1_paired is False
+    assert c.nf_no_triple_ccm is False
+    assert c.nf_stroke_lex_order is False
+    assert c.nf_stroke_nf_cap == 0
+
+
+def test_nf_weekend_ncc2_and_ncc2_run_parse():
+    """The weekend-NCC2 + NCC2-min-run flags ride through _solver_options_kwargs."""
+    kw = _solver_options_kwargs({"nf_weekend_ncc2": True, "nf_min_ncc2_run_days": 2})
+    assert kw["nf_weekend_ncc2"] is True
+    assert kw["nf_min_ncc2_run_days"] == 2
+
+
+def test_nf_weekend_ncc2_and_ncc2_run_defaults_off():
+    c = ScheduleSolverConfig(fellow_groups={}, shifts=[], constraints=[],
+                             night_config=NightSolverConfig(),
+                             weekend_config=WeekendSolverConfig())
+    assert c.nf_weekend_ncc2 is False
+    assert c.nf_min_ncc2_run_days == 0
+
+
+def test_nf_day_band_parse_and_defaults():
+    kw = _solver_options_kwargs({
+        "nf_nf_day_band": {"NCC_JR": [20, 28], "Stroke": [9, 12]},
+        "nf_ccm_block_nf_cap": 12,
+    })
+    assert kw["nf_nf_day_band"] == {"NCC_JR": [20, 28], "Stroke": [9, 12]}
+    assert kw["nf_ccm_block_nf_cap"] == 12
+    kw2 = _solver_options_kwargs({"nf_block_nf_band": {"NCC_JR": [3, 11], "CCM": [4, 11]}})
+    assert kw2["nf_block_nf_band"] == {"NCC_JR": [3, 11], "CCM": [4, 11]}
+    c = ScheduleSolverConfig(fellow_groups={}, shifts=[], constraints=[],
+                             night_config=NightSolverConfig(),
+                             weekend_config=WeekendSolverConfig())
+    assert c.nf_nf_day_band is None
+    assert c.nf_ccm_block_nf_cap == 0
+
+
+def test_nf_one_third_parse_and_defaults():
+    kw = _solver_options_kwargs({"nf_one_third_nf_band": True, "nf_one_third_nf_weight": 25})
+    assert kw["nf_one_third_nf_band"] is True
+    assert kw["nf_one_third_nf_weight"] == 25
+    c = ScheduleSolverConfig(fellow_groups={}, shifts=[], constraints=[],
+                             night_config=NightSolverConfig(),
+                             weekend_config=WeekendSolverConfig())
+    assert c.nf_one_third_nf_band is False
+    assert c.nf_one_third_nf_weight == 0
