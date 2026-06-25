@@ -969,6 +969,98 @@ git commit -m "experiments: NF model full-year feasibility probe (Slurm)"
 
 ---
 
+### Task 8: Fix the integration UNSAT — gate the legacy weekend layer off; make backup roster-agnostic
+
+**Why this task exists:** Task 7's full-year probe came back INSTANT-UNSAT (unit propagation, ~0.016s — structural, not tight-packing). Diagnosis: two LEGACY wb7 layers still run for the NF model and reference hardcoded wb7 fellow names/coverage:
+- The **weekend role layer** (`wr`: Weekend NCC1/NCC2/Stroke) uses `WeekendSolverConfig` defaults (`DEFAULT_CCM_FELLOWS`, `DEFAULT_STROKE_COHORT`, `DEFAULT_ALWAYS_STROKE_ELIGIBLE`, wb7 `ncc_totals`). For the NF model, NO fellow is stroke-eligible (default set excludes JR1/SR1/CCM Generic 1), so "exactly one fellow per weekend role per week" has zero candidates → UNSAT. Task 5 gated the night layer but the plan MISSED the weekend layer (same bug class).
+- The **backup layer** (`bk`) uses hardcoded `_BACKUP_GROUPS=("NCC_JR","NCC_SR","STROKE")`. The NF model has no STROKE group.
+
+**Decisions (from the user):**
+- The call tier already covers weekend NCC1+NF (Task 3), so the legacy weekend `wr` layer is REDUNDANT for the NF model → **gate it off** under `call_tier_day_granular` (mirror Task 5's night gating). (Diagnosed: the `wr` layer demanded wb7 stroke-eligible fellows; with none stroke-eligible in the NF model, "exactly one per weekend role" is UNSAT.)
+- **Backup STAYS but its coverage becomes SOFT** under the flag. Diagnosis: backup is eligible only when a fellow is on `Elec`/`Telestroke/Clinic` that week, and the NF palette lacks `Telestroke/Clinic` — so the HARD "exactly one backup/week" forces a JR/SR onto `Elec` every week, which the lean 5-fellow call roster can't spare → instant UNSAT. Fix: under `call_tier_day_granular`, make backup weekday+weekend coverage a SOFT target (penalty when uncovered) instead of `exactly_one` hard. Backup eligibility/structure is otherwise unchanged. NOTE: backup GROUPS are already roster-tolerant (`_backup_group_of` uses `fellow_groups.get(grp, [])`, so the absent STROKE group yields no fellows and CCM is excluded automatically — NO group/name fix needed).
+- NOTE (de-hardcoding follow-on, NOT this task): `_BACKUP_ELIGIBLE_SHIFTS_*`, `_BACKUP_HOLIDAY_WEEKS={25,26}`, `_BACKUP_FORBIDDEN_WEEKS={0}` are hardcoded wb7 assumptions; a later pass should make them config-driven (this also de-fragilizes wb7). Out of Phase-1 scope.
+
+Confirmed empirically: disabling the weekend layer + making backup coverage soft → SAT (≈11.6k constraints, 365 call-days).
+
+**Files:**
+- Modify: `src/parafrost_scheduler/schedule_encoder.py` (`build_full_schedule_opb`: gate the weekend-var build + `_encode_weekend_constraints` + `_encode_weekend_layer_rules` behind `if not config.call_tier_day_granular:`, mirroring the night gating from Task 5)
+- Modify: `src/parafrost_scheduler/schedule_encoder.py` `_encode_backup_constraints` (the two `opb.exactly_one(...)` hard-coverage lines for weekday+weekend backup): when `config.call_tier_day_granular`, emit SOFT coverage instead — `at_most_one` + a per-week uncovered penalty var appended to `soft_violations` (mirror the `SCHED_DIAG_NIGHT_COVERAGE == "soft"` pattern already in the night coverage code). wb7 (flag off) keeps the hard `exactly_one`.
+- Modify: `src/parafrost_scheduler/schedule_encoder.py` `decode_solution` (guard the weekend-decode loop when `wr` is empty, mirroring the night-decode `if not var_map.xn` guard added in Task 5)
+- Test: `tests/test_nf_call_tier_foundation.py`
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `tests/test_nf_call_tier_foundation.py`:
+
+```python
+def test_full_year_nf_model_is_satisfiable():
+    """The integration gate: the real full-year ncc-nf-model config must SOLVE.
+    Regression for the instant-UNSAT caused by the legacy weekend layer demanding
+    wb7 fellows and backup referencing a STROKE group the NF model lacks."""
+    from pathlib import Path
+    from parafrost_scheduler.experiment import assemble_config
+    from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
+    repo = Path(__file__).resolve().parent.parent
+    res = assemble_config(
+        None,
+        annual_path=repo / "config/annual/ncc-nf-model.yaml",
+        standing_path=repo / "config/standing/ncc-nf-model.yaml",
+        verbose=False)
+    cfg = res[0] if isinstance(res, tuple) else res
+    opb, vm = build_full_schedule_opb(cfg, objective=False)
+    assert solve_sat(opb, timeout=120), "full-year NF model must be feasible"
+
+
+def test_legacy_weekend_layer_absent_under_flag():
+    cfg = make_nf_config(num_days=14)
+    opb, vm = build(cfg)
+    # No weekend-role vars allocated for the NF model (call tier covers weekends).
+    assert all(all(len(role_map) == 0 for role_map in week) for week in vm.wr) or vm.wr == []
+```
+
+(`solve_sat` is already imported in this file from `_dispatch_helpers` via `_nf_helpers`; if not, import it.)
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_call_tier_foundation.py -k "full_year or legacy_weekend" -v`
+Expected: both FAIL — `test_full_year_nf_model_is_satisfiable` UNSAT; weekend vars still allocated.
+
+- [ ] **Step 3: Gate the weekend layer**
+
+In `build_full_schedule_opb`, find the weekend-var build (`# 4. Weekend variables: wr[w][role][f]`) and the `# 5. Weekend constraints` calls (`_encode_weekend_constraints`, `_encode_weekend_layer_rules`). Initialize `wr = []` unconditionally, then wrap the var build + both encode calls in `if not config.call_tier_day_granular:`. Mirror EXACTLY the structure Task 5 used for the night layer (read that gating for the pattern, and copy the encode-call arg lists verbatim). The backup layer reads `wr` — with `wr=[]` it must still work (backup excludes weekend roles); verify backup handles an empty `wr`.
+
+- [ ] **Step 4: Make backup coverage SOFT under the flag**
+
+In `_encode_backup_constraints`, the hard-coverage block does `opb.exactly_one(wd_vars)` and `opb.exactly_one(we_vars)` per week. When `config.call_tier_day_granular` is True, replace each with soft coverage: `opb.at_most_k(vars, 1)` plus an uncovered-penalty var `u = opb.new_var()`, `opb.weighted_sum_at_least([(v,1) for v in vars] + [(u,1)], 1)`, and `soft_violations.append((u, <weight>))`. Use an existing weight (e.g. `config.swing_uncovered_weight` or `config.weekly_soft_weight` — pick one and note it). Read the night coverage's `SCHED_DIAG_NIGHT_COVERAGE == "soft"` branch (~line 2477) and mirror it. wb7 (flag off) keeps `exactly_one`. Backup GROUPS need NO change (`_backup_group_of` already tolerates absent groups). Confirm `soft_violations` is in scope in this function (it's threaded through the encoder).
+
+- [ ] **Step 5: Guard weekend decode**
+
+In `decode_solution`, the weekend loop iterates `var_map.wr`. With `wr=[]` it already produces no weekend assignments (empty list → loop body runs zero times per week, or guard as needed). Confirm it doesn't index-error; mirror the night-decode guard if needed.
+
+- [ ] **Step 6: Run to verify pass**
+
+Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/test_nf_call_tier_foundation.py -k "full_year or legacy_weekend" -v`
+Expected: PASS.
+
+- [ ] **Step 7: Full regression (wb7 MUST stay byte-identical)**
+
+Run: `PYTHONPATH=src:tests .venv/bin/python -m pytest tests/ -q`
+Expected: all prior tests green + 2 new. The weekend gating and backup-group intersection must NOT change the flag-off (wb7) path. If ANY wb7/weekend/backup test breaks, the gating leaked into the flag-off path — fix before committing.
+
+- [ ] **Step 8: Re-run the full-year probe locally (build + quick solve is now fast/SAT)**
+
+Run: `PYTHONPATH=src .venv/bin/python experiments/probe_nf_model.py --timeout 120`
+Expected: `RESULT SAT`. (If still UNSAT, add `"CCM Generic 2"` to the CCM group per the spec's tight-slack prediction and re-run.)
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/parafrost_scheduler/schedule_encoder.py tests/test_nf_call_tier_foundation.py
+git commit -m "fix(nf): gate legacy weekend layer off under flag; backup uses present groups only"
+```
+
+---
+
 ## Self-review
 
 **Spec coverage (Phase 1 scope):**

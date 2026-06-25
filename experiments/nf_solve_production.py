@@ -59,7 +59,8 @@ def main() -> int:
                 if h.get(role):
                     perweek[w][h[role]] += 1
         order = ([x for g in ("NCC_JR", "NCC_SR") for x in cfg.fellow_groups[g]]
-                 + list(cfg.fellow_groups.get("CCM", [])))
+                 + list(cfg.fellow_groups.get("CCM", []))
+                 + list(cfg.fellow_groups.get("Stroke", [])))
         print(f"\n=== {tag} ===")
         for name in order:
             labels = sol.weekly_assignments[name]
