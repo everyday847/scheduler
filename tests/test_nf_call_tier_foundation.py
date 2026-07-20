@@ -187,7 +187,7 @@ _REPO = Path(__file__).resolve().parent.parent
 def test_nf_model_configs_assemble_with_flag_on():
     cfg, _ = assemble_config(
         None,
-        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        annual_path=_REPO / "config/annual/ncc-nf-foundation-fixture.yaml",
         standing_path=_REPO / "config/standing/ncc-nf-model.yaml",
         verbose=False)
     assert cfg.call_tier_day_granular is True
@@ -211,7 +211,7 @@ def test_full_year_nf_model_is_satisfiable():
     Regression for the instant-UNSAT from the legacy weekend layer (wb7 fellows)
     + hard backup coverage forcing a weekly Elec fellow the lean roster can't spare."""
     res = assemble_config(None,
-        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        annual_path=_REPO / "config/annual/ncc-nf-foundation-fixture.yaml",
         standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
     cfg = res[0] if isinstance(res, tuple) else res
     from parafrost_scheduler.schedule_encoder import build_full_schedule_opb

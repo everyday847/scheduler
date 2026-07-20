@@ -9,7 +9,7 @@ from parafrost_scheduler.schedule_types import CALL_ROLES
 
 _REPO = Path(__file__).resolve().parent.parent
 _ROUNDINGSAT = _REPO / "vendor/roundingsat/build/roundingsat"
-_ANNUAL = _REPO / "config/annual/ncc-nf-model.yaml"
+_ANNUAL = _REPO / "config/annual/ncc-nf-foundation-fixture.yaml"
 _STANDING = _REPO / "config/standing/ncc-nf-model.yaml"
 
 

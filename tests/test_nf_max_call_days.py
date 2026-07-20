@@ -18,7 +18,7 @@ def _runner_or_skip():
 
 def _cfg(cap):
     res = assemble_config(None,
-        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        annual_path=_REPO / "config/annual/ncc-nf-foundation-fixture.yaml",
         standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
     cfg = res[0] if isinstance(res, tuple) else res
     object.__setattr__(cfg, "nf_max_consecutive_call_days", cap)

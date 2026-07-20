@@ -14,7 +14,7 @@ _ROUNDINGSAT = _REPO / "vendor/roundingsat/build/roundingsat"
 
 def _solve_nf():
     res = assemble_config(None,
-        annual_path=_REPO / "config/annual/ncc-nf-model.yaml",
+        annual_path=_REPO / "config/annual/ncc-nf-foundation-fixture.yaml",
         standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
     cfg = res[0] if isinstance(res, tuple) else res
     opb, vm = build_full_schedule_opb(cfg, objective=False)
