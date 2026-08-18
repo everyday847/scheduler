@@ -1,3 +1,5 @@
+import pytest
+
 from scheduler.nf_param_resolver import resolve_nf_parameters
 
 FG = {"NCC_JR": ["JR1", "JR2"], "CCM": ["C1"]}
@@ -33,3 +35,22 @@ def test_ncc_weeks_sourced_from_rules_when_omitted():
     nf_params = {"NCC_JR": {"density": [5.0, 5.5]}}  # no ncc_weeks
     out = resolve_nf_parameters(nf_params, {}, FG, rules)
     assert out["nf_service_day_band"]["NCC_JR"] == [60, 77]
+
+def test_unknown_group_raises():
+    with pytest.raises(ValueError, match="unknown group"):
+        resolve_nf_parameters({"NOPE": {"density": [5, 5]}}, {}, FG, [])
+
+def test_missing_weeks_raises():
+    with pytest.raises(ValueError, match="ncc_weeks"):
+        resolve_nf_parameters({"NCC_JR": {"density": [5, 5]}}, {}, FG, [])  # no rules, no explicit
+
+def test_bad_fraction_raises():
+    with pytest.raises(ValueError, match="nf_fraction"):
+        resolve_nf_parameters(
+            {"NCC_JR": {"ncc_weeks": [12, 14], "density": [5, 5], "nf_fraction": 1.5}},
+            {}, FG, [])
+
+def test_lo_gt_hi_raises():
+    with pytest.raises(ValueError, match="lo > hi|empty band"):
+        resolve_nf_parameters(
+            {"NCC_JR": {"ncc_weeks": [14, 12], "density": [5, 5]}}, {}, FG, [])

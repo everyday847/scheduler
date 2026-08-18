@@ -43,17 +43,32 @@ def resolve_nf_parameters(nf_parameters, solver_options, fellow_groups, rules):
     nf_band = dict(opts.get("nf_nf_day_band") or {})
     svc_band = dict(opts.get("nf_service_day_band") or {})
     for group, params in nf_parameters.items():
+        if group not in fellow_groups:
+            raise ValueError(f"nf_parameters names unknown group {group!r}.")
         weeks = params.get("ncc_weeks")
         if weeks is None:
             weeks = _ncc_weeks_from_rules(group, rules)
+        if weeks is None:
+            raise ValueError(
+                f"nf_parameters[{group!r}] needs ncc_weeks (explicit or via NCC-week rules).")
+        if "density" not in params:
+            raise ValueError(f"nf_parameters[{group!r}] needs density.")
         w_lo, w_hi = int(weeks[0]), int(weeks[1])
         d_lo, d_hi = _as_pair(params["density"])
         frac = float(params.get("nf_fraction", _DEFAULT_FRACTION))
         tol = int(params.get("nf_tolerance", 0))
+        if not (0.0 < frac < 1.0):
+            raise ValueError(f"nf_parameters[{group!r}] nf_fraction must be in (0,1).")
+        if tol < 0:
+            raise ValueError(f"nf_parameters[{group!r}] nf_tolerance must be >= 0.")
+        if w_lo > w_hi or d_lo > d_hi:
+            raise ValueError(f"nf_parameters[{group!r}] has lo > hi.")
         s_lo = math.ceil(w_lo * d_lo)
         s_hi = math.floor(w_hi * d_hi)
         n_lo = max(0, round(s_lo * frac) - tol)
         n_hi = round(s_hi * frac) + tol
+        if n_lo > n_hi:
+            raise ValueError(f"nf_parameters[{group!r}] resolves to empty band.")
         svc_band.setdefault(group, [s_lo, s_hi])
         nf_band.setdefault(group, [n_lo, n_hi])
     if nf_band:
