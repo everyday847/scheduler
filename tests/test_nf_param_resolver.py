@@ -1,0 +1,24 @@
+from scheduler.nf_param_resolver import resolve_nf_parameters
+
+FG = {"NCC_JR": ["JR1", "JR2"], "CCM": ["C1"]}
+
+def test_derives_service_and_nf_band_from_explicit_inputs():
+    # weeks 12-14, density 5.0-5.5, fraction 1/3, tol 1
+    #   service = [ceil(12*5.0), floor(14*5.5)] = [60, 77]
+    #   nf      = [round(60/3)-1, round(77/3)+1] = [19, 27]
+    nf_params = {"NCC_JR": {"ncc_weeks": [12, 14], "density": [5.0, 5.5],
+                            "nf_fraction": 1/3, "nf_tolerance": 1}}
+    out = resolve_nf_parameters(nf_params, {}, FG, [])
+    assert out["nf_service_day_band"]["NCC_JR"] == [60, 77]
+    assert out["nf_nf_day_band"]["NCC_JR"] == [19, 27]
+
+def test_no_params_is_noop_copy():
+    opts = {"nf_week_off_cap": 3}
+    out = resolve_nf_parameters(None, opts, FG, [])
+    assert out == opts and out is not opts
+
+def test_explicit_band_overrides_derived():
+    nf_params = {"NCC_JR": {"ncc_weeks": [12, 14], "density": [5.0, 5.5]}}
+    opts = {"nf_nf_day_band": {"NCC_JR": [22, 27]}}
+    out = resolve_nf_parameters(nf_params, opts, FG, [])
+    assert out["nf_nf_day_band"]["NCC_JR"] == [22, 27]  # unchanged
