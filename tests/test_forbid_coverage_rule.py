@@ -12,3 +12,6 @@ def test_windowed_forbid_converts_to_zero_cap_windowed_constraint():
     # windowed forbid: at_most 0 over weeks 25..27
     assert getattr(c.weeks, "start", None) == 25
     assert getattr(c.weeks, "end", None) == 27
+    # assert zero-cap forbid property
+    assert c.params.get("relation") == "at_most"
+    assert c.params.get("count") == 0
