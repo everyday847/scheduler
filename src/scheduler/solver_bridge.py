@@ -9,6 +9,7 @@ from typing import Any, Dict
 import yaml
 
 from .annual_rules import constraints_from_config as annual_constraints_from_config
+from .nf_param_resolver import resolve_nf_parameters
 from .palette_rules import palette_rule_to_constraints
 from .palette_derivations import derive_forbidden_shifts
 from .shift_palette import ShiftPalette
@@ -285,7 +286,13 @@ def build_solver_config_from_request(
     # Run-level dials (formerly the CLI `--variant` flags) live in config under
     # `solver_options:` — the single activation channel. Only keys present in the
     # block override the ScheduleSolverConfig defaults; an absent block is inert.
-    opt_kwargs = _solver_options_kwargs(raw_request.get("solver_options") or {})
+    _resolved_opts = resolve_nf_parameters(
+        raw_request.get("nf_parameters"),
+        raw_request.get("solver_options") or {},
+        fellow_groups,
+        annual_rules_list,
+    )
+    opt_kwargs = _solver_options_kwargs(_resolved_opts)
 
     return ScheduleSolverConfig(
         fellow_groups=fellow_groups,
