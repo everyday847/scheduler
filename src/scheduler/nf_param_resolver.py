@@ -13,6 +13,23 @@ import math
 _DEFAULT_FRACTION = 1.0 / 3.0
 
 
+def _ncc_weeks_from_rules(group, rules):
+    lo = hi = None
+    for r in rules or []:
+        if r.get("type") != "shift_total":
+            continue
+        if group not in (r.get("groups") or []):
+            continue
+        if "NCC" not in (r.get("shifts") or []):
+            continue
+        rel, cnt = r.get("relation"), r.get("count")
+        if rel == "at_least" and cnt is not None:
+            lo = int(cnt)
+        elif rel == "at_most" and cnt is not None:
+            hi = int(cnt)
+    return (lo, hi) if lo is not None and hi is not None else None
+
+
 def _as_pair(v):
     if isinstance(v, (int, float)):
         return (float(v), float(v))
@@ -27,6 +44,8 @@ def resolve_nf_parameters(nf_parameters, solver_options, fellow_groups, rules):
     svc_band = dict(opts.get("nf_service_day_band") or {})
     for group, params in nf_parameters.items():
         weeks = params.get("ncc_weeks")
+        if weeks is None:
+            weeks = _ncc_weeks_from_rules(group, rules)
         w_lo, w_hi = int(weeks[0]), int(weeks[1])
         d_lo, d_hi = _as_pair(params["density"])
         frac = float(params.get("nf_fraction", _DEFAULT_FRACTION))

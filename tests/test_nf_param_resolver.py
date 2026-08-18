@@ -22,3 +22,14 @@ def test_explicit_band_overrides_derived():
     opts = {"nf_nf_day_band": {"NCC_JR": [22, 27]}}
     out = resolve_nf_parameters(nf_params, opts, FG, [])
     assert out["nf_nf_day_band"]["NCC_JR"] == [22, 27]  # unchanged
+
+def test_ncc_weeks_sourced_from_rules_when_omitted():
+    rules = [
+        {"type": "shift_total", "name": "JR NCC week floor", "groups": ["NCC_JR"],
+         "shifts": ["NCC"], "relation": "at_least", "count": 12},
+        {"type": "shift_total", "name": "JR NCC week ceil", "groups": ["NCC_JR"],
+         "shifts": ["NCC"], "relation": "at_most", "count": 14},
+    ]
+    nf_params = {"NCC_JR": {"density": [5.0, 5.5]}}  # no ncc_weeks
+    out = resolve_nf_parameters(nf_params, {}, FG, rules)
+    assert out["nf_service_day_band"]["NCC_JR"] == [60, 77]
