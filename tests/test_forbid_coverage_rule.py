@@ -9,7 +9,7 @@ def test_windowed_forbid_converts_to_zero_cap_windowed_constraint():
     cons = palette_rule_to_constraints(rule)
     assert cons, "rule must produce at least one constraint"
     c = cons[0]
-    # windowed forbid: at_most 0 over weeks 25..27
+    # windowed forbid: at_most 0 over weeks 25-26 (window [25,27), end-exclusive)
     assert getattr(c.weeks, "start", None) == 25
     assert getattr(c.weeks, "end", None) == 27
     # assert zero-cap forbid property

@@ -14,6 +14,7 @@ _DEFAULT_FRACTION = 1.0 / 3.0
 
 
 def _ncc_weeks_from_rules(group, rules):
+    # Reads only the request `rules` (annual), is strength-blind, and takes the last matching at_least/at_most.
     lo = hi = None
     for r in rules or []:
         if r.get("type") != "shift_total":
@@ -53,7 +54,8 @@ def resolve_nf_parameters(nf_parameters, solver_options, fellow_groups, rules):
                 f"nf_parameters[{group!r}] needs ncc_weeks (explicit or via NCC-week rules).")
         if "density" not in params:
             raise ValueError(f"nf_parameters[{group!r}] needs density.")
-        w_lo, w_hi = int(weeks[0]), int(weeks[1])
+        w_lo, w_hi = _as_pair(weeks)
+        w_lo, w_hi = int(w_lo), int(w_hi)
         d_lo, d_hi = _as_pair(params["density"])
         frac = float(params.get("nf_fraction", _DEFAULT_FRACTION))
         tol = int(params.get("nf_tolerance", 0))
@@ -65,6 +67,10 @@ def resolve_nf_parameters(nf_parameters, solver_options, fellow_groups, rules):
             raise ValueError(f"nf_parameters[{group!r}] has lo > hi.")
         s_lo = math.ceil(w_lo * d_lo)
         s_hi = math.floor(w_hi * d_hi)
+        if s_lo > s_hi:
+            raise ValueError(
+                f"nf_parameters[{group!r}] resolves to empty service band "
+                f"[{s_lo}, {s_hi}] (weeks x density); widen weeks or density.")
         n_lo = max(0, round(s_lo * frac) - tol)
         n_hi = round(s_hi * frac) + tol
         if n_lo > n_hi:

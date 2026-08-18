@@ -54,3 +54,14 @@ def test_lo_gt_hi_raises():
     with pytest.raises(ValueError, match="lo > hi|empty band"):
         resolve_nf_parameters(
             {"NCC_JR": {"ncc_weeks": [14, 12], "density": [5, 5]}}, {}, FG, [])
+
+def test_explicit_service_band_overrides_derived():
+    nf_params = {"NCC_JR": {"ncc_weeks": [12, 14], "density": [5.0, 5.5]}}
+    opts = {"nf_service_day_band": {"NCC_JR": [70, 72]}}
+    out = resolve_nf_parameters(nf_params, opts, FG, [])
+    assert out["nf_service_day_band"]["NCC_JR"] == [70, 72]  # unchanged
+
+def test_inverted_service_band_raises():
+    with pytest.raises(ValueError, match="empty service band"):
+        resolve_nf_parameters(
+            {"NCC_JR": {"ncc_weeks": [10, 10], "density": [5.05, 5.09]}}, {}, FG, [])
