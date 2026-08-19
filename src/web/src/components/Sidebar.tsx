@@ -2,7 +2,8 @@ import React from 'react';
 
 export type SidebarSection =
   | 'fellows' | 'shifts'
-  | 'rules-NCC_JR' | 'rules-NCC_SR' | 'rules-STROKE' | 'rules-NH' | 'rules-CCM' | 'rules-program'
+  | `rules-${string}`
+  | 'rules-program'
   | 'night' | 'weekend' | 'vacations' | 'holidays'
   | 'night-rules' | 'weekend-rules' | 'call-rules';
 
