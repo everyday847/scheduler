@@ -12,6 +12,7 @@ export function createForbidCoverageRule(group: string): PaletteRule {
 const WEEKLY_TYPES: PaletteRuleType[] = [
   'shift_total', 'staffing_per_week', 'coverage_target', 'max_consecutive',
   'block_rotation', 'rotation_continuity', 'prerequisite', 'windowed_balance',
+  'no_isolated_week', 'group_count_balance',
 ];
 
 const NIGHT_TYPES: PaletteRuleType[] = [
@@ -51,6 +52,10 @@ function createDefaultRule(type: PaletteRuleType, group: string): PaletteRule {
       return { ...base, type, prerequisite_shifts: [], target_shifts: [], min_prerequisite_weeks: 4 };
     case 'windowed_balance':
       return { ...base, type, shifts: [], window_a: [0, 26], window_b: [26, 52], max_difference: 4 };
+    case 'no_isolated_week':
+      return { ...base, type, shifts: [] };
+    case 'group_count_balance':
+      return { ...base, type, shifts: [], max_difference: 4 };
     case 'night_spacing':
       return { ...base, type, description: 'Max 1 night in any 3-consecutive-day window', params: { maxNights: 1, windowDays: 3 } };
     case 'night_blocked_services':

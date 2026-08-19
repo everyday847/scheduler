@@ -9,6 +9,8 @@ export type PaletteRuleType =
   | 'rotation_continuity'
   | 'prerequisite'
   | 'windowed_balance'
+  | 'no_isolated_week'
+  | 'group_count_balance'
   | 'night_spacing'
   | 'night_blocked_services'
   | 'night_holiday_eligibility'
@@ -62,6 +64,8 @@ export interface BlockRotationRule extends PaletteRuleBase {
   type: 'block_rotation';
   shifts: string[];
   block_size: number;
+  block_offset?: number;
+  nf_days_per_block?: [number, number];
 }
 
 export interface RotationContinuityRule extends PaletteRuleBase {
@@ -84,6 +88,18 @@ export interface WindowedBalanceRule extends PaletteRuleBase {
   window_a: [number, number];
   window_b: [number, number];
   max_difference: number;
+}
+
+export interface NoIsolatedWeekRule extends PaletteRuleBase {
+  type: 'no_isolated_week';
+  shifts: string[];
+}
+
+export interface GroupCountBalanceRule extends PaletteRuleBase {
+  type: 'group_count_balance';
+  shifts: string[];
+  max_difference: number;
+  window?: [number, number];
 }
 
 export interface NightSpacingParams {
@@ -189,6 +205,8 @@ export type PaletteRule =
   | RotationContinuityRule
   | PrerequisiteRule
   | WindowedBalanceRule
+  | NoIsolatedWeekRule
+  | GroupCountBalanceRule
   | NightSpacingRule
   | NightBlockedServicesRule
   | NightHolidayEligibilityRule
@@ -270,6 +288,8 @@ export const PALETTE_TYPE_LABELS: Record<PaletteRuleType, string> = {
   rotation_continuity: 'Rotation Continuity',
   prerequisite: 'Prerequisite',
   windowed_balance: 'Windowed Balance',
+  no_isolated_week: 'No Isolated Week',
+  group_count_balance: 'Group Count Balance',
   night_spacing: 'Night Spacing',
   night_blocked_services: 'Night Blocked Services',
   night_holiday_eligibility: 'Night Holiday Eligibility',
@@ -290,6 +310,8 @@ export const PALETTE_TYPE_DESCRIPTIONS: Record<PaletteRuleType, string> = {
   rotation_continuity: 'Stay on one team within blocks',
   prerequisite: 'Complete rotation A before B',
   windowed_balance: 'Balance shifts across two time periods',
+  no_isolated_week: 'Forbid lone 1-week stints of a shift',
+  group_count_balance: 'Balance a shift count across fellows',
   night_spacing: 'Limit night call frequency',
   night_blocked_services: 'Block specified services from night call',
   night_holiday_eligibility: 'Restrict night call to allowed services',

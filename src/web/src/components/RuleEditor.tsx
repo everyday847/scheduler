@@ -114,6 +114,28 @@ function renderTypeFields(
             <input type="number" value={rule.block_size} min={1}
               onChange={e => update({ block_size: Number(e.target.value) })} />
           </label>
+          <label className="editor-field">
+            <span>Block offset</span>
+            <input type="number" value={rule.block_offset ?? 0} min={0}
+              onChange={e => update({ block_offset: Number(e.target.value) })} />
+          </label>
+          <div className="editor-field">
+            <label className="chip-option">
+              <input type="checkbox" checked={rule.nf_days_per_block !== undefined}
+                onChange={e => update({ nf_days_per_block: e.target.checked ? [0, 0] : undefined })} />
+              <span>NF days per block</span>
+            </label>
+            {rule.nf_days_per_block && (
+              <div className="editor-row">
+                <label className="editor-field"><span>Min days</span>
+                  <input type="number" min={0} value={rule.nf_days_per_block[0]}
+                    onChange={e => update({ nf_days_per_block: [Number(e.target.value), rule.nf_days_per_block![1]] })} /></label>
+                <label className="editor-field"><span>Max days</span>
+                  <input type="number" min={0} value={rule.nf_days_per_block[1]}
+                    onChange={e => update({ nf_days_per_block: [rule.nf_days_per_block![0], Number(e.target.value)] })} /></label>
+              </div>
+            )}
+          </div>
         </>
       );
 
@@ -213,6 +235,23 @@ function renderTypeFields(
             <input type="number" value={rule.max_difference} min={0}
               onChange={e => update({ max_difference: Number(e.target.value) })} />
           </label>
+        </>
+      );
+
+    case 'no_isolated_week':
+      return (
+        <ShiftsField shifts={rule.shifts} allShifts={allShifts}
+          onChange={shifts => update({ shifts })} />
+      );
+
+    case 'group_count_balance':
+      return (
+        <>
+          <ShiftsField shifts={rule.shifts} allShifts={allShifts}
+            onChange={shifts => update({ shifts })} />
+          <label className="editor-field"><span>Max difference</span>
+            <input type="number" min={0} value={rule.max_difference}
+              onChange={e => update({ max_difference: Number(e.target.value) })} /></label>
         </>
       );
 
