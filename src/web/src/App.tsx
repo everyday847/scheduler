@@ -7,7 +7,8 @@ import { CoverageTotalsTable } from './components/CoverageTotalsTable';
 import { RuleCard } from './components/RuleCard';
 import { RuleEditor } from './components/RuleEditor';
 import { RulePalette } from './components/RulePalette';
-import { PaletteRule, ShiftTotalRule, Relation, RuleFeasibility } from './types';
+import { CallRuleEditor, createDefaultCallRule } from './components/CallRuleEditor';
+import { PaletteRule, ShiftTotalRule, Relation, RuleFeasibility, CallRule } from './types';
 import { DiagnosePanel } from './components/DiagnosePanel';
 
 const API_BASE = 'http://127.0.0.1:5000';
@@ -159,6 +160,8 @@ function App() {
   const [paletteRules, setPaletteRules] = useState<PaletteRule[]>([]);
   const [nightRules, setNightRules] = useState<PaletteRule[]>([]);
   const [weekendRules, setWeekendRules] = useState<PaletteRule[]>([]);
+  const [callRules, setCallRules] = useState<CallRule[]>([]);
+  const [editingCallRuleIdx, setEditingCallRuleIdx] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -261,6 +264,7 @@ function App() {
         }
         setNightRules((annual.night_rules?.length ? annual.night_rules : (standing.night_rules || [])).map(yamlNightRuleToReact));
         setWeekendRules((annual.weekend_rules?.length ? annual.weekend_rules : (standing.weekend_rules || [])).map(yamlWeekendRuleToReact));
+        setCallRules(annual.call_rules || []);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -573,7 +577,7 @@ function App() {
     if (!selectedFile || paletteRules.length === 0) return;
     const body = {
       ...config,
-      rules: paletteRules,
+      rules: [...paletteRules, ...callRules],
       night_rules: nightRules,
       weekend_rules: weekendRules,
       fellow_week_pairs: (() => {
@@ -591,7 +595,7 @@ function App() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(() => setHasDraft(true)).catch(() => {});
-  }, [config, paletteRules, vacationDates, selectedFile, nightRules, weekendRules]);
+  }, [config, paletteRules, vacationDates, selectedFile, nightRules, weekendRules, callRules]);
 
   // Auto-save on palette rule edits
   useEffect(() => {
@@ -676,9 +680,10 @@ function App() {
     };
 
     if (paletteRules.length > 0) {
-      req.rules = paletteRules;
+      req.rules = [...paletteRules, ...(callRules as any[])];
       req.standing_rules = standingRules.filter((r) => r.active);
     } else {
+      req.rules = [...callRules];
       req.standing_rules = standingRules.filter((r) => r.active);
     }
 
@@ -687,7 +692,7 @@ function App() {
     }
 
     return req;
-  }, [config, allFellows, vacationDates, standingRules, paletteRules, lockedAssignments, nightRules, weekendRules]);
+  }, [config, allFellows, vacationDates, standingRules, paletteRules, lockedAssignments, nightRules, weekendRules, callRules]);
 
   const cancelSolve = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
@@ -1052,6 +1057,65 @@ function App() {
                 )}
                 <button className="add-btn" style={{ marginTop: '1rem' }}
                   onClick={() => setShowWeekendPalette(true)}>+ Add Weekend Rule</button>
+              </>
+            )}
+          </section>
+        )}
+
+        {activeSection === 'call-rules' && (
+          <section className="config-card">
+            <h2>Call Rules</h2>
+            <p className="hint">Per-fellow shift targets, night/weekend pins, prerequisites, and other annual call rules.</p>
+
+            {editingCallRuleIdx !== null && callRules[editingCallRuleIdx] ? (
+              <CallRuleEditor
+                rule={callRules[editingCallRuleIdx]}
+                allShifts={config.shifts}
+                allFellows={allFellows}
+                allGroups={groupNames}
+                onSave={(updated) => {
+                  setCallRules(prev => prev.map((r, i) => i === editingCallRuleIdx ? updated : r));
+                  setEditingCallRuleIdx(null);
+                }}
+                onCancel={() => setEditingCallRuleIdx(null)}
+                onRemove={() => {
+                  setCallRules(prev => prev.filter((_, i) => i !== editingCallRuleIdx));
+                  setEditingCallRuleIdx(null);
+                }}
+              />
+            ) : (
+              <>
+                {callRules.length > 0 ? (
+                  <div className="rule-cards">
+                    {callRules.map((r, i) => (
+                      <div key={r.name || i} className={`rule-card ${!r.active ? 'inactive' : ''}`}>
+                        <div className="rule-card-header">
+                          <span className="rule-name">{r.name}</span>
+                          <span className="rule-type-badge">{r.type.replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rule-card-meta">
+                          {r.fellow && <span>Fellow: {r.fellow}</span>}
+                          {r.shifts && r.shifts.length > 0 && <span>Shifts: {r.shifts.join(', ')}</span>}
+                          {r.relation && <span>{r.relation} {r.count}</span>}
+                          {r.strength && <span className={`strength-badge ${r.strength}`}>{r.strength}</span>}
+                        </div>
+                        <div className="rule-card-actions">
+                          <button onClick={() => setCallRules(prev => prev.map((rr, j) => j === i ? { ...rr, active: !rr.active } : rr))}>
+                            {r.active ? 'Disable' : 'Enable'}
+                          </button>
+                          <button onClick={() => setEditingCallRuleIdx(i)}>Edit</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint">No call rules configured.</p>
+                )}
+                <button className="add-btn" style={{ marginTop: '1rem' }}
+                  onClick={() => {
+                    setCallRules(prev => [...prev, createDefaultCallRule(allFellows)]);
+                    setEditingCallRuleIdx(callRules.length);
+                  }}>+ Add Call Rule</button>
               </>
             )}
           </section>
