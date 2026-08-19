@@ -8,6 +8,7 @@ import { RuleCard } from './components/RuleCard';
 import { RuleEditor } from './components/RuleEditor';
 import { RulePalette } from './components/RulePalette';
 import { CallRuleEditor, createDefaultCallRule } from './components/CallRuleEditor';
+import { SolverOptionsEditor } from './components/SolverOptionsEditor';
 import { PaletteRule, ShiftTotalRule, Relation, RuleFeasibility, CallRule } from './types';
 import { DiagnosePanel } from './components/DiagnosePanel';
 
@@ -28,6 +29,8 @@ type AnnualConfig = {
   annual_rules?: { rules: Rule[] };
   horizon_start?: string;
   num_weeks?: number;
+  solver_options?: Record<string, any>;
+  nf_parameters?: Record<string, any>;
 };
 
 type NightCallEntry = { group: string; total_nights: number; friday_nights: number };
@@ -150,6 +153,7 @@ function reactWeekendRuleToYaml(rule: PaletteRule): any {
 const emptyConfig: AnnualConfig = {
   fellow_groups: {}, shifts: [], fellow_week_pairs: {},
   night_call: [], weekend_call: [], holiday_dates: [], num_weeks: 52,
+  solver_options: {}, nf_parameters: {},
 };
 
 function App() {
@@ -1119,6 +1123,16 @@ function App() {
               </>
             )}
           </section>
+        )}
+
+        {activeSection === 'solver-options' && (
+          <SolverOptionsEditor
+            solverOptions={config.solver_options || {}}
+            nfParameters={config.nf_parameters || {}}
+            groups={Object.keys(config.fellow_groups)}
+            onChange={(solver_options, nf_parameters) =>
+              setConfig(prev => ({ ...prev, solver_options, nf_parameters }))}
+          />
         )}
 
         {activeSection === 'rules-program' && (

@@ -5,7 +5,7 @@ export type SidebarSection =
   | `rules-${string}`
   | 'rules-program'
   | 'night' | 'weekend' | 'vacations' | 'holidays'
-  | 'night-rules' | 'weekend-rules' | 'call-rules';
+  | 'night-rules' | 'weekend-rules' | 'call-rules' | 'solver-options';
 
 type SidebarProps = {
   active: SidebarSection;
@@ -52,6 +52,7 @@ export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning, loc
         <SidebarItem id="weekend" label="Weekend Call" active={active} onNavigate={onNavigate} />
         <SidebarItem id="weekend-rules" label="Weekend Rules" active={active} onNavigate={onNavigate} />
         <SidebarItem id="call-rules" label="Call Rules" active={active} onNavigate={onNavigate} />
+        <SidebarItem id="solver-options" label="Solver Options" active={active} onNavigate={onNavigate} />
         <SidebarItem id="vacations" label="Vacations" active={active} onNavigate={onNavigate} />
         <SidebarItem id="holidays" label="Holidays" active={active} onNavigate={onNavigate} />
       </div>

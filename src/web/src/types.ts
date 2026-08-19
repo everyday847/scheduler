@@ -224,6 +224,15 @@ export interface RuleFeasibility {
   pairwise: FeasibilityStatus;
 }
 
+export interface NfParameters {
+  [group: string]: {
+    ncc_weeks?: [number, number];
+    density?: [number, number];
+    nf_fraction?: number;
+    nf_tolerance?: number;
+  };
+}
+
 export interface AnnualConfig {
   fellow_groups: Record<string, string[]>;
   shifts: string[];
@@ -234,6 +243,8 @@ export interface AnnualConfig {
   weekend_call: WeekendCallEntry[];
   holiday_dates: string[];
   fellow_week_pairs: Record<string, string[]>;
+  solver_options?: Record<string, any>;
+  nf_parameters?: NfParameters;
 }
 
 export type CallRuleType =
