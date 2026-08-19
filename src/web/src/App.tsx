@@ -15,6 +15,13 @@ import { DiagnosePanel } from './components/DiagnosePanel';
 const API_BASE = 'http://127.0.0.1:5000';
 const HORIZON_START = new Date(2026, 5, 29); // June 29, 2026
 
+const CALL_RULE_TYPES = new Set([
+  'per_fellow_shift_total', 'specific_night_assignment', 'blocked_night',
+  'specific_weekend_assignment', 'blocked_weekend', 'friday_call_assignment',
+  'group_night_requirement', 'weekend_stroke_prerequisite', 'weekend_ncc_prerequisite',
+  'dual_stroke_window',
+]);
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -247,8 +254,9 @@ function App() {
     ])
       .then(([annual, standing]) => {
         setHasDraft(annual._has_draft || false);
+        const { call_rules: _legacyCallRules, ...annualRest } = annual;
         setConfig({
-          ...emptyConfig, ...annual,
+          ...emptyConfig, ...annualRest,
           night_call: annual.night_call || [],
           weekend_call: annual.weekend_call || [],
           holiday_dates: annual.holiday_dates || [],
@@ -261,14 +269,16 @@ function App() {
         setVacationDates(dates);
         setStandingRules((standing.rules || []) as Rule[]);
         const annualRules = annual.rules || [];
-        if (annualRules.length > 0 && annualRules[0].type) {
-          setPaletteRules(annualRules as PaletteRule[]);
+        const callFromRules = annualRules.filter((r: any) => CALL_RULE_TYPES.has(r.type));
+        const paletteFromRules = annualRules.filter((r: any) => !CALL_RULE_TYPES.has(r.type));
+        if (paletteFromRules.length > 0 && paletteFromRules[0].type) {
+          setPaletteRules(paletteFromRules as PaletteRule[]);
         } else {
           setPaletteRules([]);
         }
         setNightRules((annual.night_rules?.length ? annual.night_rules : (standing.night_rules || [])).map(yamlNightRuleToReact));
         setWeekendRules((annual.weekend_rules?.length ? annual.weekend_rules : (standing.weekend_rules || [])).map(yamlWeekendRuleToReact));
-        setCallRules(annual.call_rules || []);
+        setCallRules([...(annual.call_rules || []), ...callFromRules]);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -576,9 +586,13 @@ function App() {
     }
   }, [paletteRules, config, standingRules]);
 
-  // Draft auto-save: debounce 3s after any palette rule change
+  // Draft auto-save: debounce 3s after any palette rule, call rule, or solver option change
   const saveDraft = useCallback(() => {
-    if (!selectedFile || paletteRules.length === 0) return;
+    if (!selectedFile) return;
+    const hasSomething = paletteRules.length > 0 || callRules.length > 0
+      || Object.keys(config.solver_options || {}).length > 0
+      || Object.keys(config.nf_parameters || {}).length > 0;
+    if (!hasSomething) return;
     const body = {
       ...config,
       rules: [...paletteRules, ...callRules],
@@ -601,13 +615,16 @@ function App() {
     }).then(() => setHasDraft(true)).catch(() => {});
   }, [config, paletteRules, vacationDates, selectedFile, nightRules, weekendRules, callRules]);
 
-  // Auto-save on palette rule edits
+  // Auto-save on palette rule, call rule, or solver option changes
   useEffect(() => {
-    if (paletteRules.length === 0) return;
+    const hasSomething = paletteRules.length > 0 || callRules.length > 0
+      || Object.keys(config.solver_options || {}).length > 0
+      || Object.keys(config.nf_parameters || {}).length > 0;
+    if (!hasSomething) return;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(saveDraft, 3000);
     return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
-  }, [paletteRules, saveDraft]);
+  }, [paletteRules, callRules, config.solver_options, config.nf_parameters, saveDraft]);
 
   const publishDraft = useCallback(() => {
     if (!selectedFile) return;

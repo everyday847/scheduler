@@ -10,14 +10,21 @@ const SCALAR_DIALS: { key: string; label: string; kind: 'bool' | 'int' | 'text' 
   { key: 'nf_max_consecutive_call_days', label: 'Max consecutive call days', kind: 'int' },
 ];
 
+function roundHalfEven(x: number): number {
+  const f = Math.floor(x), d = x - f;
+  if (d < 0.5) return f;
+  if (d > 0.5) return f + 1;
+  return f % 2 === 0 ? f : f + 1;
+}
+
 function deriveNfBand(p: { ncc_weeks?: [number, number]; density?: [number, number]; nf_fraction?: number; nf_tolerance?: number }): string {
   if (!p.ncc_weeks || !p.density) return '(needs weeks + density)';
   const frac = p.nf_fraction ?? 1 / 3;
   const tol = p.nf_tolerance ?? 0;
   const sLo = Math.ceil(p.ncc_weeks[0] * p.density[0]);
   const sHi = Math.floor(p.ncc_weeks[1] * p.density[1]);
-  const nLo = Math.max(0, Math.round(sLo * frac) - tol);
-  const nHi = Math.round(sHi * frac) + tol;
+  const nLo = Math.max(0, roundHalfEven(sLo * frac) - tol);
+  const nHi = roundHalfEven(sHi * frac) + tol;
   return `service [${sLo}, ${sHi}] → NF [${nLo}, ${nHi}]`;
 }
 

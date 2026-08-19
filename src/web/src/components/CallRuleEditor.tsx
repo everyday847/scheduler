@@ -125,7 +125,6 @@ function renderTypeFields(
 
     case 'specific_night_assignment':
     case 'blocked_night':
-    case 'friday_call_assignment':
       return (
         <>
           <label className="editor-field">
@@ -139,6 +138,24 @@ function renderTypeFields(
             <span>Dates (comma-separated YYYY-MM-DD)</span>
             <input type="text" value={(rule.dates || []).join(', ')}
               onChange={e => update({ dates: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
+          </label>
+        </>
+      );
+
+    case 'friday_call_assignment':
+      return (
+        <>
+          <label className="editor-field">
+            <span>Fellow</span>
+            <select value={rule.fellow || ''} onChange={e => update({ fellow: e.target.value })}>
+              <option value="">-- select fellow --</option>
+              {allFellows.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </label>
+          <label className="editor-field">
+            <span>Weeks (comma-separated numbers)</span>
+            <input type="text" value={(rule.weeks || []).join(', ')}
+              onChange={e => update({ weeks: e.target.value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) })} />
           </label>
         </>
       );
