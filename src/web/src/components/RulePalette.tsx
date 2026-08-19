@@ -1,6 +1,14 @@
 import React from 'react';
 import { PaletteRule, PaletteRuleType, PALETTE_TYPE_LABELS, PALETTE_TYPE_DESCRIPTIONS } from '../types';
 
+export function createForbidCoverageRule(group: string): PaletteRule {
+  return {
+    name: `${group}: No coverage (weeks)`,
+    type: 'staffing_per_week', groups: [group], strength: 'hard', active: true,
+    shifts: ['NCC'], relation: 'at_most', count: 0, window: [0, 1],
+  };
+}
+
 const WEEKLY_TYPES: PaletteRuleType[] = [
   'shift_total', 'staffing_per_week', 'coverage_target', 'max_consecutive',
   'block_rotation', 'rotation_continuity', 'prerequisite', 'windowed_balance',
@@ -82,6 +90,13 @@ export function RulePalette({ group, onAdd, onCancel, category }: Props) {
             <span className="palette-option-desc">{PALETTE_TYPE_DESCRIPTIONS[type]}</span>
           </button>
         ))}
+        {(!category || category === 'weekly') && (
+          <button key="forbid-coverage" className="palette-option"
+            onClick={() => onAdd(createForbidCoverageRule(group))}>
+            <span className="palette-option-name">No Coverage (weeks)</span>
+            <span className="palette-option-desc">Forbid a group from a shift in a week range</span>
+          </button>
+        )}
       </div>
     </div>
   );

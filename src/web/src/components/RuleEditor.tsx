@@ -85,20 +85,9 @@ function renderTypeFields(
                 onChange={e => update({ count: Number(e.target.value) })} />
             </label>
           </div>
-          {'window' in rule && rule.window && (
-            <div className="editor-row">
-              <label className="editor-field">
-                <span>Window Start</span>
-                <input type="number" value={rule.window[0]} min={0}
-                  onChange={e => update({ window: [Number(e.target.value), rule.window![1]] })} />
-              </label>
-              <label className="editor-field">
-                <span>Window End</span>
-                <input type="number" value={rule.window[1]} min={0}
-                  onChange={e => update({ window: [rule.window![0], Number(e.target.value)] })} />
-              </label>
-            </div>
-          )}
+          <WindowField
+            window={'window' in rule ? rule.window : undefined}
+            onChange={window => update({ window })} />
         </>
       );
 
@@ -369,6 +358,31 @@ function ShiftsField({ shifts, allShifts, onChange, label }: {
           </label>
         ))}
       </div>
+    </div>
+  );
+}
+
+function WindowField({ window, onChange }: {
+  window?: [number, number]; onChange: (w: [number, number] | undefined) => void;
+}) {
+  const enabled = !!window;
+  return (
+    <div className="editor-field">
+      <label className="chip-option">
+        <input type="checkbox" checked={enabled}
+          onChange={e => onChange(e.target.checked ? [0, 1] : undefined)} />
+        <span>Restrict to week window</span>
+      </label>
+      {enabled && (
+        <div className="editor-row">
+          <label className="editor-field"><span>Window Start</span>
+            <input type="number" min={0} value={window![0]}
+              onChange={e => onChange([Number(e.target.value), window![1]])} /></label>
+          <label className="editor-field"><span>Window End</span>
+            <input type="number" min={0} value={window![1]}
+              onChange={e => onChange([window![0], Number(e.target.value)])} /></label>
+        </div>
+      )}
     </div>
   );
 }
