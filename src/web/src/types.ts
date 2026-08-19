@@ -218,6 +218,37 @@ export interface AnnualConfig {
   fellow_week_pairs: Record<string, string[]>;
 }
 
+export type CallRuleType =
+  | 'per_fellow_shift_total'
+  | 'specific_night_assignment'
+  | 'blocked_night'
+  | 'specific_weekend_assignment'
+  | 'blocked_weekend'
+  | 'friday_call_assignment'
+  | 'group_night_requirement'
+  | 'weekend_stroke_prerequisite'
+  | 'weekend_ncc_prerequisite'
+  | 'dual_stroke_window';
+
+export interface CallRule {
+  type: CallRuleType;
+  name: string;
+  active: boolean;
+  fellow?: string;
+  shifts?: string[];
+  relation?: Relation;
+  count?: number;
+  strength?: Strength;
+  dates?: string[];
+  weeks?: number[];
+  groups?: string[];
+  exempt_fellows?: string[];
+  exempt_groups?: string[];
+  window?: [number, number];
+  supervisors?: string[];
+  role?: string;
+}
+
 export interface NightCallEntry {
   group: string;
   total_nights: number;
