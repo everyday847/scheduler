@@ -114,11 +114,19 @@ function renderTypeFields(
             <input type="number" value={rule.block_size} min={1}
               onChange={e => update({ block_size: Number(e.target.value) })} />
           </label>
-          <label className="editor-field">
-            <span>Block offset</span>
-            <input type="number" value={rule.block_offset ?? 0} min={0}
-              onChange={e => update({ block_offset: Number(e.target.value) })} />
-          </label>
+          <div className="editor-field">
+            <label className="chip-option">
+              <input type="checkbox" checked={rule.block_offset !== undefined}
+                onChange={e => update({ block_offset: e.target.checked ? 0 : undefined })} />
+              <span>Block offset</span>
+            </label>
+            {rule.block_offset !== undefined && (
+              <label className="editor-field">
+                <input type="number" value={rule.block_offset} min={0}
+                  onChange={e => update({ block_offset: Number(e.target.value) })} />
+              </label>
+            )}
+          </div>
           <div className="editor-field">
             <label className="chip-option">
               <input type="checkbox" checked={rule.nf_days_per_block !== undefined}
@@ -252,6 +260,9 @@ function renderTypeFields(
           <label className="editor-field"><span>Max difference</span>
             <input type="number" min={0} value={rule.max_difference}
               onChange={e => update({ max_difference: Number(e.target.value) })} /></label>
+          <WindowField
+            window={'window' in rule ? rule.window : undefined}
+            onChange={w => update({ window: w })} />
         </>
       );
 
