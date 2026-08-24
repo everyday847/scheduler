@@ -7,6 +7,7 @@ from parafrost_scheduler.experiment import assemble_config
 from parafrost_scheduler.schedule_encoder import build_full_schedule_opb, decode_solution
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.workbook import write_nf_workbook
+from _dispatch_helpers import solve_or_skip
 
 _REPO = Path(__file__).resolve().parent.parent
 _ROUNDINGSAT = _REPO / "vendor/roundingsat/build/roundingsat"
@@ -18,7 +19,7 @@ def _solve_nf():
         standing_path=_REPO / "config/standing/ncc-nf-model.yaml", verbose=False)
     cfg = res[0] if isinstance(res, tuple) else res
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = RoundingSatRunner(_ROUNDINGSAT).solve(opb, timeout=180)
+    r = solve_or_skip(RoundingSatRunner(_ROUNDINGSAT), opb, timeout=180)
     assert r.satisfiable
     return cfg, decode_solution(r.assignment, vm)
 

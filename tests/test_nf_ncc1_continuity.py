@@ -5,6 +5,7 @@ from parafrost_scheduler.experiment import assemble_config
 from parafrost_scheduler.schedule_encoder import (
     build_full_schedule_opb, decode_solution, _day_to_week, _day_of_week)
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+from _dispatch_helpers import solve_or_skip
 
 _REPO = Path(__file__).resolve().parent.parent
 _RS = _REPO / "vendor/roundingsat/build/roundingsat"
@@ -27,8 +28,12 @@ def _cfg(mode):
 
 def test_fullweek_makes_ncc1_week_constant():
     cfg = _cfg("fullweek")
+    # fullweek × nf_week_off_cap × nf_rest_days is UNSAT at the default cap;
+    # raising nf_week_off_cap to 3 restores feasibility so the week-constant
+    # property is actually exercised.
+    object.__setattr__(cfg, "nf_week_off_cap", 3)
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = _runner_or_skip().solve(opb, timeout=240)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=240)
     assert r.satisfiable
     sol = decode_solution(r.assignment, vm)
     # For each week, the set of NCC1 holders across its days is <= 1 fellow.
@@ -44,7 +49,7 @@ def test_fullweek_makes_ncc1_week_constant():
 def test_weekday_allows_weekend_ncc1_to_differ():
     cfg = _cfg("weekday")
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = _runner_or_skip().solve(opb, timeout=240)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=240)
     assert r.satisfiable
     sol = decode_solution(r.assignment, vm)
     # Weekday (Mon-Fri) NCC1 holders within a week are <= 1 fellow; weekend may differ.

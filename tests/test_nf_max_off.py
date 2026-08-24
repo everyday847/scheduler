@@ -27,6 +27,7 @@ import pytest
 from parafrost_scheduler.experiment import assemble_config
 from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
+from _dispatch_helpers import solve_or_skip
 
 _REPO = Path(__file__).resolve().parent.parent
 _RS = _REPO / "vendor/roundingsat/build/roundingsat"
@@ -51,14 +52,14 @@ def test_max_off_off_by_default_changes_nothing():
     # max_off=0 => constraint emits nothing => still SAT fast
     cfg = _cfg(0)
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = _runner_or_skip().solve(opb, timeout=180)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=180)
     assert r.satisfiable
 
 
 def test_max_off_2_is_satisfiable_and_bounds_off_runs():
     cfg = _cfg(2)
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = _runner_or_skip().solve(opb, timeout=240)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=240)
     assert r.satisfiable
     a = r.assignment
     from parafrost_scheduler.schedule_encoder import CALL_ROLES, _build_off_indicator

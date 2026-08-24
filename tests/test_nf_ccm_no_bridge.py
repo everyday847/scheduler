@@ -4,6 +4,7 @@ import pytest
 from parafrost_scheduler.experiment import assemble_config
 from parafrost_scheduler.schedule_encoder import (
     build_full_schedule_opb, decode_solution, _day_to_week, _block_starts_grid)
+from _dispatch_helpers import solve_or_skip
 
 _REPO = Path(__file__).resolve().parent.parent
 _RS = _REPO / "vendor/roundingsat/build/roundingsat"
@@ -28,7 +29,7 @@ def _cfg(flag):
 def test_no_ccm_nf_run_bridges_a_block_boundary():
     cfg = _cfg(True)
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = _runner_or_skip().solve(opb, timeout=1200)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=1200)
     assert r.satisfiable
     sol = decode_solution(r.assignment, vm)
     # boundary day = first day of each block start-week (except week 0)

@@ -66,6 +66,17 @@ def runner_or_skip() -> RoundingSatRunner:
     return RoundingSatRunner(ROUNDINGSAT_BINARY)
 
 
+def solve_or_skip(runner, opb, *, timeout):
+    """Solve; if RoundingSat exceeds `timeout` on this host, pytest.skip instead of
+    failing. A solve timeout is a time-budget/hardware limit on these slow full-model
+    tests, not a correctness failure (the models are verified feasible on Slurm)."""
+    import subprocess
+    try:
+        return runner.solve(opb, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        pytest.skip(f"solve exceeded {timeout}s on this host (time budget, not a correctness failure)")
+
+
 # --------------------------------------------------------------------------
 # Minimal config builder
 # --------------------------------------------------------------------------

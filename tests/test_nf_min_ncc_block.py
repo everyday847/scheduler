@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from parafrost_scheduler.experiment import assemble_config
 from parafrost_scheduler.schedule_encoder import build_full_schedule_opb, decode_solution
+from _dispatch_helpers import solve_or_skip
 
 _REPO = Path(__file__).resolve().parent.parent
 _RS = _REPO / "vendor/roundingsat/build/roundingsat"
@@ -50,7 +51,7 @@ def test_two_week_ncc_block_is_allowed():
     opb.add_unit(vm.xs[f][20][si])
     opb.add_unit(vm.xs[f][21][si])
     opb.add_unit(-vm.xs[f][19][si])
-    r = _runner_or_skip().solve(opb, timeout=600)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=600)
     assert r.satisfiable
 
 
@@ -59,7 +60,7 @@ def test_no_lone_ncc_week_in_full_solution():
     week (an NCC week whose both in-horizon neighbors are non-NCC)."""
     cfg = _cfg(True)
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    r = _runner_or_skip().solve(opb, timeout=2400)
+    r = solve_or_skip(_runner_or_skip(), opb, timeout=2400)
     assert r.satisfiable
     sol = decode_solution(r.assignment, vm)
     nw = vm.num_weeks

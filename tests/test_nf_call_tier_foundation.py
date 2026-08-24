@@ -203,7 +203,7 @@ def test_nf_model_configs_assemble_with_flag_on():
 # Task 8: Integration gate — full-year NF model must solve (not UNSAT)
 # ---------------------------------------------------------------------------
 
-from _dispatch_helpers import solve_sat
+from _dispatch_helpers import solve_sat, solve_or_skip
 
 
 def test_full_year_nf_model_is_satisfiable():
@@ -216,7 +216,8 @@ def test_full_year_nf_model_is_satisfiable():
     cfg = res[0] if isinstance(res, tuple) else res
     from parafrost_scheduler.schedule_encoder import build_full_schedule_opb
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    assert solve_sat(opb, timeout=120), "full-year NF model must be feasible"
+    r = solve_or_skip(runner_or_skip(), opb, timeout=120)
+    assert r.satisfiable, "full-year NF model must be feasible"
 
 
 def test_legacy_weekend_layer_absent_under_flag():

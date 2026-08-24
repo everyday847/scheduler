@@ -6,6 +6,7 @@ from parafrost_scheduler.experiment import assemble_config
 from parafrost_scheduler.schedule_encoder import build_full_schedule_opb, decode_solution
 from parafrost_scheduler.roundingsat_runner import RoundingSatRunner
 from parafrost_scheduler.schedule_types import CALL_ROLES
+from _dispatch_helpers import solve_or_skip
 
 _REPO = Path(__file__).resolve().parent.parent
 _ROUNDINGSAT = _REPO / "vendor/roundingsat/build/roundingsat"
@@ -93,7 +94,7 @@ def test_fixed_rotation_rules_present():
 def test_full_year_with_rotations_is_sat():
     cfg = _assemble()
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    res = _runner().solve(opb, timeout=180)
+    res = solve_or_skip(_runner(), opb, timeout=180)
     assert res.satisfiable, "NF model with JR/SR rotations + 2 CCM must be feasible"
 
 
@@ -105,7 +106,7 @@ def test_ncc_service_day_band():
     fellow_names = [f for g in cfg.fellow_groups.values() for f in g]
 
     opb, vm = build_full_schedule_opb(cfg, objective=False)
-    res = _runner().solve(opb, timeout=180)
+    res = solve_or_skip(_runner(), opb, timeout=180)
     assert res.satisfiable, "NF model must be SAT for call-day band check"
 
     a = res.assignment
@@ -337,7 +338,7 @@ def test_ccm_nf_count_selected_block_below_lo_penalized():
             opb.add_unit(-nf_var)
 
     runner = runner_or_skip()
-    res = runner.solve(opb, timeout=120)
+    res = solve_or_skip(runner, opb, timeout=120)
     assert res.satisfiable, (
         "model UNSAT after forbidding CCM NF days in selected block — "
         "lo-side penalty must be SOFT"
@@ -487,7 +488,7 @@ def test_ccm_nf_count_selected_block_above_hi_penalized():
             opb.add_unit(nf_var)
 
     runner = runner_or_skip()
-    res = runner.solve(opb, timeout=120)
+    res = solve_or_skip(runner, opb, timeout=120)
     assert res.satisfiable, (
         "model UNSAT after pinning 10 NF days in selected CCM block — "
         "hi-side penalty must be SOFT"
