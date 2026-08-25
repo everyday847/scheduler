@@ -269,16 +269,21 @@ function App() {
         setVacationDates(dates);
         setStandingRules((standing.rules || []) as Rule[]);
         const annualRules = annual.rules || [];
+        // A rule with no explicit `active` is ACTIVE — mirror the backend, which uses
+        // rule.get("active", True). Configs (esp. NF) routinely omit the field; without
+        // this default the UI would render every such rule as an unchecked/inactive card
+        // even though the solver applies it.
+        const withActive = (r: any) => ({ active: true, ...r });
         const callFromRules = annualRules.filter((r: any) => CALL_RULE_TYPES.has(r.type));
         const paletteFromRules = annualRules.filter((r: any) => !CALL_RULE_TYPES.has(r.type));
         if (paletteFromRules.length > 0 && paletteFromRules[0].type) {
-          setPaletteRules(paletteFromRules as PaletteRule[]);
+          setPaletteRules(paletteFromRules.map(withActive) as PaletteRule[]);
         } else {
           setPaletteRules([]);
         }
         setNightRules((annual.night_rules?.length ? annual.night_rules : (standing.night_rules || [])).map(yamlNightRuleToReact));
         setWeekendRules((annual.weekend_rules?.length ? annual.weekend_rules : (standing.weekend_rules || [])).map(yamlWeekendRuleToReact));
-        setCallRules([...(annual.call_rules || []), ...callFromRules]);
+        setCallRules([...(annual.call_rules || []), ...callFromRules].map(withActive));
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -1274,6 +1279,7 @@ function App() {
         isRunning={isRunning}
         lockedFellows={Object.keys(lockedAssignments)}
         fellowGroups={config.fellow_groups}
+        showNightWeekend={!config.solver_options?.call_tier_day_granular}
       />
       <main className="main-panel">
         {renderMainContent()}

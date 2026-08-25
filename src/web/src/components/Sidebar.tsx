@@ -15,9 +15,12 @@ type SidebarProps = {
   isRunning: boolean;
   lockedFellows?: string[];
   fellowGroups?: Record<string, string[]>;
+  // NF (day-granular call tier) configs have no separate night/weekend call
+  // subsystems, so those sections are hidden for them.
+  showNightWeekend?: boolean;
 };
 
-export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning, lockedFellows, fellowGroups }: SidebarProps) {
+export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning, lockedFellows, fellowGroups, showNightWeekend = true }: SidebarProps) {
   return (
     <nav className="sidebar">
       <div className="sidebar-section">
@@ -47,10 +50,14 @@ export function Sidebar({ active, onNavigate, groups, onGenerate, isRunning, loc
 
       <div className="sidebar-section">
         <div className="sidebar-heading">Annual</div>
-        <SidebarItem id="night" label="Night Call" active={active} onNavigate={onNavigate} />
-        <SidebarItem id="night-rules" label="Night Rules" active={active} onNavigate={onNavigate} />
-        <SidebarItem id="weekend" label="Weekend Call" active={active} onNavigate={onNavigate} />
-        <SidebarItem id="weekend-rules" label="Weekend Rules" active={active} onNavigate={onNavigate} />
+        {showNightWeekend && (
+          <>
+            <SidebarItem id="night" label="Night Call" active={active} onNavigate={onNavigate} />
+            <SidebarItem id="night-rules" label="Night Rules" active={active} onNavigate={onNavigate} />
+            <SidebarItem id="weekend" label="Weekend Call" active={active} onNavigate={onNavigate} />
+            <SidebarItem id="weekend-rules" label="Weekend Rules" active={active} onNavigate={onNavigate} />
+          </>
+        )}
         <SidebarItem id="call-rules" label="Call Rules" active={active} onNavigate={onNavigate} />
         <SidebarItem id="solver-options" label="Solver Options" active={active} onNavigate={onNavigate} />
         <SidebarItem id="vacations" label="Vacations" active={active} onNavigate={onNavigate} />
