@@ -1,0 +1,3 @@
+[submodule "vendor/roundingsat"]
+	path = vendor/roundingsat
+	url = https://gitlab.com/MIAOresearch/software/roundingsat.git

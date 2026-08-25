@@ -1,0 +1,84 @@
+"""Resolve NF derived-parameter inputs (nf_parameters) into concrete solver_options bands.
+
+The NF fairness bands are a central value +/- tolerance derived from semantic inputs:
+  service_band = ncc_weeks * density
+  nf_day_band  = service_band * nf_fraction (+/- nf_tolerance)
+Changing an input (e.g. ncc_weeks) moves the dependent bands automatically. Explicit raw
+bands in solver_options always override the derived ones (back-compat / manual control).
+"""
+from __future__ import annotations
+
+import math
+
+_DEFAULT_FRACTION = 1.0 / 3.0
+
+
+def _ncc_weeks_from_rules(group, rules):
+    # Reads only the request `rules` (annual), is strength-blind, and takes the last matching at_least/at_most.
+    lo = hi = None
+    for r in rules or []:
+        if r.get("type") != "shift_total":
+            continue
+        if group not in (r.get("groups") or []):
+            continue
+        if "NCC" not in (r.get("shifts") or []):
+            continue
+        rel, cnt = r.get("relation"), r.get("count")
+        if rel == "at_least" and cnt is not None:
+            lo = int(cnt)
+        elif rel == "at_most" and cnt is not None:
+            hi = int(cnt)
+    return (lo, hi) if lo is not None and hi is not None else None
+
+
+def _as_pair(v):
+    if isinstance(v, (int, float)):
+        return (float(v), float(v))
+    return (float(v[0]), float(v[1]))
+
+
+def resolve_nf_parameters(nf_parameters, solver_options, fellow_groups, rules):
+    opts = dict(solver_options or {})
+    if not nf_parameters:
+        return opts
+    nf_band = dict(opts.get("nf_nf_day_band") or {})
+    svc_band = dict(opts.get("nf_service_day_band") or {})
+    for group, params in nf_parameters.items():
+        if group not in fellow_groups:
+            raise ValueError(f"nf_parameters names unknown group {group!r}.")
+        weeks = params.get("ncc_weeks")
+        if weeks is None:
+            weeks = _ncc_weeks_from_rules(group, rules)
+        if weeks is None:
+            raise ValueError(
+                f"nf_parameters[{group!r}] needs ncc_weeks (explicit or via NCC-week rules).")
+        if "density" not in params:
+            raise ValueError(f"nf_parameters[{group!r}] needs density.")
+        w_lo, w_hi = _as_pair(weeks)
+        w_lo, w_hi = int(w_lo), int(w_hi)
+        d_lo, d_hi = _as_pair(params["density"])
+        frac = float(params.get("nf_fraction", _DEFAULT_FRACTION))
+        tol = int(params.get("nf_tolerance", 0))
+        if not (0.0 < frac < 1.0):
+            raise ValueError(f"nf_parameters[{group!r}] nf_fraction must be in (0,1).")
+        if tol < 0:
+            raise ValueError(f"nf_parameters[{group!r}] nf_tolerance must be >= 0.")
+        if w_lo > w_hi or d_lo > d_hi:
+            raise ValueError(f"nf_parameters[{group!r}] has lo > hi.")
+        s_lo = math.ceil(w_lo * d_lo)
+        s_hi = math.floor(w_hi * d_hi)
+        if s_lo > s_hi:
+            raise ValueError(
+                f"nf_parameters[{group!r}] resolves to empty service band "
+                f"[{s_lo}, {s_hi}] (weeks x density); widen weeks or density.")
+        n_lo = max(0, round(s_lo * frac) - tol)
+        n_hi = round(s_hi * frac) + tol
+        if n_lo > n_hi:
+            raise ValueError(f"nf_parameters[{group!r}] resolves to empty band.")
+        svc_band.setdefault(group, [s_lo, s_hi])
+        nf_band.setdefault(group, [n_lo, n_hi])
+    if nf_band:
+        opts["nf_nf_day_band"] = nf_band
+    if svc_band:
+        opts["nf_service_day_band"] = svc_band
+    return opts

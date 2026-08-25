@@ -1,0 +1,5 @@
+# Separate Constraint Lifecycles
+
+Scheduling constraints are classified as **Solver Invariants**, **Standing Rules**, or **Annual Rules**. User-facing surfaces such as Streamlit, React, and command line arguments should expose **Annual Rules** because coordinators need to tune requests and exceptions during schedule construction; **Standing Rules** should live in deliberate configuration such as YAML because they describe how Stanford runs the fellowship program and should change only occasionally. **Solver Invariants** should stay behind the solver seam because they make the schedule representation coherent rather than expressing policy.
+
+CCM coverage is a special case: CCM fellows are an **External Coverage Pool** whose individual identities are interchangeable for this scheduler, so symmetry-breaking constraints may pin them to blocks to avoid needless permutations. The permitted Swing deficit should be modeled as a soft minimization preference rather than a fixed user-facing policy: the desired value is always "as small as possible while still solving."

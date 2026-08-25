@@ -1,0 +1,458 @@
+# Standing Rules — palette format (v2)
+#
+# These are inter-program commitments and structural invariants that
+# rarely change. They define how the fellowship program works, not how
+# a particular year is configured.
+
+# Shift Attributes (ADR-0003): which shifts carry which code-defined scheduling
+# behaviors. Each flag is a fixed code vocabulary entry; this map chooses which
+# shifts carry it. The encoder reads these as projections (the historical
+# night/weekend shift-name frozensets). Flags:
+#   night_blocked_all_week  - blocks night call on ALL 7 nights of the week
+#   night_blocked_weekday   - blocks night call only Sun-Thu (next morning works)
+#   weekend_blocked         - blocks any weekend role that week
+#   holiday_eligible        - only these shifts may hold a holiday night
+#   consec_weekend_buffer   - "light" week that buffers consecutive weekends
+#   anaesthesia_gating      - drives the anaesthesia night-policy criterion
+#   clinic_gating           - drives the clinic night-policy criterion
+#   stroke_gating           - drives the stroke night-policy criterion (night
+#                             before a Stroke workday)
+#   stroke_wk2627_on        - counts as "on" for the wk26/27 holiday toggle
+# The long-form aliases in the annual shift list (Vacation, Anesthesia, MSICU,
+# NS SCVMC, Elective, Elective/SICU) carry no behavior today, so they are omitted.
+shift_palette:
+  SICU: [night_blocked_all_week, weekend_blocked]
+  MICU: [night_blocked_all_week, weekend_blocked]
+  NS: [night_blocked_all_week, weekend_blocked]
+  Vac: [night_blocked_all_week, weekend_blocked, consec_weekend_buffer]
+  "SCVMC Rehab": [night_blocked_weekday]
+  AAN: [night_blocked_weekday, consec_weekend_buffer]
+  RWC: [night_blocked_weekday]
+  NCS 2026: [night_blocked_weekday, consec_weekend_buffer]
+  Anaesthesia: [weekend_blocked, anaesthesia_gating]
+  Clinic/Elective: [clinic_gating]
+  ISC: [consec_weekend_buffer]
+  ABPN: [consec_weekend_buffer]
+  NHS: [consec_weekend_buffer]
+  NCC1: [holiday_eligible, stroke_wk2627_on]
+  NCC2: [holiday_eligible, stroke_wk2627_on]
+  Stroke: [holiday_eligible, stroke_wk2627_on, stroke_gating]
+  Telestroke/Clinic: [stroke_wk2627_on]
+  Swing: [stroke_wk2627_on]
+
+rules:
+
+  - name: Full Assignment for NCC/Stroke
+    description: "Every NCC and Stroke fellow must be assigned exactly one service every week. We are responsible for their schedules."
+    type: full_assignment
+    groups: [NCC_JR, NCC_SR, STROKE]
+    strength: hard
+    active: true
+
+  - name: NCC1 Coverage
+    description: "The NCC1 team must be staffed every week. At least one fellow is always on NCC1."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: NCC1 Cap
+    description: "No more than 2 fellows on NCC1 in any week (service can't support more)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: NCC2 Coverage
+    description: "The NCC2 team must be staffed every week. With workbook6 the imported NCC fellows cover NCC2 in week 1 (one-indexed), so the previous week-1 exemption is no longer needed."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC2]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: NCC2 Cap
+    description: "No more than 2 fellows on NCC2 in any week."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC2]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: NCC Team Cap
+    description: "Total NCC team (NCC1 + NCC2) can't exceed 3 fellows. The service doesn't have enough patients for more."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1, NCC2]
+    relation: at_most
+    count: 3
+    strength: hard
+    active: true
+
+  - name: NCC+Swing Cap
+    description: "NCC1 + NCC2 + Swing combined can't exceed 4 fellows in any week."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [NCC1, NCC2, Swing]
+    relation: at_most
+    count: 4
+    strength: hard
+    active: true
+
+  - name: Swing Cap
+    description: "At most 1 fellow on Swing per week (it's a single-person role)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, CCM, NH]
+    shifts: [Swing]
+    relation: at_most
+    count: 1
+    strength: hard
+    active: true
+
+  - name: MICU 4-Week Blocks
+    description: "MICU rotations come in 4-week blocks. Coordinated with the MICU program — can't split."
+    type: block_rotation
+    groups: [NCC_JR, NCC_SR]
+    shifts: [MICU]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: SICU 4-Week Blocks
+    description: "SICU rotations come in 4-week blocks. Coordinated with the surgical ICU program."
+    type: block_rotation
+    groups: [NCC_JR]
+    shifts: [SICU]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: Anaesthesia 4-Week Blocks
+    description: "Anaesthesia rotations come in 4-week blocks. Coordinated with the anaesthesia fellowship — we would sacrifice a lot before breaking this."
+    type: block_rotation
+    groups: [NCC_JR]
+    shifts: [Anaesthesia]
+    block_size: 4
+    strength: hard
+    active: true
+
+  - name: NS 2-Week Blocks
+    description: "Neurosurgery rotations come in 2-week blocks. Coordinated with the NS team."
+    type: block_rotation
+    groups: [NCC_SR]
+    shifts: [NS]
+    block_size: 2
+    strength: hard
+    active: true
+
+  - name: NCC/Stroke Oversight
+    description: "At least one NCC fellow (junior, senior, or stroke) must be on NCC1 or NCC2 each week. Ensures experienced oversight of the NCC service."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 1
+    strength: soft
+    active: true
+
+  - name: Stroke Service Coverage
+    description: "At least one fellow covers the inpatient Stroke service each week. Must always be staffed."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Stroke]
+    relation: at_least
+    count: 1
+    strength: hard
+    active: true
+
+  - name: Stroke Cap
+    description: "No more than 2 fellows on Stroke in any week (the service can't support more)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Stroke]
+    relation: at_most
+    count: 2
+    strength: hard
+    active: true
+
+  - name: Telestroke Coverage
+    description: "At least one fellow on Telestroke/Clinic weeks 2-53 (one-indexed). Week 1 is exempt: the Stroke fellows are pinned to Elec and no Telestroke-capable fellow is free."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Telestroke/Clinic]
+    relation: at_least
+    count: 1
+    window: [1, 53]
+    strength: hard
+    active: true
+
+  - name: Clinic/Elective Cap
+    description: "At most 1 Clinic/Elective fellow per week, so coverage spreads across more weeks rather than clustering."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Clinic/Elective]
+    relation: at_most
+    count: 1
+    strength: hard
+    active: true
+
+  - name: No Clinic/Elective in Holiday Weeks
+    description: "Forbid Clinic/Elective in the two holiday weeks (12/21 and 12/28 = 0-indexed weeks 25-26)."
+    type: staffing_per_week
+    groups: [NCC_JR, NCC_SR, STROKE, NH]
+    shifts: [Clinic/Elective]
+    relation: at_most
+    count: 0
+    window: [25, 27]
+    strength: hard
+    active: true
+
+  - name: "Stroke: No NCC in First Block"
+    description: "Stroke fellows don't start on NCC in their first 4 weeks. They need orientation to the stroke service first."
+    type: shift_total
+    groups: [STROKE]
+    shifts: [NCC1, NCC2, Swing]
+    relation: exactly
+    count: 0
+    window: [0, 4]
+    strength: soft
+    active: true
+
+  - name: NCC Junior Orientation MICU
+    description: "NCC juniors spend their first 4 weeks on MICU. This is the orientation block before any NCC service."
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [MICU]
+    relation: exactly
+    count: 4
+    window: [0, 4]
+    strength: hard
+    active: true
+
+  - name: NCC Junior Early NCC Exposure
+    description: "NCC juniors must get at least 1 week of NCC between weeks 5-19 (after orientation, before mid-year)."
+    type: shift_total
+    groups: [NCC_JR]
+    shifts: [NCC1, NCC2]
+    relation: at_least
+    count: 1
+    window: [4, 19]
+    strength: hard
+    active: true
+
+  - name: "NCC Junior: NCC Before Swing"
+    description: "NCC juniors must complete 4 weeks of NCC1/NCC2 before they can do Swing. They need to learn the service before taking the more independent swing role."
+    type: prerequisite
+    groups: [NCC_JR]
+    prerequisite_shifts: [NCC1, NCC2]
+    target_shifts: [Swing]
+    min_prerequisite_weeks: 4
+    strength: hard
+    active: true
+
+night_rules:
+  - name: Night spacing
+    type: night_spacing
+    description: "Max 1 night in any 3-consecutive-day window"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    max_nights: 1
+    window_days: 3
+    active: true
+
+  # Night-policy gating criteria (NightGatingCriterion archetype). Geometry is
+  # config data: which nights gate, the week offset, and the gating target. A
+  # shift-intrinsic target ("night before THIS service") is sourced from a Shift
+  # Attribute; rule-level sets/roles ride in the rule. Per-criterion weight +
+  # hard/soft are keyed by `criterion` in the night_penalties/night_hard_criteria.
+  - name: Anaesthesia night
+    type: night_gating
+    criterion: anaesthesia
+    description: "Weekday night (Mon-Fri) by a fellow on Anaesthesia that week."
+    terms:
+      - dows: [0, 1, 2, 3, 4]
+        week_offset: 0
+        target_attribute: anaesthesia_gating
+    active: true
+
+  - name: Clinic night
+    type: night_gating
+    criterion: clinic
+    description: "Tue/Wed night before a same-week Clinic/Elective day; Sun night before next week's."
+    terms:
+      - dows: [1, 2]
+        week_offset: 0
+        target_attribute: clinic_gating
+      - dows: [6]
+        week_offset: 1
+        target_attribute: clinic_gating
+    active: true
+
+  # (The former `friday_weekend_ncc1` night_gating rule is coalesced into the
+  # "Friday weekend-night" weekend_night rule below — one Friday rule now covers
+  # all three weekend roles with per-role strength: NCC1 hard, NCC2/Stroke soft.)
+
+  - name: Stroke night
+    type: night_gating
+    criterion: stroke
+    description: >
+      Night before a Stroke workday. Mon-Thu nights gate on the SAME week's Stroke
+      shift; the Sunday night gates on the NEXT week's. The Saturday night gates on
+      the same-week Weekend Stroke role. A dual-stroke week (>=2 fellows on Stroke)
+      exempts that gating week (the second fellow covers the night).
+    terms:
+      - dows: [0, 1, 2, 3]
+        week_offset: 0
+        target_attribute: stroke_gating
+      - dows: [6]
+        week_offset: 1
+        target_attribute: stroke_gating
+      - dows: [5]
+        week_offset: 0
+        target_role: "Weekend Stroke"
+    exemption:
+      target_attribute: stroke_gating
+      threshold: 2
+    active: true
+
+  - name: Sunday following night
+    type: night_gating
+    criterion: sunday_following
+    description: >
+      Sunday night rolling into a next-week service where the following Monday is
+      undesirable to be post-call. The non-preferred set is an explicit rule-level
+      list (not a Shift Attribute): it is the historical encoder set, the canonical
+      truth chosen when co-locating encode+evaluate.
+    terms:
+      - dows: [6]
+        week_offset: 1
+        target_key: sunday_nonpref
+        target_shifts:
+          [Anaesthesia, "Clinic/Elective", "Telestroke/Clinic", Vac, NS, NIR, SICU, "SCVMC Rehab"]
+    active: true
+
+  # Weekend-night / weekend-role relationship (WeekendNightCriterion archetype):
+  # a positive-or-negative, hard-or-soft link between holding a weekend role and
+  # taking that night's call. One instance per weekend night.
+  - name: Friday weekend-night
+    type: weekend_night
+    criterion: weekend_night_friday
+    dow: 4
+    polarity: forbid         # the Friday-night holder should hold NO weekend role
+    role_strengths:
+      - {role: "Weekend NCC1", hard: true}              # forbidden hard (was friday_weekend_ncc1)
+      - {role: "Weekend NCC2", hard: false, weight: 40}
+      - {role: "Weekend Stroke", hard: false, weight: 40}
+    active: true
+
+  - name: Saturday weekend-night
+    type: weekend_night
+    criterion: weekend_night_saturday
+    dow: 5
+    polarity: require        # the Saturday-night holder SHOULD hold an NCC weekend role
+    role_strengths:
+      - {role: "Weekend NCC1", hard: true}
+      - {role: "Weekend NCC2", hard: true}
+    active: true
+
+  - name: Sunday weekend-night
+    type: weekend_night
+    criterion: weekend_night_sunday
+    dow: 6
+    polarity: require        # the Sunday-night holder SHOULD hold Weekend Stroke
+    role_strengths:
+      - {role: "Weekend Stroke", hard: false, weight: 10}
+    eligibility:             # a non-stroke-eligible fellow is penalized off Sunday night
+      role: "Weekend Stroke"
+      hard: false
+      weight: 10
+    active: true
+
+  - name: Night soft penalties
+    type: night_penalties
+    description: "Weights for undesirable night call patterns"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      stroke: 5
+      friday_weekend_ncc1: 1
+      sunday_following: 1
+    active: true
+
+weekend_rules:
+  - name: Weekend spacing
+    type: weekend_spacing
+    description: "Max 1 weekend in any 2-consecutive-week window"
+    groups: [STROKE, NCC_JR, NCC_SR, NH, CCM]
+    max_weekends: 1
+    window_weeks: 2
+    active: true
+
+  # Weekend-role gating criteria (WeekendGatingCriterion archetype). ALIGN: the
+  # weekend role should be held by that week's matching weekday-service fellow.
+  # Split into two rules because hard-aligning all three roles is INFEASIBLE
+  # (wb7 MUS, 2026-06-12): NCC1 alone is SAT and NCC2 alone is SAT, but NCC1+NCC2
+  # together is UNSAT (two distinct matchers can't always cover both weekend NCC
+  # roles), and Weekend Stroke can never be hard (the 4-fellow Stroke cohort
+  # rotates the weekend role independent of the single weekday-Stroke slot). So:
+  # hard-align Weekend NCC1 only; NCC2 + Stroke stay soft penalties.
+  # Distinct criterion name so the standing/annual merge (which dedups gating
+  # rules by `criterion`) keeps this hard NCC1 rule SEPARATE from the soft
+  # NCC2/Stroke rule below — same criterion name would collapse them to one.
+  - name: Weekend NCC1 alignment (hard)
+    type: weekend_gating
+    criterion: weekend_role_mismatch_ncc1
+    mode: align
+    description: "A fellow who can be on weekday NCC1 and holds a weekend role must hold Weekend NCC1 (hard, conditional)."
+    role_to_shift:
+      "Weekend NCC1": NCC1
+    strength: hard
+    conditional: true
+    active: true
+
+  - name: Weekend NCC2 / Stroke alignment (soft)
+    type: weekend_gating
+    criterion: weekend_role_mismatch
+    mode: align
+    description: "Weekend NCC2 / Weekend Stroke should match the weekday shift (soft; hard-aligning these is infeasible)."
+    role_to_shift:
+      "Weekend NCC2": NCC2
+      "Weekend Stroke": Stroke
+    strength: soft
+    # Weekend Stroke = 60 (former 20 mismatch + 40 stroke-alignment nudge);
+    # Weekend NCC2 falls back to weekend_mismatch_weight (20).
+    role_weights:
+      "Weekend Stroke": 60
+    active: true
+
+  - name: Pre-vacation weekend
+    type: weekend_gating
+    criterion: prevacation_weekend
+    mode: gate
+    description: "Any weekend role held in the week immediately before the fellow is on Vac."
+    roles: ["Weekend NCC1", "Weekend NCC2", "Weekend Stroke"]
+    gate_target_key: vac
+    target_shifts: [Vac]
+    gate_week_offset: 1
+    active: true
+
+  - name: Weekend soft penalties
+    type: weekend_penalties
+    description: "Weights for undesirable weekend call patterns"
+    groups: [STROKE, NCC_JR, NCC_SR, NH]
+    weights:
+      anaesthesia: 1
+      clinic: 1
+      stroke: 5
+      friday_weekend_ncc1: 1
+    active: true

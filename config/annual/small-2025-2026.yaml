@@ -1,0 +1,85 @@
+fellow_groups:
+  NCC_JR:
+  - NCC Alaric
+  - NCC Bertram
+  - NCC Carrot
+  NCC_SR:
+  - NCC Durga
+  - NCC Eos
+  - NCC Fi
+  CCM:
+  - CCM Generic
+  NH:
+  - NH Adam
+  - NH Barry
+
+shifts:
+- SICU
+- MICU
+- NS
+- Anaesthesia
+- NCC1
+- NCC2
+- Swing
+- Elec
+- Vac
+- Stroke
+
+num_weeks: 52
+horizon_start: 2026-06-29
+
+night_call:
+  # Must sum to 364 (52 weeks × 7 nights/week)
+  # 8 eligible fellows (CCM excluded): 3 JR + 3 SR + 2 NH
+  - group: NCC_SR
+    total_nights: 120
+    friday_nights: 15
+  - group: NCC_JR
+    total_nights: 120
+    friday_nights: 15
+  - group: NH
+    total_nights: 124
+    friday_nights: 22
+
+weekend_call:
+  # NCC totals must sum to 104 (52 weeks × 2 NCC roles)
+  # Stroke totals must sum to 52 (52 weeks × 1 stroke role)
+  - group: NCC_SR
+    ncc_total: 30
+    stroke_total: 6
+  - group: NCC_JR
+    ncc_total: 24
+    stroke_total: 0
+  - group: NH
+    ncc_total: 28
+    stroke_total: 46
+  - group: CCM
+    ncc_total: 22
+    stroke_total: 0
+
+holiday_dates:
+  - 2026-07-03
+  - 2026-09-07
+  - 2026-11-26
+  - 2026-11-27
+  - 2026-12-24
+  - 2026-12-25
+  - 2027-01-01
+  - 2027-01-18
+  - 2027-02-15
+  - 2027-05-31
+
+fellow_week_pairs:
+  NCC Alaric: []
+  NCC Bertram: []
+  NCC Carrot: []
+  NCC Durga: []
+  NCC Eos: []
+  NCC Fi: []
+
+annual_rules:
+  rules:
+    - name: vacation_requests
+      kind: vacation_request_policy
+      active: true
+      hard_request_count: 3
